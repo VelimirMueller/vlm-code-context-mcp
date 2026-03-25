@@ -10,6 +10,7 @@ export function initSchema(db: Database.Database) {
       size_bytes       INTEGER,
       line_count       INTEGER,
       summary          TEXT,
+      description      TEXT,
       external_imports TEXT,
       content          TEXT,
       created_at       TEXT,
