@@ -104,6 +104,7 @@ server.tool(
       `Language: ${file.language} | Extension: ${file.extension} | Size: ${formatSize(file.size_bytes)} | Lines: ${file.line_count}`,
       `Created: ${file.created_at} | Modified: ${file.modified_at} | Indexed: ${file.indexed_at}`,
       `Summary: ${file.summary}`,
+      file.description ? `Description: ${file.description}` : "",
       "",
       `## Exports (${exports.length})`,
       ...exports.map(e => `  - ${e.name} (${e.kind})`),
@@ -141,6 +142,23 @@ server.tool(
     ];
 
     return { content: [{ type: "text", text: sections.join("\n") }] };
+  }
+);
+
+// ─── Tool: set_description ───────────────────────────────────────────────────
+server.tool(
+  "set_description",
+  "Set a manual description for a file (persists across re-indexes)",
+  {
+    path: z.string().describe("Absolute file path"),
+    description: z.string().describe("Description of what the file does"),
+  },
+  async ({ path: filePath, description }) => {
+    const result = db.prepare(`UPDATE files SET description = ? WHERE path = ?`).run(description, filePath);
+    if (result.changes === 0) {
+      return { content: [{ type: "text", text: `File "${filePath}" not in index.` }], isError: true };
+    }
+    return { content: [{ type: "text", text: `Description set for ${filePath}` }] };
   }
 );
 

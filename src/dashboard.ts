@@ -548,7 +548,7 @@ function renderGraph() {
       n.y = Math.max(30, Math.min(H-30, n.y));
     }
   }
-//test ok 123
+
   ctx.clearRect(0, 0, W, H);
   for (const e of edges) {
     const s = idMap[e.source], t = idMap[e.target];
