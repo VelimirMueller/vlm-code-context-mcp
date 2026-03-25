@@ -67,6 +67,12 @@ server.tool("get_file_context", "Get a file's summary, its exports, what it impo
             return (bytes / 1024).toFixed(1) + " KB";
         return (bytes / (1024 * 1024)).toFixed(1) + " MB";
     }
+    const changes = db.prepare(`
+      SELECT event, timestamp, old_summary, new_summary,
+             old_line_count, new_line_count, old_size_bytes, new_size_bytes,
+             old_exports, new_exports, diff_text
+      FROM changes WHERE file_path = ? ORDER BY timestamp DESC LIMIT 20
+    `).all(filePath);
     const sections = [
         `# ${file.path}`,
         `Language: ${file.language} | Extension: ${file.extension} | Size: ${formatSize(file.size_bytes)} | Lines: ${file.line_count}`,
@@ -83,8 +89,99 @@ server.tool("get_file_context", "Get a file's summary, its exports, what it impo
         "",
         `## Imported by (${dependents.length})`,
         ...dependents.map(d => `  - ${d.path} [${d.symbols}]\n    ${d.summary}`),
+        "",
+        `## Recent changes (${changes.length})`,
+        ...changes.map(c => {
+            const parts = [`- **${c.event}** at ${c.timestamp}`];
+            if (c.old_line_count != null && c.new_line_count != null) {
+                const delta = c.new_line_count - c.old_line_count;
+                parts.push(`  Lines: ${c.old_line_count} → ${c.new_line_count} (${delta >= 0 ? "+" : ""}${delta})`);
+            }
+            if (c.old_size_bytes != null && c.new_size_bytes != null) {
+                const delta = c.new_size_bytes - c.old_size_bytes;
+                parts.push(`  Size: ${c.old_size_bytes}B → ${c.new_size_bytes}B (${delta >= 0 ? "+" : ""}${delta})`);
+            }
+            if (c.new_summary && c.new_summary !== c.old_summary) {
+                parts.push(`  Summary: ${c.new_summary}`);
+            }
+            if (c.old_exports !== c.new_exports && (c.old_exports || c.new_exports)) {
+                parts.push(`  Exports: ${c.old_exports ?? "(none)"} → ${c.new_exports ?? "(none)"}`);
+            }
+            if (c.diff_text) {
+                parts.push(`  Diff:\n${c.diff_text.split("\n").map((l) => `    ${l}`).join("\n")}`);
+            }
+            return parts.join("\n");
+        }),
     ];
     return { content: [{ type: "text", text: sections.join("\n") }] };
+});
+// ─── Tool: get_changes ───────────────────────────────────────────────────────
+server.tool("get_changes", "Get recent file changes grouped by file path, showing what changed (size, lines, exports, summary diffs)", {
+    file_path: z.string().optional().describe("Filter to a specific file path (supports % wildcards)"),
+    limit: z.number().optional().describe("Max changes to return (default 50)"),
+}, async ({ file_path, limit }) => {
+    const maxRows = limit ?? 50;
+    let rows;
+    if (file_path) {
+        const pattern = file_path.includes("%") ? file_path : `%${file_path}%`;
+        rows = db.prepare(`
+        SELECT file_path, event, timestamp,
+               old_summary, new_summary,
+               old_line_count, new_line_count,
+               old_size_bytes, new_size_bytes,
+               old_exports, new_exports
+        FROM changes
+        WHERE file_path LIKE ?
+        ORDER BY file_path, timestamp DESC
+        LIMIT ?
+      `).all(pattern, maxRows);
+    }
+    else {
+        rows = db.prepare(`
+        SELECT file_path, event, timestamp,
+               old_summary, new_summary,
+               old_line_count, new_line_count,
+               old_size_bytes, new_size_bytes,
+               old_exports, new_exports
+        FROM changes
+        ORDER BY file_path, timestamp DESC
+        LIMIT ?
+      `).all(maxRows);
+    }
+    if (rows.length === 0) {
+        return { content: [{ type: "text", text: "No changes recorded." }] };
+    }
+    // Group by file
+    const grouped = new Map();
+    for (const row of rows) {
+        const arr = grouped.get(row.file_path) ?? [];
+        arr.push(row);
+        grouped.set(row.file_path, arr);
+    }
+    const sections = [];
+    for (const [filePath, changes] of grouped) {
+        const lines = [`## ${filePath} (${changes.length} change${changes.length > 1 ? "s" : ""})`];
+        for (const c of changes) {
+            const parts = [`- **${c.event}** at ${c.timestamp}`];
+            if (c.old_line_count != null && c.new_line_count != null) {
+                const delta = c.new_line_count - c.old_line_count;
+                parts.push(`  Lines: ${c.old_line_count} → ${c.new_line_count} (${delta >= 0 ? "+" : ""}${delta})`);
+            }
+            if (c.old_size_bytes != null && c.new_size_bytes != null) {
+                const delta = c.new_size_bytes - c.old_size_bytes;
+                parts.push(`  Size: ${c.old_size_bytes}B → ${c.new_size_bytes}B (${delta >= 0 ? "+" : ""}${delta})`);
+            }
+            if (c.new_summary && c.new_summary !== c.old_summary) {
+                parts.push(`  Summary: ${c.new_summary}`);
+            }
+            if (c.old_exports !== c.new_exports && (c.old_exports || c.new_exports)) {
+                parts.push(`  Exports: ${c.old_exports ?? "(none)"} → ${c.new_exports ?? "(none)"}`);
+            }
+            lines.push(parts.join("\n"));
+        }
+        sections.push(lines.join("\n"));
+    }
+    return { content: [{ type: "text", text: sections.join("\n\n") }] };
 });
 // ─── Tool: search_files ──────────────────────────────────────────────────────
 server.tool("search_files", "Search indexed files by path or summary (supports % wildcards)", { query: z.string().describe("Search term (matched against path and summary, use % for wildcards)") }, async ({ query }) => {
