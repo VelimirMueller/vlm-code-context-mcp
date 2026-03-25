@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sqlite": {
+      "command": "node",
+      "args": ["dist/index.js", "./context.db"],
+      "cwd": "/home/velimir/WebstormProjects/mcp-server"
+    }
+  }
+}
