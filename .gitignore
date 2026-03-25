@@ -18,3 +18,5 @@ yarn-error.log*
 .env*.local
 .DS_Store
 .dist
+.claude
+dist
