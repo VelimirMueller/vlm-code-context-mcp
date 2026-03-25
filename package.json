@@ -1,0 +1,22 @@
+{
+  "name": "mcp-server",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dashboard": "tsx src/dashboard.ts ./context.db"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "better-sqlite3": "^12.8.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
