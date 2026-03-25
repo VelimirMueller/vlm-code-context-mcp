@@ -241,20 +241,169 @@ function walkDir(dir: string): string[] {
   return results;
 }
 
+// ─── Simple unified diff ────────────────────────────────────────────────────
+function computeDiff(oldLines: string[], newLines: string[]): string {
+  const hunks: string[] = [];
+  const contextSize = 3;
+  let i = 0, j = 0;
+
+  // Find changed regions using LCS-like approach
+  const changes: { type: "equal" | "delete" | "insert"; oldIdx: number; newIdx: number; line: string }[] = [];
+
+  // Simple diff: walk both arrays, find matching lines
+  const oldSet = new Map<string, number[]>();
+  oldLines.forEach((line, idx) => {
+    const arr = oldSet.get(line) ?? [];
+    arr.push(idx);
+    oldSet.set(line, arr);
+  });
+
+  // Myers-like simple diff via longest common subsequence
+  const maxLen = oldLines.length + newLines.length;
+  if (maxLen > 10000) return "(file too large for inline diff)";
+
+  // Use a simple O(n*m) DP for small files, fall back to line-by-line for large
+  if (oldLines.length * newLines.length > 500000) {
+    // Fallback: show removed and added lines
+    const removed = oldLines.filter(l => !newLines.includes(l));
+    const added = newLines.filter(l => !oldLines.includes(l));
+    const parts: string[] = [];
+    removed.slice(0, 50).forEach(l => parts.push(`- ${l}`));
+    added.slice(0, 50).forEach(l => parts.push(`+ ${l}`));
+    if (removed.length > 50 || added.length > 50) parts.push(`... (truncated)`);
+    return parts.join("\n");
+  }
+
+  // LCS table
+  const m = oldLines.length, n = newLines.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let a = m - 1; a >= 0; a--) {
+    for (let b = n - 1; b >= 0; b--) {
+      if (oldLines[a] === newLines[b]) dp[a][b] = dp[a + 1][b + 1] + 1;
+      else dp[a][b] = Math.max(dp[a + 1][b], dp[a][b + 1]);
+    }
+  }
+
+  // Walk the LCS to produce diff lines
+  const diffLines: { type: string; line: string; oldLn?: number; newLn?: number }[] = [];
+  let a = 0, b = 0;
+  while (a < m || b < n) {
+    if (a < m && b < n && oldLines[a] === newLines[b]) {
+      diffLines.push({ type: " ", line: oldLines[a], oldLn: a + 1, newLn: b + 1 });
+      a++; b++;
+    } else if (b < n && (a >= m || dp[a][b + 1] >= dp[a + 1][b])) {
+      diffLines.push({ type: "+", line: newLines[b], newLn: b + 1 });
+      b++;
+    } else {
+      diffLines.push({ type: "-", line: oldLines[a], oldLn: a + 1 });
+      a++;
+    }
+  }
+
+  // Format into hunks with context
+  const output: string[] = [];
+  let inHunk = false;
+  for (let k = 0; k < diffLines.length; k++) {
+    const dl = diffLines[k];
+    if (dl.type !== " ") {
+      // Show context before
+      if (!inHunk) {
+        const start = Math.max(0, k - contextSize);
+        for (let c = start; c < k; c++) {
+          output.push(`  ${diffLines[c].line}`);
+        }
+        inHunk = true;
+      }
+      output.push(`${dl.type} ${dl.line}`);
+    } else if (inHunk) {
+      // Show context after
+      output.push(`  ${dl.line}`);
+      // Check if next change is within context range
+      let nextChange = -1;
+      for (let c = k + 1; c < diffLines.length && c <= k + contextSize * 2; c++) {
+        if (diffLines[c].type !== " ") { nextChange = c; break; }
+      }
+      if (nextChange === -1 || nextChange > k + contextSize * 2) {
+        inHunk = false;
+        if (k < diffLines.length - 1) output.push("---");
+      }
+    }
+  }
+
+  // Truncate very long diffs
+  if (output.length > 100) {
+    return output.slice(0, 100).join("\n") + "\n... (truncated, " + output.length + " total lines)";
+  }
+  return output.join("\n");
+}
+
+// ─── Snapshot helpers for change tracking ───────────────────────────────────
+interface FileSnapshot {
+  path: string;
+  summary: string | null;
+  line_count: number;
+  size_bytes: number;
+  exports: string;
+  content: string;
+}
+
+function snapshotFromDb(db: Database.Database): Map<string, FileSnapshot> {
+  const rows = db.prepare(`
+    SELECT f.path, f.summary, f.line_count, f.size_bytes,
+      COALESCE(f.content, '') as content,
+      COALESCE(GROUP_CONCAT(e.name || ' ' || e.kind, ', '), '') as exports
+    FROM files f LEFT JOIN exports e ON e.file_id = f.id
+    GROUP BY f.id
+  `).all() as FileSnapshot[];
+  const map = new Map<string, FileSnapshot>();
+  for (const r of rows) map.set(r.path, r);
+  return map;
+}
+
+function diffAndLogChanges(db: Database.Database, before: Map<string, FileSnapshot>, after: Map<string, FileSnapshot>) {
+  const insertChange = db.prepare(`
+    INSERT INTO changes (file_path, event, old_summary, new_summary, old_line_count, new_line_count, old_size_bytes, new_size_bytes, old_exports, new_exports, diff_text)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const [p, snap] of after) {
+    if (!before.has(p)) {
+      insertChange.run(p, "add", null, snap.summary, null, snap.line_count, null, snap.size_bytes, null, snap.exports, null);
+    }
+  }
+  for (const [p, snap] of before) {
+    if (!after.has(p)) {
+      insertChange.run(p, "delete", snap.summary, null, snap.line_count, null, snap.size_bytes, null, snap.exports, null, null);
+    }
+  }
+  for (const [p, newSnap] of after) {
+    const old = before.get(p);
+    if (!old) continue;
+    if (old.summary !== newSnap.summary || old.line_count !== newSnap.line_count || old.size_bytes !== newSnap.size_bytes || old.exports !== newSnap.exports) {
+      const diff = computeDiff(old.content.split("\n"), newSnap.content.split("\n"));
+      insertChange.run(p, "change", old.summary, newSnap.summary, old.line_count, newSnap.line_count, old.size_bytes, newSnap.size_bytes, old.exports, newSnap.exports, diff);
+    }
+  }
+}
+
 // ─── Main indexer ────────────────────────────────────────────────────────────
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number } {
   const rootDir = path.resolve(dirPath);
   if (!fs.existsSync(rootDir)) throw new Error(`Directory not found: ${rootDir}`);
 
+  // Snapshot before indexing (reads old content from DB)
+  const before = snapshotFromDb(db);
+
   const filePaths = walkDir(rootDir);
 
   const upsertFile = db.prepare(`
-    INSERT INTO files (path, language, extension, size_bytes, line_count, summary, external_imports, created_at, modified_at, indexed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO files (path, language, extension, size_bytes, line_count, summary, external_imports, content, created_at, modified_at, indexed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(path) DO UPDATE SET
       language=excluded.language, extension=excluded.extension,
       size_bytes=excluded.size_bytes, line_count=excluded.line_count,
       summary=excluded.summary, external_imports=excluded.external_imports,
+      content=excluded.content,
       created_at=excluded.created_at, modified_at=excluded.modified_at,
       indexed_at=excluded.indexed_at
   `);
@@ -286,7 +435,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
         externals = extractExternalImports(imports).join(", ") || null;
       }
 
-      upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, meta.createdAt, meta.modifiedAt);
+      upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, content, meta.createdAt, meta.modifiedAt);
       const row = getFileId.get(filePath) as { id: number };
       clearExports.run(row.id);
 
@@ -321,6 +470,10 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
     }
   });
   indexDeps();
+
+  // Phase 3: diff and log changes (after snapshot reads new content from DB)
+  const after = snapshotFromDb(db);
+  diffAndLogChanges(db, before, after);
 
   return { files: filePaths.length, exports: exportCount, deps: depCount };
 }

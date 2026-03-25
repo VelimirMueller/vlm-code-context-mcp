@@ -1,16 +1,24 @@
 {
-  "name": "mcp-server",
+  "name": "code-context-mcp",
   "version": "1.0.0",
-  "description": "",
+  "description": "MCP server that indexes codebases and exposes file metadata, exports, and dependency graphs",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "code-context-mcp": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
-    "dashboard": "tsx src/dashboard.ts ./context.db"
+    "postinstall": "npm run build",
+    "start": "node dist/index.js",
+    "dev": "tsx src/dashboard.ts",
+    "dashboard": "tsx src/dashboard.ts",
+    "setup": "node dist/setup.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
     "better-sqlite3": "^12.8.0",
+    "chokidar": "^5.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -18,5 +26,5 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
-  "private": true
+  "private": false
 }

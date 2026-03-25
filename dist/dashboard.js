@@ -1,10 +1,59 @@
 import http from "http";
 import path from "path";
 import Database from "better-sqlite3";
+import chokidar from "chokidar";
+import { indexDirectory } from "./indexer.js";
+import { initSchema } from "./schema.js";
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
-const db = new Database(path.resolve(DB_PATH), { readonly: true });
+const WATCH_DIR = process.argv[4] ?? null;
+const dbPath = path.resolve(DB_PATH);
+const db = new Database(dbPath, { readonly: true });
 db.pragma("journal_mode = WAL");
+// Writable connection for the watcher to re-index and log changes
+const writeDb = new Database(dbPath);
+writeDb.pragma("journal_mode = WAL");
+writeDb.pragma("foreign_keys = ON");
+// Ensure changes table exists (for existing DBs created before this feature)
+initSchema(writeDb);
+// SSE clients
+const sseClients = new Set();
+function notifyClients() {
+    for (const res of sseClients) {
+        res.write(`data: updated\n\n`);
+    }
+}
+// ─── File watcher ───────────────────────────────────────────────────────────
+function startWatcher(dir) {
+    const resolved = path.resolve(dir);
+    let debounceTimer = null;
+    const watcher = chokidar.watch(resolved, {
+        ignored: [
+            /node_modules/, /\.git/, /dist\//, /\.next/, /build\//,
+            /coverage/, /\.turbo/, /\.cache/, /\.db/, /\.db-shm/, /\.db-wal/,
+        ],
+        ignoreInitial: true,
+        persistent: true,
+    });
+    function scheduleReindex() {
+        if (debounceTimer)
+            clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            try {
+                const stats = indexDirectory(writeDb, resolved);
+                console.log(`[watch] Re-indexed: ${stats.files} files, ${stats.exports} exports, ${stats.deps} deps`);
+                notifyClients();
+            }
+            catch (err) {
+                console.error(`[watch] Re-index error: ${err.message}`);
+            }
+        }, 500);
+    }
+    watcher.on("add", scheduleReindex);
+    watcher.on("change", scheduleReindex);
+    watcher.on("unlink", scheduleReindex);
+    console.log(`[watch] Watching ${resolved} for changes`);
+}
 // ─── API ─────────────────────────────────────────────────────────────────────
 function apiFiles() {
     return db.prepare(`
@@ -49,9 +98,45 @@ function apiStats() {
     const extensions = db.prepare(`SELECT extension, COUNT(*) as c FROM files GROUP BY extension ORDER BY c DESC LIMIT 15`).all();
     return { files, exports, deps, totalLines, totalSize, languages, extensions };
 }
+function apiChanges(limit) {
+    return db.prepare(`
+    SELECT id, file_path, event, timestamp,
+      old_summary, new_summary,
+      old_line_count, new_line_count,
+      old_size_bytes, new_size_bytes,
+      old_exports, new_exports
+    FROM changes ORDER BY timestamp DESC, id DESC LIMIT ?
+  `).all(limit);
+}
+function apiFileChanges(id, limit) {
+    const file = db.prepare(`SELECT path FROM files WHERE id = ?`).get(id);
+    if (!file)
+        return null;
+    return db.prepare(`
+    SELECT id, file_path, event, timestamp,
+      old_summary, new_summary,
+      old_line_count, new_line_count,
+      old_size_bytes, new_size_bytes,
+      old_exports, new_exports,
+      diff_text
+    FROM changes WHERE file_path = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+  `).all(file.path, limit);
+}
 // ─── Server ──────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+    // SSE endpoint for live updates
+    if (url.pathname === "/api/events") {
+        res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        });
+        res.write(`data: connected\n\n`);
+        sseClients.add(res);
+        req.on("close", () => sseClients.delete(res));
+        return;
+    }
     if (url.pathname.startsWith("/api/")) {
         res.setHeader("Content-Type", "application/json");
         try {
@@ -62,6 +147,17 @@ const server = http.createServer((req, res) => {
                 data = apiStats();
             else if (url.pathname === "/api/graph")
                 data = apiGraph();
+            else if (url.pathname === "/api/changes")
+                data = apiChanges(Number(url.searchParams.get("limit") ?? 100));
+            else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
+                const id = Number(url.pathname.split("/")[3]);
+                data = apiFileChanges(id, Number(url.searchParams.get("limit") ?? 50));
+                if (!data) {
+                    res.writeHead(404);
+                    res.end('{"error":"not found"}');
+                    return;
+                }
+            }
             else if (url.pathname.startsWith("/api/file/")) {
                 const id = Number(url.pathname.split("/")[3]);
                 data = apiFileContext(id);
@@ -91,6 +187,29 @@ const server = http.createServer((req, res) => {
 });
 server.listen(PORT, () => {
     console.log(`Dashboard: http://localhost:${PORT}`);
+    // Auto-detect watch directory from indexed files, or use CLI arg
+    const watchDir = WATCH_DIR ?? (() => {
+        const row = db.prepare(`SELECT path FROM files ORDER BY path LIMIT 1`).get();
+        if (!row)
+            return null;
+        // Walk up to find the common root (shortest path prefix of all indexed files)
+        const allPaths = db.prepare(`SELECT path FROM files`).all();
+        if (allPaths.length === 0)
+            return null;
+        let common = path.dirname(allPaths[0].path);
+        for (const p of allPaths) {
+            while (!p.path.startsWith(common + "/") && common !== "/") {
+                common = path.dirname(common);
+            }
+        }
+        return common;
+    })();
+    if (watchDir) {
+        startWatcher(watchDir);
+    }
+    else {
+        console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
+    }
 });
 // ─── HTML ────────────────────────────────────────────────────────────────────
 const HTML = /* html */ `<!DOCTYPE html>
@@ -160,6 +279,26 @@ const HTML = /* html */ `<!DOCTYPE html>
   .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
   .tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
   .tab-content.active { display: block; }
+
+  .change-item { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 6px; }
+  .change-item:hover { background: var(--surface2); }
+  .change-header { display: flex; align-items: center; gap: 8px; }
+  .change-event { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
+  .change-event.add { background: rgba(34,197,94,.15); color: var(--green); }
+  .change-event.change { background: rgba(59,130,246,.15); color: var(--accent2); }
+  .change-event.delete { background: rgba(239,68,68,.15); color: #ef4444; }
+  .change-path { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .change-time { font-size: 10px; color: var(--text2); font-family: var(--mono); white-space: nowrap; }
+  .change-diff { font-size: 11px; color: var(--text2); margin-top: 4px; }
+  .change-diff .old { color: #ef4444; }
+  .change-diff .new { color: var(--green); }
+  .diff-block { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-top: 6px; font-family: var(--mono); font-size: 11px; line-height: 1.6; overflow-x: auto; white-space: pre; max-height: 300px; overflow-y: auto; }
+  .diff-block .dl { color: #ef4444; }
+  .diff-block .al { color: var(--green); }
+  .diff-block .ctx { color: var(--text2); }
+  .diff-block .sep { color: var(--text2); opacity: .4; }
+  .diff-toggle { font-size: 11px; color: var(--accent2); cursor: pointer; margin-top: 4px; }
+  .diff-toggle:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -178,11 +317,16 @@ const HTML = /* html */ `<!DOCTYPE html>
   <div class="panel" style="display:flex;flex-direction:column;">
     <div class="tabs">
       <div class="tab active" data-tab="detail">Detail</div>
+      <div class="tab" data-tab="changes">Changes</div>
       <div class="tab" data-tab="graph">Graph</div>
     </div>
     <div class="tab-content active" id="tab-detail" style="flex:1;overflow-y:auto;">
       <div class="empty" id="detail-empty">Select a file to view context</div>
       <div id="detail" style="display:none;"></div>
+    </div>
+    <div class="tab-content" id="tab-changes" style="flex:1;overflow-y:auto;padding:8px;">
+      <div class="empty" id="changes-empty">No changes recorded yet</div>
+      <div id="changes-list"></div>
     </div>
     <div class="tab-content" id="tab-graph" style="flex:1;position:relative;">
       <canvas id="graph"></canvas>
@@ -251,10 +395,14 @@ function renderFiles(files) {
   });
 }
 
+let selectedFileId = null;
+
 async function selectFile(id) {
+  selectedFileId = id;
   $$('.file-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
   const data = await fetch('/api/file/' + id).then(r => r.json());
   renderDetail(data);
+  loadFileChanges(id);
 }
 
 function badgeClass(kind) {
@@ -353,6 +501,7 @@ $$('.tab').forEach(tab => {
     tab.classList.add('active');
     $('#tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'graph') renderGraph();
+    if (tab.dataset.tab === 'changes') loadFileChanges(selectedFileId);
   });
 });
 
@@ -401,7 +550,7 @@ function renderGraph() {
       n.y = Math.max(30, Math.min(H-30, n.y));
     }
   }
-
+//test ok 123
   ctx.clearRect(0, 0, W, H);
   for (const e of edges) {
     const s = idMap[e.source], t = idMap[e.target];
@@ -426,7 +575,89 @@ function renderGraph() {
 }
 
 window.addEventListener('resize', renderGraph);
+
+// Helper for safe DOM span creation
+function span(cls, text) { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; }
+
+async function loadFileChanges(id) {
+  const el = $('#changes-list');
+  const empty = $('#changes-empty');
+  el.textContent = '';
+
+  if (!id) { empty.textContent = 'Select a file to view its changes'; empty.style.display = 'block'; return; }
+
+  const changes = await fetch('/api/file/' + id + '/changes?limit=50').then(r => r.json());
+  if (!changes.length) { empty.textContent = 'No changes recorded for this file'; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  function fmtSize(b) { if (b == null) return '?'; if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
+
+  changes.forEach(c => {
+    const item = document.createElement('div'); item.className = 'change-item';
+
+    const header = document.createElement('div'); header.className = 'change-header';
+    const badge = document.createElement('span'); badge.className = 'change-event ' + c.event; badge.textContent = c.event;
+    const ts = document.createElement('span'); ts.className = 'change-time'; ts.textContent = c.timestamp;
+    header.appendChild(badge); header.appendChild(ts);
+    item.appendChild(header);
+
+    if (c.event === 'change') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      if (c.old_line_count !== c.new_line_count) {
+        diff.append('Lines: ', span('old', c.old_line_count), ' \u2192 ', span('new', c.new_line_count), '  ');
+      }
+      if (c.old_size_bytes !== c.new_size_bytes) {
+        diff.append('Size: ', span('old', fmtSize(c.old_size_bytes)), ' \u2192 ', span('new', fmtSize(c.new_size_bytes)), '  ');
+      }
+      if (c.old_summary !== c.new_summary) diff.append('Summary changed  ');
+      if (c.old_exports !== c.new_exports) diff.append('Exports changed');
+      if (diff.childNodes.length) item.appendChild(diff);
+
+      if (c.diff_text) {
+        const toggle = document.createElement('div'); toggle.className = 'diff-toggle'; toggle.textContent = 'Show diff';
+        const block = document.createElement('div'); block.className = 'diff-block'; block.style.display = 'none';
+        c.diff_text.split('\\n').forEach(line => {
+          const el = document.createElement('div');
+          if (line.startsWith('+ ')) { el.className = 'al'; }
+          else if (line.startsWith('- ')) { el.className = 'dl'; }
+          else if (line === '---') { el.className = 'sep'; }
+          else { el.className = 'ctx'; }
+          el.textContent = line;
+          block.appendChild(el);
+        });
+        toggle.addEventListener('click', () => {
+          const visible = block.style.display !== 'none';
+          block.style.display = visible ? 'none' : 'block';
+          toggle.textContent = visible ? 'Show diff' : 'Hide diff';
+        });
+        item.appendChild(toggle);
+        item.appendChild(block);
+      }
+    } else if (c.event === 'add') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      diff.appendChild(span('new', (c.new_line_count || 0) + ' lines \u00B7 ' + fmtSize(c.new_size_bytes)));
+      item.appendChild(diff);
+    } else if (c.event === 'delete') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      diff.appendChild(span('old', 'removed \u00B7 was ' + (c.old_line_count || 0) + ' lines'));
+      item.appendChild(diff);
+    }
+
+    el.appendChild(item);
+  });
+}
+
 init();
+loadFileChanges(null);
+
+// Live reload via SSE
+const es = new EventSource('/api/events');
+es.onmessage = (e) => {
+  if (e.data === 'updated') {
+    const activeId = document.querySelector('.file-item.active')?.dataset?.id;
+    init().then(() => { if (activeId) selectFile(Number(activeId)); else loadFileChanges(null); });
+  }
+};
 </script>
 </body>
 </html>`;
