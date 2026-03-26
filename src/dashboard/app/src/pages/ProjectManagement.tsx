@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { usePlanning } from '@/hooks/usePlanning';
+import { usePlanningStore } from '@/stores/planningStore';
 import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
 import { GanttChart } from '@/components/organisms/GanttChart';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
+import { HeroText } from '@/components/molecules/HeroText';
+import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
+import { tabVariants, tabTransition } from '@/lib/motion';
 
 type Tab = 'milestones' | 'vision' | 'gantt';
 
@@ -17,6 +22,10 @@ export function ProjectManagement() {
   usePlanning();
   const [activeTab, setActiveTab] = useState<Tab>('milestones');
   const [showPlanner, setShowPlanner] = useState(false);
+
+  // Milestones hero — first active (in_progress) milestone, fallback to first
+  const milestones = usePlanningStore((s) => s.milestones);
+  const activeMilestone = milestones.find((m) => m.status === 'in_progress') ?? milestones[0] ?? null;
 
   return (
     <div
@@ -104,9 +113,55 @@ export function ProjectManagement() {
           padding: '24px 28px',
         }}
       >
-        {activeTab === 'milestones' && <MilestoneList />}
-        {activeTab === 'vision' && <VisionEditor />}
-        {activeTab === 'gantt' && <GanttChart />}
+        <AnimatePresence mode="wait">
+          {activeTab === 'milestones' && (
+            <motion.div
+              key="milestones"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              {activeMilestone && (
+                <HeroText>
+                  {'Milestone '}
+                  <span style={{ fontFamily: 'var(--font)', color: 'var(--accent)', fontWeight: 700 }}>
+                    {activeMilestone.name}
+                  </span>
+                  {' — '}
+                  <AnimatedNumber value={activeMilestone.progress} />
+                  {'% complete'}
+                </HeroText>
+              )}
+              <MilestoneList />
+            </motion.div>
+          )}
+          {activeTab === 'vision' && (
+            <motion.div
+              key="vision"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <VisionEditor />
+            </motion.div>
+          )}
+          {activeTab === 'gantt' && (
+            <motion.div
+              key="gantt"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <GanttChart />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Sprint Planner modal */}
