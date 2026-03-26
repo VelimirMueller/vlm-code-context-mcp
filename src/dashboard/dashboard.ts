@@ -237,8 +237,84 @@ function apiSprintRetro(sprintId: number) {
   } catch { return []; }
 }
 
+// ─── Milestones, Vision, Backlog, Sprint Planning API ────────────────────────
+function apiMilestones() {
+  try {
+    return writeDb.prepare(`
+      SELECT m.*,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE') as done_count
+      FROM milestones m ORDER BY m.created_at DESC
+    `).all();
+  } catch { return []; }
+}
+
+function apiCreateMilestone(body: any) {
+  const { name, description, target_date, status } = body;
+  if (!name) throw new Error("name is required");
+  const result = writeDb.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run(name, description || null, target_date || null, status || "planned");
+  return { id: result.lastInsertRowid, name };
+}
+
+function apiMilestoneUpdate(id: number, body: any) {
+  const sets: string[] = []; const vals: any[] = [];
+  if (body.status) { sets.push("status=?"); vals.push(body.status); }
+  if (body.description) { sets.push("description=?"); vals.push(body.description); }
+  if (body.progress !== undefined) { sets.push("progress=?"); vals.push(body.progress); }
+  if (body.target_date) { sets.push("target_date=?"); vals.push(body.target_date); }
+  if (sets.length === 0) throw new Error("nothing to update");
+  sets.push("updated_at=datetime('now')");
+  vals.push(id);
+  writeDb.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals);
+  return { id, updated: true };
+}
+
+function apiVisionUpdate(body: any) {
+  const { content } = body;
+  if (!content) throw new Error("content is required");
+  writeDb.prepare(`INSERT INTO skills (name, content, owner_role) VALUES ('PRODUCT_VISION', ?, 'product-owner') ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`).run(content);
+  return { updated: true };
+}
+
+function apiBacklog() {
+  try {
+    return writeDb.prepare(`
+      SELECT t.id, t.ticket_ref, t.title, t.priority, t.status, t.story_points, t.assigned_to, t.milestone, t.milestone_id
+      FROM tickets t
+      WHERE t.sprint_id IS NULL
+        OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed'))
+      ORDER BY t.priority, t.created_at
+    `).all();
+  } catch { return []; }
+}
+
+function apiPlanSprint(body: any) {
+  const { name, goal, ticket_ids, velocity_committed } = body;
+  if (!name) throw new Error("name is required");
+  if (!ticket_ids || !Array.isArray(ticket_ids)) throw new Error("ticket_ids array is required");
+  const result = writeDb.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed) VALUES (?, ?, 'planning', ?)`).run(name, goal || null, velocity_committed || 0);
+  const sprintId = result.lastInsertRowid;
+  const updateStmt = writeDb.prepare(`UPDATE tickets SET sprint_id=?, updated_at=datetime('now') WHERE id=?`);
+  for (const tid of ticket_ids) {
+    updateStmt.run(sprintId, tid);
+  }
+  return { id: sprintId, name, tickets_assigned: ticket_ids.length };
+}
+
+function readBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+    req.on("end", () => {
+      try { resolve(JSON.parse(body)); }
+      catch { reject(new Error("Invalid JSON body")); }
+    });
+    req.on("error", reject);
+  });
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
   // SSE endpoint for live updates
@@ -270,6 +346,25 @@ const server = http.createServer((req, res) => {
         if (!data) { res.writeHead(404); res.end('{"error":"skill not found"}'); return; }
       }
       else if (url.pathname === "/api/agents") data = apiAgentsHealth();
+      else if (url.pathname === "/api/milestones" && req.method === "POST") {
+        const body = await readBody(req);
+        data = apiCreateMilestone(body);
+      }
+      else if (url.pathname === "/api/milestones") data = apiMilestones();
+      else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "PUT") {
+        const mid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        data = apiMilestoneUpdate(mid, body);
+      }
+      else if (url.pathname === "/api/vision" && req.method === "PUT") {
+        const body = await readBody(req);
+        data = apiVisionUpdate(body);
+      }
+      else if (url.pathname === "/api/backlog") data = apiBacklog();
+      else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
+        const body = await readBody(req);
+        data = apiPlanSprint(body);
+      }
       else if (url.pathname === "/api/sprints") data = apiSprints();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);

@@ -156,3 +156,72 @@ describe("Error Handling", () => {
     }).toThrow();
   });
 });
+
+describe("milestone tools", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    initScrumSchema(db);
+  });
+
+  it("creates a milestone and verifies it", () => {
+    db.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run("M1: Foundation", "Core infrastructure", "2026-04-15", "planned");
+    const milestone = db.prepare(`SELECT * FROM milestones WHERE name = ?`).get("M1: Foundation") as any;
+    expect(milestone).toBeDefined();
+    expect(milestone.description).toBe("Core infrastructure");
+    expect(milestone.status).toBe("planned");
+    expect(milestone.progress).toBe(0);
+    expect(milestone.target_date).toBe("2026-04-15");
+  });
+
+  it("updates milestone status and progress", () => {
+    db.prepare(`INSERT INTO milestones (name, status) VALUES (?, ?)`).run("M2: Launch", "planned");
+    const m = db.prepare(`SELECT id FROM milestones WHERE name = ?`).get("M2: Launch") as any;
+    db.prepare(`UPDATE milestones SET status=?, progress=?, updated_at=datetime('now') WHERE id=?`).run("active", 50, m.id);
+    const updated = db.prepare(`SELECT * FROM milestones WHERE id = ?`).get(m.id) as any;
+    expect(updated.status).toBe("active");
+    expect(updated.progress).toBe(50);
+  });
+
+  it("links a ticket to a milestone", () => {
+    db.prepare(`INSERT INTO milestones (name) VALUES (?)`).run("M3: Polish");
+    const m = db.prepare(`SELECT id FROM milestones WHERE name = ?`).get("M3: Polish") as any;
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("link-sprint", "active");
+    const s = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("link-sprint") as any;
+    db.prepare(`INSERT INTO tickets (sprint_id, title) VALUES (?, ?)`).run(s.id, "Linked ticket");
+    const t = db.prepare(`SELECT id FROM tickets WHERE title = ?`).get("Linked ticket") as any;
+    db.prepare(`UPDATE tickets SET milestone_id=? WHERE id=?`).run(m.id, t.id);
+    const ticket = db.prepare(`SELECT * FROM tickets WHERE id = ?`).get(t.id) as any;
+    expect(ticket.milestone_id).toBe(m.id);
+  });
+
+  it("gets backlog tickets query", () => {
+    // Create a closed sprint with a TODO ticket (should be in backlog)
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("closed-sprint", "closed");
+    const cs = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("closed-sprint") as any;
+    db.prepare(`INSERT INTO tickets (sprint_id, title, status) VALUES (?, ?, ?)`).run(cs.id, "Carried over", "TODO");
+
+    // Create a ticket with no sprint (should be in backlog)
+    db.prepare(`INSERT INTO tickets (title, status) VALUES (?, ?)`).run("Unassigned", "TODO");
+
+    // Create an active sprint with a TODO ticket (should NOT be in backlog)
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("active-sprint", "active");
+    const as2 = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("active-sprint") as any;
+    db.prepare(`INSERT INTO tickets (sprint_id, title, status) VALUES (?, ?, ?)`).run(as2.id, "Active work", "TODO");
+
+    const backlog = db.prepare(`
+      SELECT t.id, t.title, t.status
+      FROM tickets t
+      WHERE t.sprint_id IS NULL
+        OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed'))
+      ORDER BY t.priority, t.created_at
+    `).all() as any[];
+
+    expect(backlog).toHaveLength(2);
+    const titles = backlog.map((t: any) => t.title);
+    expect(titles).toContain("Carried over");
+    expect(titles).toContain("Unassigned");
+    expect(titles).not.toContain("Active work");
+  });
+});

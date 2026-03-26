@@ -372,4 +372,202 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       return { content: [{ type: "text" as const, text: lines.join('\n') }] };
     }
   );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MILESTONE & BACKLOG OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "create_milestone",
+    "Create a new milestone for the product roadmap",
+    {
+      name: z.string().describe("Milestone name (must be unique)"),
+      description: z.string().optional().describe("Milestone description"),
+      target_date: z.string().optional().describe("Target date (ISO 8601)"),
+      status: z.enum(["planned", "active", "completed"]).optional().default("planned"),
+    },
+    async ({ name, description, target_date, status }) => {
+      try {
+        const result = db.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run(name, description || null, target_date || null, status);
+        return { content: [{ type: "text" as const, text: `Milestone created: ${name} (id: ${result.lastInsertRowid})` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update_milestone",
+    "Update a milestone's status, progress, or details",
+    {
+      milestone_id: z.number().describe("Milestone ID"),
+      status: z.enum(["planned", "active", "completed"]).optional(),
+      description: z.string().optional(),
+      progress: z.number().min(0).max(100).optional().describe("Progress percentage 0-100"),
+      target_date: z.string().optional(),
+    },
+    async ({ milestone_id, status, description, progress, target_date }) => {
+      const sets: string[] = []; const vals: any[] = [];
+      if (status) { sets.push("status=?"); vals.push(status); }
+      if (description) { sets.push("description=?"); vals.push(description); }
+      if (progress !== undefined) { sets.push("progress=?"); vals.push(progress); }
+      if (target_date) { sets.push("target_date=?"); vals.push(target_date); }
+      if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
+      sets.push("updated_at=datetime('now')");
+      vals.push(milestone_id);
+      db.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals);
+      return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} updated.` }] };
+    }
+  );
+
+  server.tool(
+    "link_ticket_to_milestone",
+    "Link a ticket to a milestone by setting its milestone_id",
+    {
+      ticket_id: z.number().describe("Ticket ID"),
+      milestone_id: z.number().describe("Milestone ID"),
+    },
+    async ({ ticket_id, milestone_id }) => {
+      try {
+        const milestone = db.prepare(`SELECT id, name FROM milestones WHERE id=?`).get(milestone_id) as any;
+        if (!milestone) return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} not found.` }], isError: true };
+        db.prepare(`UPDATE tickets SET milestone_id=?, updated_at=datetime('now') WHERE id=?`).run(milestone_id, ticket_id);
+        return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} linked to milestone "${milestone.name}" (id: ${milestone_id}).` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update_vision",
+    "Create or update the PRODUCT_VISION skill content",
+    {
+      content: z.string().describe("Product vision content (markdown)"),
+    },
+    async ({ content }) => {
+      try {
+        db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES ('PRODUCT_VISION', ?, 'product-owner') ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`).run(content);
+        return { content: [{ type: "text" as const, text: `Product vision updated (${content.length} chars).` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_backlog",
+    "List all backlog tickets — unassigned to any sprint or carried over from closed sprints",
+    {},
+    async () => {
+      const tickets = db.prepare(`
+        SELECT t.id, t.ticket_ref, t.title, t.priority, t.status, t.story_points, t.assigned_to, t.milestone
+        FROM tickets t
+        WHERE t.sprint_id IS NULL
+          OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed'))
+        ORDER BY t.priority, t.created_at
+      `).all() as any[];
+      if (tickets.length === 0) return { content: [{ type: "text" as const, text: "Backlog is empty." }] };
+      const text = tickets.map(t => `[${t.status}] ${t.priority} ${t.ticket_ref || "#"+t.id}: ${t.title} (${t.story_points || 0}sp) @${t.assigned_to || "?"}`).join("\n");
+      return { content: [{ type: "text" as const, text: `# Backlog (${tickets.length})\n\n${text}` }] };
+    }
+  );
+
+  server.tool(
+    "plan_sprint",
+    "Create a new sprint and assign tickets to it in one operation",
+    {
+      name: z.string().describe("Sprint name (e.g. 'sprint-2026-04-07')"),
+      goal: z.string().optional().describe("Sprint goal"),
+      ticket_ids: z.array(z.number()).describe("Array of ticket IDs to assign to this sprint"),
+      velocity_committed: z.number().optional().describe("Committed velocity in story points"),
+    },
+    async ({ name, goal, ticket_ids, velocity_committed }) => {
+      try {
+        const result = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed) VALUES (?, ?, 'planning', ?)`).run(name, goal || null, velocity_committed || 0);
+        const sprintId = result.lastInsertRowid;
+        const updateStmt = db.prepare(`UPDATE tickets SET sprint_id=?, updated_at=datetime('now') WHERE id=?`);
+        for (const tid of ticket_ids) {
+          updateStmt.run(sprintId, tid);
+        }
+        return { content: [{ type: "text" as const, text: `Sprint "${name}" created (id: ${sprintId}) with ${ticket_ids.length} tickets assigned.` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ─── Sprint Process Instructions ────────────────────────────────────────────
+  const INSTRUCTION_SECTIONS: Record<string, string> = {
+    lifecycle: `## Sprint Lifecycle
+1. **planning** → Team defines tickets, assigns points, sets velocity target (~19pts)
+2. **active** → Development work in progress
+3. **review** → Team reviews completed work, updates ticket statuses
+4. **closed** → Sprint finalized (CANNOT close without retro findings)`,
+
+    tickets: `## Ticket Workflow
+**Status flow:** TODO → IN_PROGRESS → DONE
+
+### Critical Rules
+1. **Move to IN_PROGRESS** — When starting work on a ticket, IMMEDIATELY set status to IN_PROGRESS. Do not leave tickets in TODO while actively working on them.
+2. **Query Before Update** — ALWAYS use \`list_tickets\` to get IDs before \`update_ticket\`. Internal DB IDs are NOT sequential.
+3. **QA Gate** — \`qa_verified\` must be true before status → DONE.
+4. **Acceptance Criteria** — Must be defined during sprint planning.
+5. **Point Cap** — No single dev should exceed 8 story points.`,
+
+    retro: `## Retrospective Process
+Retros are **MANDATORY** — never skip, even when sprint is green.
+
+### Required Categories
+- **went_well** — What worked? Continue doing this.
+- **went_wrong** — What caused friction? Root-cause it.
+- **try_next** — What experiments for next sprint?
+
+### Rules
+- Each role contributes at least one finding
+- Action items need an \`action_owner\` assigned
+- Sprint CANNOT close until retro findings exist (minimum 3, one per category)`,
+
+    roles: `## Role Responsibilities
+- **product-owner** — Requirements, prioritization, milestone roadmap, accept/reject work
+- **scrum-master** — Blockers, status tracking, process enforcement, ceremonies
+- **architect** — System design, infrastructure, CI/CD, technical standards
+- **lead-developer** — Technical decisions, code quality, conflict resolution
+- **backend-developer** — APIs, database, business logic, integrations
+- **frontend-developer** — UI components, styling, responsive design, UX
+- **qa** — Test plans, acceptance verification, bug tickets, set qa_verified
+- **security-specialist** — Vulnerability audits, CVE monitoring, input sanitization
+- **manager** — Cost efficiency, prevent over-engineering, business alignment`,
+
+    checklist: `## Sprint Close Checklist
+- [ ] All tickets DONE or explicitly NOT_DONE with reason
+- [ ] All DONE tickets have \`qa_verified = true\`
+- [ ] No tickets stuck in IN_PROGRESS
+- [ ] Retro findings added (min 3: one went_well, one went_wrong, one try_next)
+- [ ] Action items have owners assigned
+- [ ] Sprint \`velocity_completed\` updated
+- [ ] Sprint status set to \`closed\``,
+
+    pitfalls: `## Common Pitfalls
+- **Skipping Retros** — "Sprint went perfectly" → Wrong: even green sprints have lessons
+- **Assuming Ticket IDs** — "T-042 is probably ID 42" → Wrong: always query with list_tickets
+- **DONE Without QA** — "Works on my machine" → Wrong: qa_verified must be true
+- **Overloading Devs** — "Alice can do 15pts" → Wrong: max 8pts per dev
+- **Closing Early** — "All tickets done" → Wrong: must add retro findings first`,
+  };
+
+  server.tool(
+    "get_sprint_instructions",
+    "Get sprint process instructions — lifecycle, ticket workflow, retro rules, role responsibilities, and close checklist. Call with no args for full guide, or pass a section name.",
+    { section: z.enum(["lifecycle", "tickets", "retro", "roles", "checklist", "pitfalls"]).optional().describe("Specific section to retrieve") },
+    async ({ section }) => {
+      if (section) {
+        const text = INSTRUCTION_SECTIONS[section];
+        if (!text) return { content: [{ type: "text" as const, text: `Unknown section. Available: ${Object.keys(INSTRUCTION_SECTIONS).join(", ")}` }], isError: true };
+        return { content: [{ type: "text" as const, text }] };
+      }
+      const full = `# Sprint Process Instructions\n\n${Object.values(INSTRUCTION_SECTIONS).join("\n\n---\n\n")}`;
+      return { content: [{ type: "text" as const, text: full }] };
+    }
+  );
 }
