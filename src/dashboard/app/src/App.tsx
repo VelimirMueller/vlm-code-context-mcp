@@ -73,7 +73,7 @@ export function App() {
             </svg>
           </div>
           <span className="logo-text">
-            Code Context <span className="logo-sub">Explorer</span>
+            Code Context <span className="logo-sub">MCP</span>
           </span>
         </div>
       </header>

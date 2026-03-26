@@ -510,7 +510,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Dashboard: http://localhost:${PORT}`);
+  console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${PORT}`);
 
   // Auto-detect watch directory from indexed files, or use CLI arg
   const watchDir = WATCH_DIR ?? (() => {
@@ -544,7 +544,7 @@ const _UNUSED = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Code Context Explorer</title>
+<title>VLM Code Context | AI Virtual IT Department</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -631,7 +631,7 @@ const _UNUSED = `<!DOCTYPE html>
 <body>
 <div class="shell">
   <div class="header">
-    <h1>Code Context Explorer</h1>
+    <h1>VLM Code Context</h1>
     <input class="search" id="search" placeholder="Search files..." autocomplete="off">
     <div class="stats" id="stats"></div>
   </div>
