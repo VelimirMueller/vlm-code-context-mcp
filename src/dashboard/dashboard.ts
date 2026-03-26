@@ -395,9 +395,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  res.setHeader("Content-Type", "text/html");
-  res.writeHead(200);
-  res.end(HTML);
+  // Serve static assets from Vite build output
+  const distDir = path.join(__dirname, "../../dist/dashboard");
+  if (url.pathname.startsWith("/assets/")) {
+    const filePath = path.join(distDir, url.pathname);
+    const safePath = path.resolve(filePath);
+    if (!safePath.startsWith(path.resolve(distDir))) {
+      res.writeHead(403);
+      res.end("Forbidden");
+      return;
+    }
+    try {
+      const data = fs.readFileSync(safePath);
+      const ext = path.extname(safePath);
+      const mimeTypes: Record<string, string> = {
+        ".js": "application/javascript",
+        ".css": "text/css",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".json": "application/json",
+      };
+      res.setHeader("Content-Type", mimeTypes[ext] ?? "application/octet-stream");
+      res.writeHead(200);
+      res.end(data);
+    } catch {
+      res.writeHead(404);
+      res.end("Not found");
+    }
+    return;
+  }
+
+  // SPA fallback: serve index.html for all non-API routes
+  try {
+    const indexHtml = fs.readFileSync(path.join(distDir, "index.html"), "utf-8");
+    res.setHeader("Content-Type", "text/html");
+    res.writeHead(200);
+    res.end(indexHtml);
+  } catch {
+    res.setHeader("Content-Type", "text/html");
+    res.writeHead(200);
+    res.end(HTML);
+  }
 });
 
 server.listen(PORT, () => {

@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0c0c10; --surface: #131318; --surface2: #18181f; --surface3: #1e1e28;
+  --border: #1c1c28; --border2: #282838; --text: #e4e4e7; --text2: #a1a1aa; --text3: #63637a;
+  --accent: #10b981; --accent2: #34d399; --accent-glow: rgba(16,185,129,.10);
+  --green: #10b981; --green-glow: rgba(16,185,129,.10);
+  --orange: #fbbf24; --pink: #f472b6; --purple: #a78bfa; --red: #f87171;
+  --blue: #3b82f6; --blue-glow: rgba(59,130,246,.10);
+  --radius: 14px; --radius-lg: 18px;
+  --font: 'Geist Sans', 'Geist', -apple-system, system-ui, sans-serif;
+  --mono: 'Geist Mono', 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.topbar { display: flex; align-items: center; gap: 20px; padding: 0 28px; border-bottom: 1px solid var(--border); background: var(--surface); height: 64px; flex-shrink: 0; }
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-icon { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, #6ee7b7 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px rgba(16,185,129,.2); }
+.logo-text { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; }
+.logo-sub { color: var(--text3); font-weight: 400; }
+
+.page-nav { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 16px; background: var(--surface); }
+.page-nav-item { padding: 12px 24px; font-size: 14px; font-weight: 600; color: var(--text3); cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; font-family: var(--font); transition: all .2s; }
+.page-nav-item:hover { color: var(--text2); }
+.page-nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.page-content { flex: 1; overflow: hidden; }
