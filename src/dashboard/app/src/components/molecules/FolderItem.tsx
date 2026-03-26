@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { FileItem } from './FileItem';
 import type { File, Directory } from '@/types';
 
@@ -28,6 +29,7 @@ export function FolderItem({
   depth = 0,
 }: FolderItemProps) {
   const isOpen = expandedFolders.has(dirPath);
+  const reduceMotion = useReducedMotion();
   const childDirPaths = (dirChildren.get(dirPath) ?? []).slice().sort();
   const childFiles = (filesByDir.get(dirPath) ?? []).slice().sort((a, b) => a.path.localeCompare(b.path));
 
@@ -50,37 +52,45 @@ export function FolderItem({
         <span className="folder-count">{dirInfo.file_count}</span>
       </div>
 
-      {isOpen && (
-        <div className="tree-children">
-          {childDirPaths.map((childPath) => {
-            const childInfo = dirInfoMap.get(childPath);
-            if (!childInfo) return null;
-            return (
-              <FolderItem
-                key={childPath}
-                dirPath={childPath}
-                dirInfo={childInfo}
-                dirChildren={dirChildren}
-                dirInfoMap={dirInfoMap}
-                filesByDir={filesByDir}
-                expandedFolders={expandedFolders}
-                selectedFileId={selectedFileId}
-                onToggle={onToggle}
-                onSelectFile={onSelectFile}
-                depth={depth + 1}
-              />
-            );
-          })}
-          {childFiles.map((file) => (
-            <FileItem
-              key={file.id}
-              file={file}
-              isActive={file.id === selectedFileId}
-              onClick={onSelectFile}
+      <motion.div
+        className="tree-children"
+        initial={false}
+        animate={{ height: isOpen ? 'auto' : 0, opacity: isOpen ? 1 : 0 }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 300, damping: 25 }
+        }
+        style={{ overflow: 'hidden' }}
+      >
+        {childDirPaths.map((childPath) => {
+          const childInfo = dirInfoMap.get(childPath);
+          if (!childInfo) return null;
+          return (
+            <FolderItem
+              key={childPath}
+              dirPath={childPath}
+              dirInfo={childInfo}
+              dirChildren={dirChildren}
+              dirInfoMap={dirInfoMap}
+              filesByDir={filesByDir}
+              expandedFolders={expandedFolders}
+              selectedFileId={selectedFileId}
+              onToggle={onToggle}
+              onSelectFile={onSelectFile}
+              depth={depth + 1}
             />
-          ))}
-        </div>
-      )}
+          );
+        })}
+        {childFiles.map((file) => (
+          <FileItem
+            key={file.id}
+            file={file}
+            isActive={file.id === selectedFileId}
+            onClick={onSelectFile}
+          />
+        ))}
+      </motion.div>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion';
+import { cardHover, listItemVariants } from '@/lib/motion';
 import type { Sprint } from '@/types';
 
 interface SprintCardProps {
@@ -21,7 +23,10 @@ export function SprintCard({ sprint, selected, onClick }: SprintCardProps) {
   const color = statusColor[sprint.status] ?? 'var(--text3)';
 
   return (
-    <div
+    <motion.div
+      variants={listItemVariants}
+      whileHover={cardHover}
+      layout
       onClick={() => onClick(sprint.id)}
       style={{
         padding: '12px 14px',
@@ -87,6 +92,6 @@ export function SprintCard({ sprint, selected, onClick }: SprintCardProps) {
           }}
         />
       </div>
-    </div>
+    </motion.div>
   );
 }

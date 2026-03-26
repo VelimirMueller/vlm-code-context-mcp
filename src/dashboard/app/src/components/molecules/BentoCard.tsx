@@ -1,3 +1,6 @@
+import { motion } from 'framer-motion';
+import { cardHover } from '@/lib/motion';
+
 interface BentoCardProps {
   icon: string;
   title: string;
@@ -20,7 +23,9 @@ export function BentoCard({
   children,
 }: BentoCardProps) {
   return (
-    <div
+    <motion.div
+      whileHover={cardHover}
+      layout
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -99,6 +104,6 @@ export function BentoCard({
       )}
 
       {children}
-    </div>
+    </motion.div>
   );
 }

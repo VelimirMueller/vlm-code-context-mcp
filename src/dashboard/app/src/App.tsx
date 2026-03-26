@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useUIStore } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
@@ -8,6 +10,9 @@ import { useKeyboard } from '@/hooks/useKeyboard';
 import { CodeExplorer } from '@/pages/CodeExplorer';
 import { Sprint } from '@/pages/Sprint';
 import { ProjectManagement } from '@/pages/ProjectManagement';
+import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
+import { ToastContainer } from '@/components/atoms/ToastContainer';
+import { LandingAnimation } from '@/components/organisms/LandingAnimation';
 
 const pages = ['explorer', 'planning', 'sprint'] as const;
 type Page = (typeof pages)[number];
@@ -21,6 +26,12 @@ const pageLabels: Record<Page, string> = {
 export function App() {
   const activePage = useUIStore((s) => s.activePage);
   const setPage = useUIStore((s) => s.setPage);
+  const prefersReducedMotion = useReducedMotion();
+
+  // Show landing animation once per session
+  const [showLanding, setShowLanding] = useState(
+    () => sessionStorage.getItem('landing-played') !== 'true'
+  );
 
   // SSE: refresh stores on server events
   const refreshFiles = useFileStore((s) => s.refresh);
@@ -41,8 +52,13 @@ export function App() {
   // Keyboard shortcuts
   useKeyboard();
 
+  const variants = prefersReducedMotion ? reducedMotion : pageVariants;
+
   return (
     <div className="app">
+      {showLanding && (
+        <LandingAnimation onComplete={() => setShowLanding(false)} />
+      )}
       <header className="topbar">
         <div className="logo">
           <div className="logo-icon">
@@ -72,10 +88,23 @@ export function App() {
         ))}
       </nav>
       <main className="page-content">
-        {activePage === 'explorer' && <CodeExplorer />}
-        {activePage === 'planning' && <ProjectManagement />}
-        {activePage === 'sprint' && <Sprint />}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activePage}
+            variants={variants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
+            style={{ height: '100%' }}
+          >
+            {activePage === 'explorer' && <CodeExplorer />}
+            {activePage === 'planning' && <ProjectManagement />}
+            {activePage === 'sprint' && <Sprint />}
+          </motion.div>
+        </AnimatePresence>
       </main>
+      <ToastContainer />
     </div>
   );
 }
