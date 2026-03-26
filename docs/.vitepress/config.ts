@@ -4,7 +4,12 @@ export default defineConfig({
   title: "Code Context MCP",
   description: "Living documentation for the code-context MCP server",
   ignoreDeadLinks: [/^http:\/\/localhost/],
+  appearance: "dark",
+  head: [
+    ["link", { rel: "preconnect", href: "https://cdn.jsdelivr.net" }],
+  ],
   themeConfig: {
+    siteTitle: "CC MCP",
     nav: [
       { text: "Home", link: "/" },
       { text: "Guide", link: "/guide/" },
@@ -31,5 +36,12 @@ export default defineConfig({
         ],
       },
     ],
+    socialLinks: [
+      { icon: "github", link: "https://github.com/VelimirMueller" },
+    ],
+    footer: {
+      message: "Built by Velimir Muller.",
+      copyright: "Code Context MCP Server",
+    },
   },
 });

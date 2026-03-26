@@ -9,16 +9,17 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #08090a; --surface: #111214; --surface2: #191b1f; --surface3: #21232a;
-    --border: #1e2028; --border2: #2a2d38; --text: #e8eaf0; --text2: #8b8fa4; --text3: #565a6e;
-    --accent: #3b82f6; --accent2: #60a5fa; --accent-glow: rgba(59,130,246,.12);
-    --green: #34d399; --green-glow: rgba(52,211,153,.12);
+    --bg: #09090b; --surface: #0f0f13; --surface2: #111118; --surface3: #16161e;
+    --border: #1e1e2e; --border2: #2a2a3a; --text: #e4e4e7; --text2: #a1a1aa; --text3: #71717a;
+    --accent: #10b981; --accent2: #34d399; --accent-glow: rgba(16,185,129,.12);
+    --green: #10b981; --green-glow: rgba(16,185,129,.12);
     --orange: #fbbf24; --pink: #f472b6; --purple: #a78bfa; --red: #f87171;
+    --blue: #3b82f6; --blue-glow: rgba(59,130,246,.12);
     --radius: 10px; --radius-lg: 14px;
-    --font: 'Geist', -apple-system, system-ui, sans-serif;
+    --font: 'Geist Sans', 'Geist', -apple-system, system-ui, sans-serif;
     --mono: 'Geist Mono', 'JetBrains Mono', monospace;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px rgba(0,0,0,.15);
-    --shadow-glow: 0 0 20px rgba(59,130,246,.08);
+    --shadow-glow: 0 0 20px rgba(16,185,129,.08);
   }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.55; overflow: hidden; }
 
@@ -31,7 +32,7 @@
 
   .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface2) 0%, var(--surface) 100%); }
   .logo { display: flex; align-items: center; gap: 10px; }
-  .logo-icon { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--accent) 0%, #818cf8 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(59,130,246,.25); }
+  .logo-icon { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--accent) 0%, #6ee7b7 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(16,185,129,.25); }
   .logo-icon svg { width: 16px; height: 16px; fill: white; }
   .logo-text { font-size: 14px; font-weight: 600; letter-spacing: -0.03em; color: var(--text); }
   .logo-sub { color: var(--text2); font-weight: 400; }
@@ -83,7 +84,7 @@
 
   .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: var(--mono); margin: 2px; font-weight: 500; border: 1px solid transparent; transition: all .15s; }
   .badge:hover { filter: brightness(1.2); }
-  .badge-fn { background: rgba(59,130,246,.1); color: var(--accent2); border-color: rgba(59,130,246,.15); }
+  .badge-fn { background: rgba(59,130,246,.1); color: #60a5fa; border-color: rgba(59,130,246,.15); }
   .badge-type { background: rgba(167,139,250,.1); color: var(--purple); border-color: rgba(167,139,250,.15); }
   .badge-const { background: rgba(52,211,153,.1); color: var(--green); border-color: rgba(52,211,153,.15); }
   .badge-class { background: rgba(251,191,36,.1); color: var(--orange); border-color: rgba(251,191,36,.15); }
@@ -103,7 +104,7 @@
   .change-header { display: flex; align-items: center; gap: 8px; }
   .change-event { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px; }
   .change-event.add { background: var(--green-glow); color: var(--green); border: 1px solid rgba(52,211,153,.2); }
-  .change-event.change { background: var(--accent-glow); color: var(--accent2); border: 1px solid rgba(59,130,246,.2); }
+  .change-event.change { background: var(--blue-glow); color: #60a5fa; border: 1px solid rgba(59,130,246,.2); }
   .change-event.delete { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.2); }
   .change-time { font-size: 10px; color: var(--text3); font-family: var(--mono); white-space: nowrap; margin-left: auto; }
   .change-diff { font-size: 11px; color: var(--text2); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
