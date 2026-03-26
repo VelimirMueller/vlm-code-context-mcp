@@ -1,5 +1,7 @@
 # code-context-mcp
 
+[![CI](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml)
+
 AI agents waste most of their context window reading raw source files just to understand what a codebase does. This MCP server pre-indexes your project into a SQLite database so agents can query structured metadata instead — **3x fewer tokens, 8x less data, instant answers.**
 
 ```
