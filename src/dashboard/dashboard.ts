@@ -301,6 +301,68 @@ function apiPlanSprint(body: any) {
   return { id: sprintId, name, tickets_assigned: ticket_ids.length };
 }
 
+// ─── Dump / Restore / Project Status API ────────────────────────────────────
+function apiDump() {
+  const allTables = [
+    "agents", "sprints", "tickets", "subtasks", "retro_findings",
+    "blockers", "bugs", "skills", "processes", "milestones",
+    "files", "exports", "dependencies", "directories", "changes"
+  ];
+  const dump: Record<string, any[]> = {};
+  for (const table of allTables) {
+    try { dump[table] = writeDb.prepare(`SELECT * FROM ${table}`).all(); } catch {}
+  }
+  return { version: "2.0.0", exported_at: new Date().toISOString(), tables: dump };
+}
+
+async function apiRestore(body: any) {
+  if (!body.version || !body.tables) return { error: "Invalid dump format" };
+
+  const order = [
+    "milestones", "agents", "skills", "processes",
+    "sprints", "tickets", "subtasks",
+    "retro_findings", "blockers", "bugs",
+    "files", "exports", "dependencies", "directories", "changes"
+  ];
+
+  const results: Record<string, number> = {};
+  const transaction = writeDb.transaction(() => {
+    for (const table of order) {
+      const rows = body.tables[table];
+      if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
+      const cols = Object.keys(rows[0]);
+      const stmt = writeDb.prepare(
+        `INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`
+      );
+      let count = 0;
+      for (const row of rows) { stmt.run(...cols.map((c: string) => row[c] ?? null)); count++; }
+      results[table] = count;
+    }
+  });
+  transaction();
+
+  return { ok: true, restored: results };
+}
+
+function apiProjectStatus() {
+  const fileCount = (writeDb.prepare("SELECT COUNT(*) as c FROM files").get() as any).c;
+  const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+  const sprintCount = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c;
+  const ticketCount = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets").get() as any).c;
+  const skillCount = (writeDb.prepare("SELECT COUNT(*) as c FROM skills").get() as any).c;
+  const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
+
+  return {
+    initialized: fileCount > 0,
+    files: fileCount,
+    agents: agentCount,
+    sprints: sprintCount,
+    tickets: ticketCount,
+    skills: skillCount,
+    milestones: milestoneCount,
+  };
+}
+
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -377,6 +439,12 @@ const server = http.createServer(async (req, res) => {
         data = apiSprintDetail(sid);
         if (!data) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
       }
+      else if (url.pathname === "/api/dump") data = apiDump();
+      else if (url.pathname === "/api/restore" && req.method === "POST") {
+        const body = await readBody(req);
+        data = await apiRestore(body);
+      }
+      else if (url.pathname === "/api/project/status") data = apiProjectStatus();
       else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
         const id = Number(url.pathname.split("/")[3]);
         data = apiFileChanges(id, Number(url.searchParams.get("limit") ?? 50));
