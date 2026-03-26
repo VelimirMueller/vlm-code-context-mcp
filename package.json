@@ -1,7 +1,7 @@
 {
   "name": "vlm-code-context-mcp",
   "version": "2.0.0",
-  "description": "Pre-index your codebase so AI agents can query structured metadata instead of reading raw files — 3x fewer tokens, 8x less data",
+  "description": "AI-powered virtual IT department via MCP — codebase intelligence, 9-agent scrum team, sprint management, and React dashboard in one npm package",
   "type": "module",
   "main": "dist/server/index.js",
   "bin": {
@@ -51,10 +51,20 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "code-context",
     "codebase-indexer",
-    "model-context-protocol",
-    "sqlite"
+    "ai-agents",
+    "scrum",
+    "sprint-management",
+    "virtual-team",
+    "sqlite",
+    "react-dashboard",
+    "claude",
+    "developer-tools",
+    "project-management",
+    "kanban",
+    "retrospective"
   ],
   "repository": {
     "type": "git",
