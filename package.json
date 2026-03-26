@@ -1,7 +1,7 @@
 {
   "name": "vlm-code-context-mcp",
   "version": "1.0.0",
-  "description": "MCP server that indexes codebases and exposes file metadata, exports, and dependency graphs",
+  "description": "Pre-index your codebase so AI agents can query structured metadata instead of reading raw files — 3x fewer tokens, 8x less data",
   "type": "module",
   "main": "dist/server/index.js",
   "bin": {
