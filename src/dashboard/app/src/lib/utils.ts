@@ -1,4 +1,4 @@
-import type { Milestone } from '@/types';
+import type { Milestone, Sprint } from '@/types';
 
 /**
  * Parse the MILESTONES skill markdown into structured Milestone objects.
@@ -50,6 +50,27 @@ export function parseMilestoneMarkdown(content: string): Milestone[] {
   }
 
   return milestones;
+}
+
+/**
+ * Map a milestone to its sprint IDs based on chronological ordering.
+ * - Milestone 1 (Production Foundation): first 4 sprints
+ * - Milestone 3 (Ecosystem Growth): sprint-11-mcp-bootstrap and beyond
+ * - Milestone 2 (Dashboard & Process Platform): everything else
+ */
+export function getMilestoneSprintIds(milestoneName: string, sprints: Sprint[]): number[] {
+  const sorted = [...sprints].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+
+  if (milestoneName.includes('Production Foundation') || milestoneName.includes('Milestone 1')) {
+    return sorted.slice(0, 4).map(s => s.id);
+  }
+  if (milestoneName.includes('Ecosystem') || milestoneName.includes('Milestone 3')) {
+    return sorted.filter(s => s.name.includes('mcp-bootstrap') || s.name.includes('sprint-11')).map(s => s.id);
+  }
+  // Milestone 2: everything not in M1 or M3
+  const m1Ids = new Set(sorted.slice(0, 4).map(s => s.id));
+  const m3Names = ['mcp-bootstrap', 'sprint-11'];
+  return sorted.filter(s => !m1Ids.has(s.id) && !m3Names.some(n => s.name.includes(n))).map(s => s.id);
 }
 
 export function fmtSize(bytes: number): string {
