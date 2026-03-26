@@ -4,8 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import chokidar from "chokidar";
-import { indexDirectory } from "./indexer.js";
-import { initSchema } from "./schema.js";
+import { indexDirectory } from "../server/indexer.js";
+import { initSchema } from "../server/schema.js";
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);

@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "description": "MCP server that indexes codebases and exposes file metadata, exports, and dependency graphs",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/server/index.js",
   "bin": {
-    "code-context-mcp": "dist/index.js"
+    "code-context-mcp": "dist/server/index.js"
   },
   "scripts": {
     "build": "tsc",
     "postinstall": "npm run build",
-    "start": "node dist/index.js",
-    "dev": "tsx src/dashboard.ts",
-    "dashboard": "tsx src/dashboard.ts",
-    "setup": "node dist/setup.js",
+    "start": "node dist/server/index.js",
+    "dev": "tsx src/dashboard/dashboard.ts",
+    "dashboard": "tsx src/dashboard/dashboard.ts",
+    "setup": "node dist/server/setup.js",
     "test": "123"
   },
   "dependencies": {
