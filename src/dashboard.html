@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Context Explorer</title>
+<link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/style.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #08090a; --surface: #111214; --surface2: #191b1f; --surface3: #21232a;
+    --border: #1e2028; --border2: #2a2d38; --text: #e8eaf0; --text2: #8b8fa4; --text3: #565a6e;
+    --accent: #3b82f6; --accent2: #60a5fa; --accent-glow: rgba(59,130,246,.12);
+    --green: #34d399; --green-glow: rgba(52,211,153,.12);
+    --orange: #fbbf24; --pink: #f472b6; --purple: #a78bfa; --red: #f87171;
+    --radius: 10px; --radius-lg: 14px;
+    --font: 'Geist', -apple-system, system-ui, sans-serif;
+    --mono: 'Geist Mono', 'JetBrains Mono', monospace;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px rgba(0,0,0,.15);
+    --shadow-glow: 0 0 20px rgba(59,130,246,.08);
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.55; overflow: hidden; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+  .app { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 56px 1fr 32px; height: 100vh; }
+
+  .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface2) 0%, var(--surface) 100%); }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--accent) 0%, #818cf8 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(59,130,246,.25); }
+  .logo-icon svg { width: 16px; height: 16px; fill: white; }
+  .logo-text { font-size: 14px; font-weight: 600; letter-spacing: -0.03em; color: var(--text); }
+  .logo-sub { color: var(--text2); font-weight: 400; }
+
+  .search-wrap { position: relative; margin-left: 24px; }
+  .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; fill: none; stroke: var(--text3); stroke-width: 2; }
+  .search { width: 260px; padding: 7px 12px 7px 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px; font-family: var(--font); outline: none; transition: all .2s; }
+  .search::placeholder { color: var(--text3); }
+  .search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-glow); background: var(--surface2); }
+
+  .stats { display: flex; gap: 6px; margin-left: auto; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; display: flex; flex-direction: column; align-items: center; min-width: 64px; transition: all .2s; }
+  .stat:hover { border-color: var(--border2); background: var(--surface2); }
+  .stat .n { font-size: 16px; font-weight: 700; color: var(--accent2); font-family: var(--mono); line-height: 1.2; }
+  .stat .l { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; margin-left: 12px; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  .sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
+  .sidebar-head { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .sidebar-head .count { background: var(--surface3); color: var(--text2); font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+  .sidebar-body { overflow-y: auto; flex: 1; min-height: 0; padding: 6px; }
+
+  .file-item { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all .15s; border: 1px solid transparent; margin-bottom: 2px; position: relative; }
+  .file-item:hover { background: var(--surface2); border-color: var(--border); }
+  .file-item.active { background: var(--accent-glow); border-color: rgba(59,130,246,.3); box-shadow: inset 0 0 0 1px rgba(59,130,246,.1); }
+  .file-item.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
+  .file-row { display: flex; align-items: center; gap: 8px; }
+  .file-lang-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .file-path { font-family: var(--mono); font-size: 11.5px; color: var(--accent2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta { font-size: 10.5px; color: var(--text3); margin-top: 3px; padding-left: 16px; }
+  .file-summary { font-size: 11px; color: var(--text2); margin-top: 3px; padding-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 8px; background: var(--surface); }
+  .tab { padding: 10px 18px; font-size: 12px; font-weight: 500; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; position: relative; }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
+  .tab-content.active { display: block; }
+
+  .detail-section { margin: 0; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .detail-section:last-child { border-bottom: none; }
+  .detail-section h3 { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; font-weight: 600; }
+  .detail-title { font-family: var(--mono); font-size: 13px; color: var(--text); word-break: break-all; font-weight: 500; }
+  .detail-meta { font-size: 11.5px; color: var(--text2); margin-top: 6px; font-family: var(--mono); }
+  .detail-desc { font-size: 12px; color: var(--text2); margin-top: 8px; line-height: 1.5; }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: var(--mono); margin: 2px; font-weight: 500; border: 1px solid transparent; transition: all .15s; }
+  .badge:hover { filter: brightness(1.2); }
+  .badge-fn { background: rgba(59,130,246,.1); color: var(--accent2); border-color: rgba(59,130,246,.15); }
+  .badge-type { background: rgba(167,139,250,.1); color: var(--purple); border-color: rgba(167,139,250,.15); }
+  .badge-const { background: rgba(52,211,153,.1); color: var(--green); border-color: rgba(52,211,153,.15); }
+  .badge-class { background: rgba(251,191,36,.1); color: var(--orange); border-color: rgba(251,191,36,.15); }
+  .badge-interface { background: rgba(244,114,182,.1); color: var(--pink); border-color: rgba(244,114,182,.15); }
+  .badge-pkg { background: var(--surface2); color: var(--text2); border-color: var(--border); }
+
+  .dep-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all .15s; border: 1px solid transparent; }
+  .dep-item:hover { background: var(--surface2); border-color: var(--border); }
+  .dep-path { font-family: var(--mono); font-size: 11px; color: var(--accent2); font-weight: 500; }
+  .dep-symbols { font-size: 10.5px; color: var(--text3); font-family: var(--mono); }
+
+  .empty { padding: 48px 32px; text-align: center; color: var(--text3); font-size: 13px; }
+  .empty-icon { font-size: 28px; margin-bottom: 12px; opacity: .4; }
+
+  .change-item { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); margin: 0 8px 6px; background: var(--surface); transition: all .15s; }
+  .change-item:hover { border-color: var(--border2); box-shadow: var(--shadow-sm); }
+  .change-header { display: flex; align-items: center; gap: 8px; }
+  .change-event { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px; }
+  .change-event.add { background: var(--green-glow); color: var(--green); border: 1px solid rgba(52,211,153,.2); }
+  .change-event.change { background: var(--accent-glow); color: var(--accent2); border: 1px solid rgba(59,130,246,.2); }
+  .change-event.delete { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.2); }
+  .change-time { font-size: 10px; color: var(--text3); font-family: var(--mono); white-space: nowrap; margin-left: auto; }
+  .change-diff { font-size: 11px; color: var(--text2); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .change-diff .old { color: var(--red); font-family: var(--mono); font-size: 10.5px; }
+  .change-diff .new { color: var(--green); font-family: var(--mono); font-size: 10.5px; }
+  .change-diff .ctx { color: var(--text3); font-size: 10.5px; }
+
+  .diff-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-family: var(--mono); font-size: 11px; line-height: 1.7; overflow-x: auto; white-space: pre; max-height: 320px; overflow-y: auto; }
+  .diff-block .dl { color: var(--red); background: rgba(248,113,113,.06); display: block; margin: 0 -12px; padding: 0 12px; }
+  .diff-block .al { color: var(--green); background: rgba(52,211,153,.06); display: block; margin: 0 -12px; padding: 0 12px; }
+  .diff-block .ctx { color: var(--text3); display: block; }
+  .diff-block .sep { color: var(--text3); opacity: .3; display: block; }
+  .diff-toggle { font-size: 11px; color: var(--accent2); cursor: pointer; margin-top: 6px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
+  .diff-toggle:hover { color: var(--accent); }
+
+  canvas { width: 100%; height: 100%; display: block; }
+
+  .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid var(--border); background: var(--surface); font-size: 11px; color: var(--text3); font-family: var(--mono); }
+  .statusbar .sep { width: 1px; height: 14px; background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+      <div class="logo-text">Code Context <span class="logo-sub">Explorer</span></div>
+    </div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="search" id="search" placeholder="Search files..." autocomplete="off">
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="live-dot" title="Live"></div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-head">Files <span class="count" id="file-count">0</span></div>
+    <div class="sidebar-body" id="file-list"></div>
+  </div>
+
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active" data-tab="detail">Detail</div>
+      <div class="tab" data-tab="changes">Changes</div>
+      <div class="tab" data-tab="graph">Graph</div>
+    </div>
+    <div class="tab-content active" id="tab-detail" style="flex:1;overflow-y:auto;">
+      <div class="empty" id="detail-empty"><div class="empty-icon">&#9776;</div>Select a file to inspect</div>
+      <div id="detail" style="display:none;"></div>
+    </div>
+    <div class="tab-content" id="tab-changes" style="flex:1;overflow-y:auto;padding-top:8px;">
+      <div class="empty" id="changes-empty"><div class="empty-icon">&#9716;</div>Select a file to view its changes</div>
+      <div id="changes-list"></div>
+    </div>
+    <div class="tab-content" id="tab-graph" style="flex:1;position:relative;">
+      <canvas id="graph"></canvas>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span id="status-files">0 files</span>
+    <div class="sep"></div>
+    <span id="status-lines">0 lines</span>
+    <div class="sep"></div>
+    <span id="status-size">0 B</span>
+    <div class="sep"></div>
+    <span id="status-lang">&mdash;</span>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let allFiles = [];
+let graphData = null;
+
+const langColors = {
+  typescript: '#3178c6', typescriptreact: '#3178c6',
+  javascript: '#f7df1e', javascriptreact: '#f7df1e',
+  python: '#3572a5', ruby: '#cc342d', rust: '#dea584', go: '#00add8',
+  json: '#a1a1aa', yaml: '#cb171e', markdown: '#083fa1', html: '#e34c26',
+  css: '#563d7c', scss: '#c6538c', shell: '#89e051', docker: '#384d54',
+  unknown: '#565a6e',
+};
+
+function fmtSize(b) { if (b == null) return '?'; if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
+
+async function init() {
+  const [files, stats, graph] = await Promise.all([
+    fetch('/api/files').then(r => r.json()),
+    fetch('/api/stats').then(r => r.json()),
+    fetch('/api/graph').then(r => r.json()),
+  ]);
+  allFiles = files;
+  graphData = graph;
+  renderStats(stats);
+  renderFiles(files);
+  renderGraph();
+  $('#file-count').textContent = files.length;
+  $('#status-files').textContent = stats.files + ' files';
+  $('#status-lines').textContent = stats.totalLines.toLocaleString() + ' lines';
+  $('#status-size').textContent = fmtSize(stats.totalSize);
+  const topLang = stats.languages[0];
+  $('#status-lang').textContent = topLang ? topLang.language + ' (' + topLang.c + ')' : '\u2014';
+}
+
+function renderStats(s) {
+  const el = $('#stats');
+  el.textContent = '';
+  [{n: s.files, l: 'Files'}, {n: s.exports, l: 'Exports'}, {n: s.deps, l: 'Deps'}, {n: s.totalLines.toLocaleString(), l: 'Lines'}, {n: fmtSize(s.totalSize), l: 'Size'}].forEach(item => {
+    const div = document.createElement('div'); div.className = 'stat';
+    const nEl = document.createElement('div'); nEl.className = 'n'; nEl.textContent = item.n;
+    const lEl = document.createElement('div'); lEl.className = 'l'; lEl.textContent = item.l;
+    div.appendChild(nEl); div.appendChild(lEl);
+    el.appendChild(div);
+  });
+}
+
+function renderFiles(files) {
+  const el = $('#file-list');
+  el.textContent = '';
+  if (!files.length) {
+    const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No files indexed';
+    el.appendChild(empty); return;
+  }
+  files.forEach(f => {
+    const short = f.path.split('/').slice(-2).join('/');
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.dataset.id = f.id;
+
+    const row = document.createElement('div'); row.className = 'file-row';
+    const dot = document.createElement('div'); dot.className = 'file-lang-dot'; dot.style.background = langColors[f.language] || langColors.unknown;
+    const pathEl = document.createElement('div'); pathEl.className = 'file-path'; pathEl.textContent = short;
+    row.appendChild(dot); row.appendChild(pathEl);
+
+    const metaEl = document.createElement('div'); metaEl.className = 'file-meta';
+    metaEl.textContent = f.line_count + ' lines \u00B7 ' + fmtSize(f.size_bytes) + ' \u00B7 ' + f.export_count + ' exp';
+
+    item.appendChild(row); item.appendChild(metaEl);
+    if (f.summary) {
+      const sumEl = document.createElement('div'); sumEl.className = 'file-summary'; sumEl.textContent = f.summary;
+      item.appendChild(sumEl);
+    }
+    item.addEventListener('click', () => selectFile(f.id));
+    el.appendChild(item);
+  });
+}
+
+let selectedFileId = null;
+
+async function selectFile(id) {
+  selectedFileId = id;
+  $$('.file-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
+  const data = await fetch('/api/file/' + id).then(r => r.json());
+  renderDetail(data);
+  loadFileChanges(id);
+}
+
+function badgeClass(kind) {
+  const map = { 'function': 'badge-fn', 'type': 'badge-type', 'enum': 'badge-type', 'const': 'badge-const', 'class': 'badge-class', 'interface': 'badge-interface' };
+  return map[kind] || 'badge-pkg';
+}
+
+function createBadge(text, kind) {
+  const el = document.createElement('span');
+  el.className = 'badge ' + badgeClass(kind);
+  el.textContent = text;
+  return el;
+}
+
+function createDepItem(d) {
+  const short = d.path.split('/').slice(-2).join('/');
+  const item = document.createElement('div');
+  item.className = 'dep-item';
+  item.dataset.id = d.id;
+  const pathEl = document.createElement('div'); pathEl.className = 'dep-path'; pathEl.textContent = short;
+  const symEl = document.createElement('div'); symEl.className = 'dep-symbols'; symEl.textContent = d.symbols || '*';
+  item.appendChild(pathEl); item.appendChild(symEl);
+  item.addEventListener('click', () => selectFile(d.id));
+  return item;
+}
+
+function renderDetail(d) {
+  $('#detail-empty').style.display = 'none';
+  const el = $('#detail');
+  el.style.display = 'block';
+  el.textContent = '';
+
+  const titleSection = document.createElement('div'); titleSection.className = 'detail-section';
+  const title = document.createElement('div'); title.className = 'detail-title'; title.textContent = d.path;
+  const meta = document.createElement('div'); meta.className = 'detail-meta';
+  meta.textContent = d.language + ' \u00B7 ' + (d.line_count || 0) + ' lines \u00B7 ' + fmtSize(d.size_bytes || 0);
+  const meta2 = document.createElement('div'); meta2.className = 'detail-meta'; meta2.style.marginTop = '2px';
+  meta2.textContent = 'Modified ' + (d.modified_at || '\u2014') + ' \u00B7 Indexed ' + (d.indexed_at || '\u2014');
+  titleSection.appendChild(title); titleSection.appendChild(meta); titleSection.appendChild(meta2);
+  if (d.description) {
+    const desc = document.createElement('div'); desc.className = 'detail-desc'; desc.textContent = d.description;
+    titleSection.appendChild(desc);
+  }
+  if (d.summary && d.summary !== d.description) {
+    const sum = document.createElement('div'); sum.style.cssText = 'font-size:11px;color:var(--text3);margin-top:4px;'; sum.textContent = d.summary;
+    titleSection.appendChild(sum);
+  }
+  el.appendChild(titleSection);
+
+  if (d.exports.length) {
+    const expSection = document.createElement('div'); expSection.className = 'detail-section';
+    const expH = document.createElement('h3'); expH.textContent = 'Exports (' + d.exports.length + ')';
+    expSection.appendChild(expH);
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+    d.exports.forEach(e => wrap.appendChild(createBadge(e.name, e.kind)));
+    expSection.appendChild(wrap);
+    el.appendChild(expSection);
+  }
+
+  if (d.external_imports) {
+    const pkgSection = document.createElement('div'); pkgSection.className = 'detail-section';
+    const pkgH = document.createElement('h3'); pkgH.textContent = 'Packages';
+    pkgSection.appendChild(pkgH);
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+    d.external_imports.split(', ').forEach(p => { wrap.appendChild(createBadge(p, 'pkg')); });
+    pkgSection.appendChild(wrap);
+    el.appendChild(pkgSection);
+  }
+
+  if (d.imports.length) {
+    const impSection = document.createElement('div'); impSection.className = 'detail-section';
+    const impH = document.createElement('h3'); impH.textContent = 'Imports (' + d.imports.length + ')';
+    impSection.appendChild(impH);
+    d.imports.forEach(i => impSection.appendChild(createDepItem(i)));
+    el.appendChild(impSection);
+  }
+
+  if (d.importedBy.length) {
+    const bySection = document.createElement('div'); bySection.className = 'detail-section';
+    const byH = document.createElement('h3'); byH.textContent = 'Imported By (' + d.importedBy.length + ')';
+    bySection.appendChild(byH);
+    d.importedBy.forEach(i => bySection.appendChild(createDepItem(i)));
+    el.appendChild(bySection);
+  }
+}
+
+$('#search').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase();
+  const filtered = allFiles.filter(f => f.path.toLowerCase().includes(q) || (f.summary || '').toLowerCase().includes(q));
+  renderFiles(filtered);
+  $('#file-count').textContent = filtered.length;
+});
+
+$$('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.tab').forEach(t => t.classList.remove('active'));
+    $$('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    $('#tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'graph') renderGraph();
+    if (tab.dataset.tab === 'changes') loadFileChanges(selectedFileId);
+  });
+});
+
+function renderGraph() {
+  if (!graphData || !graphData.nodes.length) return;
+  const canvas = $('#graph');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  const W = rect.width, H = rect.height;
+
+  const nodes = graphData.nodes.map(n => ({
+    ...n, x: W/2 + (Math.random()-.5)*W*.6, y: H/2 + (Math.random()-.5)*H*.6, vx: 0, vy: 0,
+  }));
+  const idMap = {};
+  nodes.forEach(n => idMap[n.id] = n);
+  const edges = graphData.edges.filter(e => idMap[e.source] && idMap[e.target]);
+
+  for (let iter = 0; iter < 250; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i+1; j < nodes.length; j++) {
+        let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+        let d = Math.sqrt(dx*dx + dy*dy) || 1;
+        let f = 10000 / (d * d);
+        nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
+        nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
+      }
+    }
+    for (const e of edges) {
+      const s = idMap[e.source], t = idMap[e.target];
+      let dx = t.x-s.x, dy = t.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+      let f = (d-140)*0.05;
+      s.vx += dx/d*f; s.vy += dy/d*f;
+      t.vx -= dx/d*f; t.vy -= dy/d*f;
+    }
+    for (const n of nodes) {
+      n.vx += (W/2-n.x)*0.008; n.vy += (H/2-n.y)*0.008;
+      n.x += n.vx*0.3; n.y += n.vy*0.3;
+      n.vx *= 0.55; n.vy *= 0.55;
+      n.x = Math.max(80, Math.min(W-80, n.x));
+      n.y = Math.max(40, Math.min(H-40, n.y));
+    }
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  for (const e of edges) {
+    const s = idMap[e.source], t = idMap[e.target];
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = 'rgba(59,130,246,.12)'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = 'rgba(59,130,246,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+    const angle = Math.atan2(t.y-s.y, t.x-s.x);
+    const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
+    ctx.beginPath();
+    ctx.moveTo(mx+7*Math.cos(angle), my+7*Math.sin(angle));
+    ctx.lineTo(mx-7*Math.cos(angle-0.4), my-7*Math.sin(angle-0.4));
+    ctx.lineTo(mx-7*Math.cos(angle+0.4), my-7*Math.sin(angle+0.4));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(59,130,246,.45)'; ctx.fill();
+  }
+  for (const n of nodes) {
+    ctx.beginPath(); ctx.arc(n.x, n.y, 14, 0, Math.PI*2);
+    const glow = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, 14);
+    glow.addColorStop(0, 'rgba(59,130,246,.2)');
+    glow.addColorStop(1, 'rgba(59,130,246,0)');
+    ctx.fillStyle = glow; ctx.fill();
+    ctx.beginPath(); ctx.arc(n.x, n.y, 5, 0, Math.PI*2);
+    ctx.fillStyle = '#3b82f6'; ctx.fill();
+    ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.font = '500 11px Geist, system-ui, sans-serif';
+    ctx.fillStyle = '#8b8fa4'; ctx.textAlign = 'center';
+    ctx.fillText(n.label, n.x, n.y + 20);
+  }
+}
+
+window.addEventListener('resize', renderGraph);
+
+function span(cls, text) { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; }
+
+async function loadFileChanges(id) {
+  const el = $('#changes-list');
+  const empty = $('#changes-empty');
+  el.textContent = '';
+
+  if (!id) { empty.textContent = 'Select a file to view its changes'; empty.style.display = 'block'; return; }
+
+  const changes = await fetch('/api/file/' + id + '/changes?limit=50').then(r => r.json());
+  if (!changes.length) { empty.textContent = 'No changes recorded for this file'; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  changes.forEach(c => {
+    const item = document.createElement('div'); item.className = 'change-item';
+
+    const header = document.createElement('div'); header.className = 'change-header';
+    const badge = document.createElement('span'); badge.className = 'change-event ' + c.event; badge.textContent = c.event;
+    const ts = document.createElement('span'); ts.className = 'change-time'; ts.textContent = c.timestamp;
+    header.appendChild(badge); header.appendChild(ts);
+    item.appendChild(header);
+
+    if (c.event === 'change') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      if (c.old_line_count !== c.new_line_count) {
+        const delta = c.new_line_count - c.old_line_count;
+        diff.append(span('old', c.old_line_count + ' lines'), span('ctx', ' \u2192 '), span('new', c.new_line_count + ' lines (' + (delta>=0?'+':'') + delta + ')'));
+      }
+      if (c.old_size_bytes !== c.new_size_bytes) {
+        const delta = c.new_size_bytes - c.old_size_bytes;
+        diff.append(span('old', fmtSize(c.old_size_bytes)), span('ctx', ' \u2192 '), span('new', fmtSize(c.new_size_bytes) + ' (' + (delta>=0?'+':'') + delta + 'B)'));
+      }
+      if (diff.childNodes.length) item.appendChild(diff);
+
+      if (c.diff_text) {
+        const toggle = document.createElement('div'); toggle.className = 'diff-toggle'; toggle.textContent = '\u25B6 View diff';
+        const block = document.createElement('div'); block.className = 'diff-block'; block.style.display = 'none';
+        c.diff_text.split('\n').forEach(line => {
+          const lineEl = document.createElement('div');
+          if (line.startsWith('+ ')) { lineEl.className = 'al'; }
+          else if (line.startsWith('- ')) { lineEl.className = 'dl'; }
+          else if (line === '---') { lineEl.className = 'sep'; }
+          else { lineEl.className = 'ctx'; }
+          lineEl.textContent = line;
+          block.appendChild(lineEl);
+        });
+        toggle.addEventListener('click', () => {
+          const visible = block.style.display !== 'none';
+          block.style.display = visible ? 'none' : 'block';
+          toggle.textContent = visible ? '\u25B6 View diff' : '\u25BC Hide diff';
+        });
+        item.appendChild(toggle);
+        item.appendChild(block);
+      }
+    } else if (c.event === 'add') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      diff.appendChild(span('new', '+ ' + (c.new_line_count || 0) + ' lines \u00B7 ' + fmtSize(c.new_size_bytes)));
+      item.appendChild(diff);
+    } else if (c.event === 'delete') {
+      const diff = document.createElement('div'); diff.className = 'change-diff';
+      diff.appendChild(span('old', '- removed \u00B7 was ' + (c.old_line_count || 0) + ' lines'));
+      item.appendChild(diff);
+    }
+
+    el.appendChild(item);
+  });
+}
+
+init();
+loadFileChanges(null);
+
+const es = new EventSource('/api/events');
+es.onmessage = (e) => {
+  if (e.data === 'updated') {
+    const activeId = document.querySelector('.file-item.active');
+    const activeIdVal = activeId ? activeId.dataset.id : null;
+    init().then(() => { if (activeIdVal) selectFile(Number(activeIdVal)); else loadFileChanges(null); });
+  }
+};
+</script>
+</body>
+</html>
