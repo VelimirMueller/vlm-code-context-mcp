@@ -42,6 +42,22 @@ export function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_deps_source ON dependencies(source_id);
     CREATE INDEX IF NOT EXISTS idx_deps_target ON dependencies(target_id);
 
+    CREATE TABLE IF NOT EXISTS directories (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      path             TEXT UNIQUE NOT NULL,
+      name             TEXT NOT NULL,
+      parent_path      TEXT,
+      depth            INTEGER NOT NULL DEFAULT 0,
+      file_count       INTEGER NOT NULL DEFAULT 0,
+      total_size_bytes INTEGER NOT NULL DEFAULT 0,
+      total_lines      INTEGER NOT NULL DEFAULT 0,
+      language_breakdown TEXT,
+      indexed_at       TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dirs_path ON directories(path);
+    CREATE INDEX IF NOT EXISTS idx_dirs_parent ON directories(parent_path);
+
     CREATE TABLE IF NOT EXISTS changes (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       file_path TEXT NOT NULL,

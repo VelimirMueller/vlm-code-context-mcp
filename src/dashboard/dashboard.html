@@ -57,15 +57,24 @@
   .sidebar-head .count { background: var(--surface3); color: var(--text2); font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
   .sidebar-body { overflow-y: auto; flex: 1; min-height: 0; padding: 6px; }
 
-  .file-item { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all .15s; border: 1px solid transparent; margin-bottom: 2px; position: relative; }
+  .tree-folder { user-select: none; }
+  .tree-folder-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; cursor: pointer; transition: all .15s; font-family: var(--mono); font-size: 11.5px; color: var(--text2); font-weight: 500; }
+  .tree-folder-head:hover { background: var(--surface2); color: var(--text); }
+  .tree-folder-head .chevron { width: 14px; height: 14px; flex-shrink: 0; transition: transform .15s; color: var(--text3); }
+  .tree-folder-head .chevron.open { transform: rotate(90deg); }
+  .tree-folder-head .folder-icon { flex-shrink: 0; color: var(--accent2); font-size: 13px; }
+  .tree-folder-head .folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-folder-head .folder-count { font-size: 9px; color: var(--text3); background: var(--surface3); padding: 1px 5px; border-radius: 3px; margin-left: auto; flex-shrink: 0; }
+  .tree-children { overflow: hidden; padding-left: 12px; border-left: 1px solid var(--border); margin-left: 10px; }
+  .tree-children.collapsed { display: none; }
+
+  .file-item { padding: 5px 8px; border-radius: 6px; cursor: pointer; transition: all .15s; border: 1px solid transparent; margin-bottom: 1px; position: relative; display: flex; align-items: center; gap: 6px; }
   .file-item:hover { background: var(--surface2); border-color: var(--border); }
-  .file-item.active { background: var(--accent-glow); border-color: rgba(59,130,246,.3); box-shadow: inset 0 0 0 1px rgba(59,130,246,.1); }
-  .file-item.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
-  .file-row { display: flex; align-items: center; gap: 8px; }
-  .file-lang-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .file-path { font-family: var(--mono); font-size: 11.5px; color: var(--accent2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-meta { font-size: 10.5px; color: var(--text3); margin-top: 3px; padding-left: 16px; }
-  .file-summary { font-size: 11px; color: var(--text2); margin-top: 3px; padding-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item.active { background: var(--accent-glow); border-color: rgba(16,185,129,.3); box-shadow: inset 0 0 0 1px rgba(16,185,129,.1); }
+  .file-item.active::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
+  .file-lang-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .file-name { font-family: var(--mono); font-size: 11.5px; color: var(--accent2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-size { font-size: 9px; color: var(--text3); margin-left: auto; flex-shrink: 0; font-family: var(--mono); }
 
   .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
   .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 8px; background: var(--surface); }
@@ -194,15 +203,17 @@ const langColors = {
 function fmtSize(b) { if (b == null) return '?'; if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
 
 async function init() {
-  const [files, stats, graph] = await Promise.all([
+  const [files, stats, graph, dirs] = await Promise.all([
     fetch('/api/files').then(r => r.json()),
     fetch('/api/stats').then(r => r.json()),
     fetch('/api/graph').then(r => r.json()),
+    fetch('/api/directories').then(r => r.json()),
   ]);
   allFiles = files;
+  allDirs = dirs;
   graphData = graph;
   renderStats(stats);
-  renderFiles(files);
+  renderFileTree(files, dirs);
   renderGraph();
   $('#file-count').textContent = files.length;
   $('#status-files').textContent = stats.files + ' files';
@@ -224,35 +235,137 @@ function renderStats(s) {
   });
 }
 
-function renderFiles(files) {
+function renderFileTree(files, dirs) {
   const el = $('#file-list');
   el.textContent = '';
   if (!files.length) {
     const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No files indexed';
     el.appendChild(empty); return;
   }
+
+  // Build tree structure
+  const rootDir = dirs.length ? dirs.reduce((a, b) => a.path.length < b.path.length ? a : b).path : '';
+
+  // Group files by their parent directory
+  const filesByDir = new Map();
   files.forEach(f => {
-    const short = f.path.split('/').slice(-2).join('/');
+    const dir = f.path.substring(0, f.path.lastIndexOf('/'));
+    if (!filesByDir.has(dir)) filesByDir.set(dir, []);
+    filesByDir.get(dir).push(f);
+  });
+
+  // Build a nested directory structure
+  const dirChildren = new Map(); // parentPath -> [childDirPath]
+  const dirInfo = new Map();
+  dirs.forEach(d => {
+    dirInfo.set(d.path, d);
+    const parent = d.parent_path;
+    if (parent && parent.length >= rootDir.length) {
+      if (!dirChildren.has(parent)) dirChildren.set(parent, []);
+      dirChildren.get(parent).push(d.path);
+    }
+  });
+
+  const expandedDirs = new Set();
+
+  function createChevron() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', 'currentColor');
+    svg.className.baseVal = 'chevron';
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M6 3l5 5-5 5z');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function createFileItem(f) {
     const item = document.createElement('div');
     item.className = 'file-item';
     item.dataset.id = f.id;
-
-    const row = document.createElement('div'); row.className = 'file-row';
-    const dot = document.createElement('div'); dot.className = 'file-lang-dot'; dot.style.background = langColors[f.language] || langColors.unknown;
-    const pathEl = document.createElement('div'); pathEl.className = 'file-path'; pathEl.textContent = short;
-    row.appendChild(dot); row.appendChild(pathEl);
-
-    const metaEl = document.createElement('div'); metaEl.className = 'file-meta';
-    metaEl.textContent = f.line_count + ' lines \u00B7 ' + fmtSize(f.size_bytes) + ' \u00B7 ' + f.export_count + ' exp';
-
-    item.appendChild(row); item.appendChild(metaEl);
-    if (f.summary) {
-      const sumEl = document.createElement('div'); sumEl.className = 'file-summary'; sumEl.textContent = f.summary;
-      item.appendChild(sumEl);
-    }
+    const dot = document.createElement('div');
+    dot.className = 'file-lang-dot';
+    dot.style.background = langColors[f.language] || langColors.unknown;
+    const nameEl = document.createElement('div');
+    nameEl.className = 'file-name';
+    nameEl.textContent = f.path.split('/').pop();
+    const sizeEl = document.createElement('div');
+    sizeEl.className = 'file-size';
+    sizeEl.textContent = fmtSize(f.size_bytes);
+    item.appendChild(dot);
+    item.appendChild(nameEl);
+    item.appendChild(sizeEl);
     item.addEventListener('click', () => selectFile(f.id));
-    el.appendChild(item);
-  });
+    return item;
+  }
+
+  function renderDir(dirPath, container, depth) {
+    const childDirs = (dirChildren.get(dirPath) || []).sort();
+    const childFiles = (filesByDir.get(dirPath) || []).sort((a, b) => a.path.localeCompare(b.path));
+
+    // Render child directories first
+    childDirs.forEach(childPath => {
+      const info = dirInfo.get(childPath);
+      if (!info) return;
+      const folder = document.createElement('div');
+      folder.className = 'tree-folder';
+
+      const head = document.createElement('div');
+      head.className = 'tree-folder-head';
+
+      const chevron = createChevron();
+      const icon = document.createElement('span');
+      icon.className = 'folder-icon';
+      icon.textContent = '\uD83D\uDCC1';
+      const name = document.createElement('span');
+      name.className = 'folder-name';
+      name.textContent = info.name;
+      const count = document.createElement('span');
+      count.className = 'folder-count';
+      count.textContent = info.file_count;
+
+      head.appendChild(chevron);
+      head.appendChild(icon);
+      head.appendChild(name);
+      head.appendChild(count);
+
+      const children = document.createElement('div');
+      children.className = 'tree-children collapsed';
+
+      // Auto-expand first two levels
+      if (depth < 2) {
+        children.classList.remove('collapsed');
+        chevron.classList.add('open');
+        expandedDirs.add(childPath);
+      }
+
+      head.addEventListener('click', () => {
+        const isOpen = expandedDirs.has(childPath);
+        if (isOpen) {
+          expandedDirs.delete(childPath);
+          children.classList.add('collapsed');
+          chevron.classList.remove('open');
+        } else {
+          expandedDirs.add(childPath);
+          children.classList.remove('collapsed');
+          chevron.classList.add('open');
+        }
+      });
+
+      folder.appendChild(head);
+      folder.appendChild(children);
+      container.appendChild(folder);
+
+      renderDir(childPath, children, depth + 1);
+    });
+
+    // Render files in this directory
+    childFiles.forEach(f => {
+      container.appendChild(createFileItem(f));
+    });
+  }
+
+  renderDir(rootDir, el, 0);
 }
 
 let selectedFileId = null;
@@ -349,10 +462,29 @@ function renderDetail(d) {
   }
 }
 
+let allDirs = [];
 $('#search').addEventListener('input', (e) => {
   const q = e.target.value.toLowerCase();
+  if (!q) {
+    renderFileTree(allFiles, allDirs);
+    $('#file-count').textContent = allFiles.length;
+    return;
+  }
+  // When searching, show flat filtered list
   const filtered = allFiles.filter(f => f.path.toLowerCase().includes(q) || (f.summary || '').toLowerCase().includes(q));
-  renderFiles(filtered);
+  const el = $('#file-list');
+  el.textContent = '';
+  filtered.forEach(f => {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.dataset.id = f.id;
+    const dot = document.createElement('div'); dot.className = 'file-lang-dot'; dot.style.background = langColors[f.language] || langColors.unknown;
+    const nameEl = document.createElement('div'); nameEl.className = 'file-name'; nameEl.textContent = f.path.split('/').slice(-2).join('/');
+    const sizeEl = document.createElement('div'); sizeEl.className = 'file-size'; sizeEl.textContent = fmtSize(f.size_bytes);
+    item.appendChild(dot); item.appendChild(nameEl); item.appendChild(sizeEl);
+    item.addEventListener('click', () => selectFile(f.id));
+    el.appendChild(item);
+  });
   $('#file-count').textContent = filtered.length;
 });
 
