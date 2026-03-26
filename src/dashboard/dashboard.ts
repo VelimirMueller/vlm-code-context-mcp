@@ -7,6 +7,8 @@ import Database from "better-sqlite3";
 import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
+import { initScrumSchema } from "../scrum/schema.js";
+import { importScrumData } from "../scrum/import.js";
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -21,8 +23,16 @@ const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
 
-// Ensure changes table exists (for existing DBs created before this feature)
+// Ensure schemas exist
 initSchema(writeDb);
+initScrumSchema(writeDb);
+
+// Import scrum data from .claude/
+const claudeDir = path.resolve(path.dirname(dbPath), ".claude");
+const scrumImport = importScrumData(writeDb, claudeDir);
+if (scrumImport.agents + scrumImport.sprints > 0) {
+  console.log(`[scrum] Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets, ${scrumImport.skills} skills`);
+}
 
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
@@ -142,6 +152,91 @@ function apiFileChanges(id: number, limit: number) {
   `).all(file.path, limit);
 }
 
+// ─── Skills & Agents API ────────────────────────────────────────────────────
+function apiSkills() {
+  try { return writeDb.prepare(`SELECT name, content, owner_role, updated_at FROM skills ORDER BY name`).all(); }
+  catch { return []; }
+}
+
+function apiSkill(name: string) {
+  try { return writeDb.prepare(`SELECT * FROM skills WHERE name = ?`).get(name); }
+  catch { return null; }
+}
+
+function apiAgentsHealth() {
+  try {
+    const agents = writeDb.prepare(`
+      SELECT a.role, a.name, a.description, a.model,
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'DONE') as done_tickets,
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS')) as active_tickets,
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'BLOCKED') as blocked_tickets,
+        (SELECT COALESCE(SUM(story_points),0) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS')) as active_points
+      FROM agents a ORDER BY a.role
+    `).all() as any[];
+    // Compute mood: 0-100 scale from tickets + retro sentiment
+    return agents.map((a: any) => {
+      let mood = 50;
+      if (a.done_tickets > 0) mood += Math.min(a.done_tickets * 5, 30);
+      if (a.blocked_tickets > 0) mood -= a.blocked_tickets * 20;
+      if (a.active_points > 8) mood -= (a.active_points - 8) * 5;
+      if (a.done_tickets === 0 && a.active_tickets === 0) mood -= 15;
+      // Factor in retro sentiment — recent sprints weighted higher
+      try {
+        const retroPositive = (writeDb.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE role = ? AND category = 'went_well'`).get(a.role) as any)?.c || 0;
+        const retroNegative = (writeDb.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE role = ? AND category = 'went_wrong'`).get(a.role) as any)?.c || 0;
+        mood += Math.min(retroPositive * 2, 10); // positive retros boost mood
+        mood -= Math.min(retroNegative * 3, 15); // negative retros decrease mood more
+      } catch {}
+      mood = Math.max(0, Math.min(100, mood));
+      const emoji = mood >= 80 ? '😊' : mood >= 60 ? '🙂' : mood >= 40 ? '😐' : mood >= 20 ? '😟' : '😫';
+      const mood_label = mood >= 80 ? 'thriving' : mood >= 60 ? 'good' : mood >= 40 ? 'neutral' : mood >= 20 ? 'stressed' : 'burnout';
+      return { ...a, mood, mood_emoji: emoji, mood_label };
+    });
+  } catch { return []; }
+}
+
+// ─── Scrum API (uses writeDb since it owns the scrum schema + data) ─────────
+function apiSprints() {
+  try {
+    return writeDb.prepare(`
+      SELECT s.*,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
+        (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
+      FROM sprints s ORDER BY s.created_at DESC
+    `).all();
+  } catch { return []; }
+}
+
+function apiSprintDetail(id: number) {
+  try {
+    const sprint = writeDb.prepare(`SELECT * FROM sprints WHERE id = ?`).get(id);
+    if (!sprint) return null;
+    return sprint;
+  } catch { return null; }
+}
+
+function apiSprintTickets(sprintId: number) {
+  try {
+    return writeDb.prepare(`
+      SELECT id, ticket_ref, title, description, priority, status, assigned_to,
+        story_points, milestone, qa_verified, verified_by, acceptance_criteria, notes
+      FROM tickets WHERE sprint_id = ? ORDER BY priority, status
+    `).all(sprintId);
+  } catch { return []; }
+}
+
+function apiSprintRetro(sprintId: number) {
+  try {
+    return writeDb.prepare(`
+      SELECT id, role, category, finding, action_owner, action_applied
+      FROM retro_findings WHERE sprint_id = ? ORDER BY category
+    `).all(sprintId);
+  } catch { return []; }
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -168,6 +263,25 @@ const server = http.createServer((req, res) => {
       else if (url.pathname === "/api/stats") data = apiStats();
       else if (url.pathname === "/api/graph") data = apiGraph();
       else if (url.pathname === "/api/changes") data = apiChanges(Number(url.searchParams.get("limit") ?? 100));
+      else if (url.pathname === "/api/skills") data = apiSkills();
+      else if (url.pathname.startsWith("/api/skill/")) {
+        const skillName = decodeURIComponent(url.pathname.slice("/api/skill/".length));
+        data = apiSkill(skillName);
+        if (!data) { res.writeHead(404); res.end('{"error":"skill not found"}'); return; }
+      }
+      else if (url.pathname === "/api/agents") data = apiAgentsHealth();
+      else if (url.pathname === "/api/sprints") data = apiSprints();
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiSprintTickets(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiSprintRetro(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiSprintDetail(sid);
+        if (!data) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
+      }
       else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
         const id = Number(url.pathname.split("/")[3]);
         data = apiFileChanges(id, Number(url.searchParams.get("limit") ?? 50));

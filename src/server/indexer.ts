@@ -85,7 +85,7 @@ function parseExports(content: string): ParsedExport[] {
   while ((m = defaultRe.exec(content)) !== null) {
     results.push({ name: m[2], kind: m[1] === "function" ? "function" : "class" });
   }
-  const namedRe = /export\s+(function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
+  const namedRe = /export\s+(?:async\s+)?(function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
   while ((m = namedRe.exec(content)) !== null) {
     const kind = ["let", "var"].includes(m[1]) ? "const" : m[1];
     results.push({ name: m[2], kind });
@@ -94,6 +94,13 @@ function parseExports(content: string): ParsedExport[] {
   while ((m = reExportRe.exec(content)) !== null) {
     m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
       if (parts[0]) results.push({ name: parts[0], kind: "re-export" });
+    });
+  }
+  const reExportFromRe = /export\s+\{([^}]+)\}\s*from\s+['"][^'"]+['"]/g;
+  while ((m = reExportFromRe.exec(content)) !== null) {
+    m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
+      const name = parts.length > 1 ? parts[1] : parts[0];
+      if (name) results.push({ name, kind: "re-export" });
     });
   }
   return results;
@@ -230,12 +237,15 @@ function walkDir(dir: string): string[] {
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".") && entry.name !== ".env") continue;
     const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue; // skip symlinks to avoid loops
     if (entry.isDirectory()) {
-      results.push(...walkDir(full));
+      try { results.push(...walkDir(full)); } catch { /* skip inaccessible dirs */ }
     } else {
       const ext = path.extname(entry.name).toLowerCase();
       if (BINARY_EXTENSIONS.has(ext)) continue;
       if (SKIP_FILES.has(entry.name)) continue;
+      // Skip files > 5MB
+      try { if (fs.statSync(full).size > 5 * 1024 * 1024) { console.warn(`[indexer] Skipping large file: ${full}`); continue; } } catch { continue; }
       results.push(full);
     }
   }
@@ -515,6 +525,8 @@ function generateDirDescription(dirPath: string, stats: { files: number; size: n
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number } {
   const rootDir = path.resolve(dirPath);
   if (!fs.existsSync(rootDir)) throw new Error(`Directory not found: ${rootDir}`);
+  const stat = fs.statSync(rootDir);
+  if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${rootDir}`);
 
   // Snapshot before indexing (reads old content from DB)
   const before = snapshotFromDb(db);

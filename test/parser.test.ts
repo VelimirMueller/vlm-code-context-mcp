@@ -178,10 +178,7 @@ describe("Export Parsing", () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  it.skip("export async function is not captured — regex expects 'export function' directly (known limitation, fix in T-008)", () => {
-    // The namedRe regex is: /export\s+(function|const|...)\s+(\w+)/
-    // "export async function fetchData" has "async" between export and function
-    // This is a real gap — tracked for T-008
+  it("parses exported async functions (T-008 fix)", () => {
     tmpDir = createTempProject({
       "utils.ts": "export async function fetchData() { return []; }",
     });
@@ -189,6 +186,7 @@ describe("Export Parsing", () => {
     const exports = getExports(db, path.join(tmpDir, "utils.ts"));
     const funcExport = exports.find(e => e.name === "fetchData");
     expect(funcExport).toBeDefined();
+    expect(funcExport!.kind).toBe("function");
     fs.rmSync(tmpDir, { recursive: true });
   });
 
@@ -357,18 +355,15 @@ describe("Known Limitations (documented)", () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  it.skip("re-exports with 'from' clause (export { x } from './y') are NOT captured as exports — only as imports", () => {
-    // The reExportRe regex explicitly EXCLUDES `from` clauses: /export\s+\{([^}]+)\}(?!\s*from)/
-    // This means `export { foo } from './bar'` does NOT add to the exports table
-    // But the import IS captured (creating a dependency)
+  it("parses re-exports with 'from' clause (T-008 fix)", () => {
     tmpDir = createTempProject({
       "internal.ts": "export function secret() {}",
       "barrel.ts": "export { secret } from './internal';",
     });
     indexDirectory(db, tmpDir);
     const exports = getExports(db, path.join(tmpDir, "barrel.ts"));
-    // Known limitation: re-exports with `from` are not in exports table
-    expect(exports).toHaveLength(0); // This PASSES because it's the current behavior
+    expect(exports.length).toBeGreaterThan(0);
+    expect(exports.find(e => e.name === "secret" && e.kind === "re-export")).toBeDefined();
     fs.rmSync(tmpDir, { recursive: true });
   });
 });
