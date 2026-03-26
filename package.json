@@ -1,5 +1,5 @@
 {
-  "name": "code-context-mcp",
+  "name": "vlm-code-context-mcp",
   "version": "1.0.0",
   "description": "MCP server that indexes codebases and exposes file metadata, exports, and dependency graphs",
   "type": "module",
