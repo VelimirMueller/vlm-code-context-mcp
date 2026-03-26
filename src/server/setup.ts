@@ -1,21 +1,22 @@
+#!/usr/bin/env node
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-// ## works
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "../..");
 
-const TARGET_DIR = process.argv[2] ?? process.cwd();
-const DB_NAME = "context.db";
-const DB_PATH = path.resolve(ROOT, DB_NAME);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_DIR = path.resolve(__dirname);
+
+const TARGET_DIR = path.resolve(process.argv[2] ?? process.cwd());
+const DB_PATH = path.resolve(TARGET_DIR, "context.db");
+const SERVER_ENTRY = path.resolve(SERVER_DIR, "index.js");
 
 console.log("=== Code Context MCP — Setup ===\n");
-console.log(`  MCP server root : ${ROOT}`);
 console.log(`  Target directory : ${TARGET_DIR}`);
-console.log(`  Database         : ${DB_PATH}\n`);
+console.log(`  Database         : ${DB_PATH}`);
+console.log(`  MCP server       : ${SERVER_ENTRY}\n`);
 
 // 1. Initialize database
 console.log("[1/3] Initializing database...");
@@ -27,18 +28,17 @@ console.log("  Database ready.\n");
 
 // 2. Index the target directory
 console.log("[2/3] Indexing target directory...");
-const stats = indexDirectory(db, path.resolve(TARGET_DIR));
+const stats = indexDirectory(db, TARGET_DIR);
 console.log(`  Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies.\n`);
 db.close();
 
 // 3. Write .mcp.json for Claude Code
 console.log("[3/3] Configuring MCP client...");
 const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
-const relServer = path.relative(TARGET_DIR, path.resolve(ROOT, "dist/server/index.js"));
-const relDb = path.relative(TARGET_DIR, DB_PATH);
+const relServer = "./" + path.relative(TARGET_DIR, SERVER_ENTRY).split(path.sep).join("/");
 const serverEntry = {
   command: "node",
-  args: ["./" + relServer, "./" + relDb],
+  args: [relServer, "./context.db"],
 };
 
 let mcpConfig: Record<string, any> = { mcpServers: {} };
@@ -55,13 +55,17 @@ fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`  Wrote ${mcpConfigPath}\n`);
 
 console.log("=== Setup complete! ===\n");
-console.log("Available commands:");
-console.log(`  npm run dashboard              — Open the dashboard at http://localhost:3333`);
-console.log(`  npm run dashboard -- . 3333 ${TARGET_DIR}  — Dashboard with file watcher`);
+console.log("Dashboard:");
+console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);
+console.log(`  npx code-context-dashboard ./context.db 3333 .  — With file watcher`);
 console.log("");
-console.log("MCP tools available after restarting your AI client:");
-console.log("  index_directory  — Re-index a directory");
-console.log("  find_symbol      — Search exports by name");
-console.log("  get_file_context — Get full file context (exports, imports, dependents)");
-console.log("  search_files     — Search files by path or summary");
-console.log("  query / execute  — Raw SQL access");
+console.log("Restart your AI client to load the MCP tools:");
+console.log("  index_directory        — Re-index a directory");
+console.log("  find_symbol            — Search exports by name");
+console.log("  get_file_context       — Full file context (exports, imports, dependents)");
+console.log("  set_description        — Set a file description");
+console.log("  set_directory_description — Set a directory description");
+console.log("  set_change_reason      — Annotate a change with a reason");
+console.log("  get_changes            — View recent file changes");
+console.log("  search_files           — Search files by path or summary");
+console.log("  query / execute        — Raw SQL access");

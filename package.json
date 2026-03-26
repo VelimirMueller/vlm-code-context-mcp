@@ -5,16 +5,20 @@
   "type": "module",
   "main": "dist/server/index.js",
   "bin": {
-    "code-context-mcp": "dist/server/index.js"
+    "code-context-mcp": "dist/server/setup.js",
+    "code-context-dashboard": "dist/dashboard/dashboard.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
-    "postinstall": "npm run build",
+    "build": "tsc && cp src/dashboard/dashboard.html dist/dashboard/",
     "start": "node dist/server/index.js",
     "dev": "tsx src/dashboard/dashboard.ts",
     "dashboard": "tsx src/dashboard/dashboard.ts",
     "setup": "node dist/server/setup.js",
-    "test": "123"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
@@ -27,5 +31,10 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
-  "private": false
+  "keywords": ["mcp", "code-context", "codebase-indexer", "model-context-protocol", "sqlite"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VelimirMueller/mcp-server"
+  },
+  "license": "MIT"
 }
