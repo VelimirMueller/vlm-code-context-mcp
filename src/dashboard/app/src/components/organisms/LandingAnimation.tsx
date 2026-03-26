@@ -38,7 +38,7 @@ const AGENT_CIRCLES = [
 // ── Phase 5: Labels ───────────────────────────────────────────────────
 const LABELS = [
   { id: 'l0', text: 'Code Context', delay: 2.0 },
-  { id: 'l1', text: 'Explorer',     delay: 2.25 },
+  { id: 'l1', text: 'MCP Platform', delay: 2.25 },
 ];
 
 function TypewriterText({ text, delay }: { text: string; delay: number }) {
