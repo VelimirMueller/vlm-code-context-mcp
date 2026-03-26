@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import type { Milestone } from '@/types';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { Milestone, Sprint } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useSprintStore } from '@/stores/sprintStore';
+import { getMilestoneSprintIds } from '@/lib/utils';
 
 const statusColors: Record<string, { bg: string; color: string; border: string; label: string }> = {
   planned: {
@@ -55,15 +57,68 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
+function SprintPill({ sprint }: { sprint: Sprint }) {
+  const isDone = sprint.status === 'closed' || sprint.status === 'completed';
+  const isActive = sprint.status === 'active';
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        background: isDone ? 'rgba(59,130,246,.10)' : isActive ? 'rgba(16,185,129,.10)' : 'var(--surface3)',
+        color: isDone ? 'var(--blue)' : isActive ? 'var(--green)' : 'var(--text3)',
+        border: `1px solid ${isDone ? 'rgba(59,130,246,.20)' : isActive ? 'rgba(16,185,129,.20)' : 'var(--border2)'}`,
+        borderRadius: 10,
+        padding: '1px 8px',
+        fontSize: 11,
+        fontFamily: 'var(--mono)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {sprint.name}
+    </span>
+  );
+}
+
+interface MilestoneStats {
+  linkedSprints: Sprint[];
+  totalTickets: number;
+  doneTickets: number;
+  totalPoints: number;
+  donePoints: number;
+  progress: number;
+}
+
+function computeMilestoneStats(milestone: Milestone, sprints: Sprint[]): MilestoneStats {
+  const linkedIds = new Set(getMilestoneSprintIds(milestone.name, sprints));
+  const linkedSprints = sprints.filter(s => linkedIds.has(s.id));
+
+  let totalTickets = 0;
+  let doneTickets = 0;
+  let totalPoints = 0;
+  let donePoints = 0;
+
+  for (const s of linkedSprints) {
+    totalTickets += s.ticket_count || 0;
+    doneTickets += s.done_count || 0;
+    totalPoints += s.velocity_committed || 0;
+    donePoints += s.velocity_completed || 0;
+  }
+
+  const progress = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : (milestone.progress ?? 0);
+
+  return { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress };
+}
+
 interface MilestoneCardProps {
   milestone: Milestone;
+  stats: MilestoneStats;
   onEdit: (m: Milestone) => void;
 }
 
-function MilestoneCard({ milestone, onEdit }: MilestoneCardProps) {
-  const pct = milestone.ticket_count > 0
-    ? Math.round((milestone.done_count / milestone.ticket_count) * 100)
-    : milestone.progress ?? 0;
+function MilestoneCard({ milestone, stats, onEdit }: MilestoneCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress } = stats;
+  const hasSprintData = linkedSprints.length > 0;
 
   return (
     <div
@@ -77,6 +132,7 @@ function MilestoneCard({ milestone, onEdit }: MilestoneCardProps) {
         gap: 10,
       }}
     >
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -102,20 +158,103 @@ function MilestoneCard({ milestone, onEdit }: MilestoneCardProps) {
         </button>
       </div>
 
+      {/* Description */}
       {milestone.description && (
         <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0 }}>{milestone.description}</p>
       )}
 
+      {/* Progress bar + percentage */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <ProgressBar value={pct} />
+        <ProgressBar value={progress} />
         <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', flexShrink: 0 }}>
-          {pct}%
-        </span>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', flexShrink: 0 }}>
-          {milestone.done_count}/{milestone.ticket_count} tickets
+          {progress}%
         </span>
       </div>
 
+      {/* Stats row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+          {doneTickets}/{totalTickets} tickets
+        </span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+          {donePoints}/{totalPoints}sp
+        </span>
+        {linkedSprints.length > 0 && (
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+            {linkedSprints.length} sprint{linkedSprints.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Sprint pills */}
+      {hasSprintData && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {linkedSprints.map(s => (
+            <SprintPill key={s.id} sprint={s} />
+          ))}
+        </div>
+      )}
+
+      {/* Expandable sprint breakdown */}
+      {hasSprintData && (
+        <div>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--accent)',
+              fontSize: 12,
+              cursor: 'pointer',
+              padding: 0,
+              fontFamily: 'var(--font)',
+            }}
+          >
+            {expanded ? 'Hide' : 'Show'} sprint breakdown
+          </button>
+          {expanded && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {linkedSprints.map(s => (
+                <div
+                  key={s.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 10px',
+                    background: 'var(--surface2)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ fontWeight: 500, color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.name}
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', flexShrink: 0 }}>
+                    {s.done_count}/{s.ticket_count} tickets
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', flexShrink: 0 }}>
+                    {s.velocity_completed}/{s.velocity_committed}sp
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--mono)',
+                      fontSize: 11,
+                      color: s.status === 'active' ? 'var(--green)' : s.status === 'closed' || s.status === 'completed' ? 'var(--blue)' : 'var(--text3)',
+                      flexShrink: 0,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {s.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Target date */}
       {milestone.target_date && (
         <div style={{ fontSize: 12, color: 'var(--text3)' }}>
           Target: <span style={{ fontFamily: 'var(--mono)', color: 'var(--text2)' }}>{milestone.target_date}</span>
@@ -132,6 +271,21 @@ export function MilestoneList() {
   const loading = usePlanningStore((s) => s.loading.milestones);
   const createMilestone = usePlanningStore((s) => s.createMilestone);
   const updateMilestone = usePlanningStore((s) => s.updateMilestone);
+
+  const sprints = useSprintStore((s) => s.sprints);
+  const fetchSprints = useSprintStore((s) => s.fetchSprints);
+
+  useEffect(() => {
+    if (sprints.length === 0) fetchSprints();
+  }, [sprints.length, fetchSprints]);
+
+  const milestoneStats = useMemo(() => {
+    const map = new Map<number, MilestoneStats>();
+    for (const m of milestones) {
+      map.set(m.id, computeMilestoneStats(m, sprints));
+    }
+    return map;
+  }, [milestones, sprints]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(emptyForm);
@@ -260,7 +414,7 @@ export function MilestoneList() {
             fontFamily: 'var(--font)',
           }}
         >
-          {busy ? 'Saving…' : submitLabel}
+          {busy ? 'Saving...' : submitLabel}
         </button>
         <button
           type="button"
@@ -282,6 +436,8 @@ export function MilestoneList() {
       </div>
     </form>
   );
+
+  const defaultStats: MilestoneStats = { linkedSprints: [], totalTickets: 0, doneTickets: 0, totalPoints: 0, donePoints: 0, progress: 0 };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -317,7 +473,7 @@ export function MilestoneList() {
       {showCreate && inlineForm(createForm, setCreateForm, handleCreate, () => setShowCreate(false), createBusy, createError, 'Create')}
 
       {loading && milestones.length === 0 && (
-        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>Loading milestones…</div>
+        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>Loading milestones...</div>
       )}
 
       {!loading && milestones.length === 0 && (
@@ -336,7 +492,12 @@ export function MilestoneList() {
 
       {milestones.map((m) => (
         editTarget?.id === m.id ? null : (
-          <MilestoneCard key={m.id} milestone={m} onEdit={openEdit} />
+          <MilestoneCard
+            key={m.id}
+            milestone={m}
+            stats={milestoneStats.get(m.id) ?? defaultStats}
+            onEdit={openEdit}
+          />
         )
       ))}
     </div>
