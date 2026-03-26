@@ -472,7 +472,58 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   });
   indexDeps();
 
-  // Phase 3: diff and log changes (after snapshot reads new content from DB)
+  // Phase 3: index directories
+  const indexDirs = db.transaction(() => {
+    const upsertDir = db.prepare(`
+      INSERT INTO directories (path, name, parent_path, depth, file_count, total_size_bytes, total_lines, language_breakdown, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(path) DO UPDATE SET
+        name=excluded.name, parent_path=excluded.parent_path, depth=excluded.depth,
+        file_count=excluded.file_count, total_size_bytes=excluded.total_size_bytes,
+        total_lines=excluded.total_lines, language_breakdown=excluded.language_breakdown,
+        indexed_at=excluded.indexed_at
+    `);
+
+    // Collect all unique directories from file paths
+    const dirMap = new Map<string, { files: number; size: number; lines: number; langs: Map<string, number> }>();
+    for (const filePath of filePaths) {
+      let dir = path.dirname(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const lang = LANG_MAP[ext] ?? "unknown";
+      const stat = fs.statSync(filePath);
+      const lineCount = countLines(fs.readFileSync(filePath, "utf-8"));
+
+      // Walk up from the file's directory to the root, aggregating stats
+      while (dir.length >= rootDir.length) {
+        if (!dirMap.has(dir)) {
+          dirMap.set(dir, { files: 0, size: 0, lines: 0, langs: new Map() });
+        }
+        const entry = dirMap.get(dir)!;
+        entry.files++;
+        entry.size += stat.size;
+        entry.lines += lineCount;
+        entry.langs.set(lang, (entry.langs.get(lang) ?? 0) + 1);
+
+        if (dir === rootDir) break;
+        dir = path.dirname(dir);
+      }
+    }
+
+    for (const [dirPath, stats] of dirMap) {
+      const name = path.basename(dirPath);
+      const parentPath = dirPath === rootDir ? null : path.dirname(dirPath);
+      const depth = dirPath === rootDir ? 0 : dirPath.slice(rootDir.length + 1).split(path.sep).length;
+      const langBreakdown = JSON.stringify(
+        Array.from(stats.langs.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([lang, count]) => ({ lang, count }))
+      );
+      upsertDir.run(dirPath, name, parentPath, depth, stats.files, stats.size, stats.lines, langBreakdown);
+    }
+  });
+  indexDirs();
+
+  // Phase 4: diff and log changes (after snapshot reads new content from DB)
   const after = snapshotFromDb(db);
   diffAndLogChanges(db, before, after);
 

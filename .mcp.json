@@ -2,7 +2,10 @@
   "mcpServers": {
     "code-context": {
       "command": "node",
-      "args": ["dist/index.js", "./context.db"]
+      "args": [
+        "./dist/server/index.js",
+        "./context.db"
+      ]
     }
   }
 }

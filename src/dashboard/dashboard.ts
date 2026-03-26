@@ -112,6 +112,10 @@ function apiStats() {
   return { files, exports, deps, totalLines, totalSize, languages, extensions };
 }
 
+function apiDirectories() {
+  return db.prepare(`SELECT * FROM directories ORDER BY path`).all();
+}
+
 function apiChanges(limit: number) {
   return db.prepare(`
     SELECT id, file_path, event, timestamp,
@@ -159,6 +163,7 @@ const server = http.createServer((req, res) => {
     try {
       let data: any;
       if (url.pathname === "/api/files") data = apiFiles();
+      else if (url.pathname === "/api/directories") data = apiDirectories();
       else if (url.pathname === "/api/stats") data = apiStats();
       else if (url.pathname === "/api/graph") data = apiGraph();
       else if (url.pathname === "/api/changes") data = apiChanges(Number(url.searchParams.get("limit") ?? 100));
