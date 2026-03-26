@@ -13,7 +13,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && cd src/dashboard/app && npx vite build",
+    "build": "tsc && cp src/dashboard/dashboard.html dist/dashboard/ && cd src/dashboard/app && npx vite build",
     "start": "node dist/server/index.js",
     "dev": "tsx src/dashboard/dashboard.ts",
     "dashboard": "tsx src/dashboard/dashboard.ts",

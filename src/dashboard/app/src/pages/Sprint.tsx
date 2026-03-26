@@ -29,8 +29,9 @@ export function Sprint() {
   // Board hero data
   const sprintDetail = useSprintStore((s) => s.sprintDetail);
   const sprints = useSprintStore((s) => s.sprints);
-  const doneCount = sprintDetail?.tickets.filter((t) => t.status === 'done').length ?? 0;
-  const totalCount = sprintDetail?.tickets.length ?? 0;
+  const tickets = useSprintStore((s) => s.tickets);
+  const doneCount = tickets.filter((t) => t.status === 'DONE').length;
+  const totalCount = tickets.length;
   const velocity = sprintDetail?.velocity_completed ?? 0;
 
   // Insights hero data — retroFindings aggregated across all sprints (populated by BentoGrid)

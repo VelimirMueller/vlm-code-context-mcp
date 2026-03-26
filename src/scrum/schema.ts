@@ -145,6 +145,17 @@ export function initScrumSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_blockers_sprint_id ON blockers(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_bugs_sprint_id ON bugs(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
-    CREATE INDEX IF NOT EXISTS idx_tickets_milestone_id ON tickets(milestone_id);
   `);
+
+  // Migrate existing databases: add milestone_id column if missing
+  const cols = db.pragma("table_info(tickets)") as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "milestone_id")) {
+    db.exec(
+      "ALTER TABLE tickets ADD COLUMN milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL",
+    );
+  }
+
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_tickets_milestone_id ON tickets(milestone_id);",
+  );
 }

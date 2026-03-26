@@ -20,24 +20,10 @@ const EXPLORER_TABS = [
   { id: 'graph', label: 'Graph' },
 ];
 
-// ─── Badge variant mapping ────────────────────────────────────────────────────
-function symbolVariant(kind: string): 'fn' | 'type' | 'const' | 'class' | 'interface' | 'pkg' | 'default' {
-  const map: Record<string, 'fn' | 'type' | 'const' | 'class' | 'interface' | 'pkg'> = {
-    function: 'fn',
-    type: 'type',
-    enum: 'type',
-    const: 'const',
-    class: 'class',
-    interface: 'interface',
-  };
-  return map[kind] ?? 'pkg';
-}
-
 // ─── Detail tab ───────────────────────────────────────────────────────────────
 function DetailTab() {
   const fileDetail = useFileStore((s) => s.fileDetail);
   const selectedFileId = useFileStore((s) => s.selectedFileId);
-  const selectFile = useFileStore((s) => s.selectFile);
   const loadingDetail = useFileStore((s) => s.loading.detail);
 
   if (!selectedFileId && !fileDetail) {
@@ -62,8 +48,9 @@ function DetailTab() {
   if (!fileDetail) return null;
 
   const d = fileDetail;
-  const exportedSymbols = d.symbols.filter((s) => s.exported);
-  const allSymbols = d.symbols;
+  const exports = d.exports ?? [];
+  const imports = d.imports ?? [];
+  const importedBy = d.importedBy ?? [];
 
   return (
     <div>
@@ -73,44 +60,35 @@ function DetailTab() {
         <div className="detail-meta" style={{ marginTop: 8 }}>
           <span>{d.language}</span>
           {' · '}
-          <span>{d.symbols.length} symbols</span>
+          <span>{d.line_count ?? 0} lines</span>
           {' · '}
-          <span style={{ fontFamily: 'var(--mono)' }}>{fmtSize(0)}</span>
+          <span style={{ fontFamily: 'var(--mono)' }}>{fmtSize(d.size_bytes ?? 0)}</span>
         </div>
         {d.description && (
           <div className="detail-desc">{d.description}</div>
         )}
+        {d.summary && d.summary !== d.description && (
+          <div className="detail-desc" style={{ marginTop: 4, fontStyle: 'italic' }}>{d.summary}</div>
+        )}
       </div>
 
       {/* Exports */}
-      {exportedSymbols.length > 0 && (
+      {exports.length > 0 && (
         <div className="detail-section">
-          <h3>Exports ({exportedSymbols.length})</h3>
+          <h3>Exports ({exports.length})</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {exportedSymbols.map((sym, i) => (
-              <Badge key={i} text={sym.name} variant={symbolVariant(sym.type)} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* All symbols */}
-      {allSymbols.length > 0 && exportedSymbols.length !== allSymbols.length && (
-        <div className="detail-section">
-          <h3>Symbols ({allSymbols.length})</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {allSymbols.map((sym, i) => (
-              <Badge key={i} text={sym.name} variant={symbolVariant(sym.type)} />
+            {exports.map((exp, i) => (
+              <Badge key={i} text={exp} variant="pkg" />
             ))}
           </div>
         </div>
       )}
 
       {/* Imports */}
-      {d.imports.length > 0 && (
+      {imports.length > 0 && (
         <div className="detail-section">
-          <h3>Imports ({d.imports.length})</h3>
-          {d.imports.map((imp, i) => {
+          <h3>Imports ({imports.length})</h3>
+          {imports.map((imp, i) => {
             const short = imp.split('/').slice(-2).join('/');
             return (
               <div key={i} className="dep-item">
@@ -122,15 +100,19 @@ function DetailTab() {
         </div>
       )}
 
-      {/* Exports as string list (file-level) */}
-      {d.exports.length > 0 && (
+      {/* Imported By */}
+      {importedBy.length > 0 && (
         <div className="detail-section">
-          <h3>Re-exports ({d.exports.length})</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {d.exports.map((exp, i) => (
-              <Badge key={i} text={exp} variant="pkg" />
-            ))}
-          </div>
+          <h3>Imported By ({importedBy.length})</h3>
+          {importedBy.map((dep, i) => {
+            const short = dep.split('/').slice(-2).join('/');
+            return (
+              <div key={i} className="dep-item">
+                <div className="dep-path">{short}</div>
+                <div className="dep-symbols">{dep}</div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -180,11 +162,14 @@ function ChangesTab() {
           ? ''
           : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
+        const lineDiff = (change.new_line_count ?? 0) - (change.old_line_count ?? 0);
+        const sizeDiff = (change.new_size_bytes ?? 0) - (change.old_size_bytes ?? 0);
+
         return (
           <div key={change.id} className="change-item">
             <div className="change-header">
               <span
-                className="change-event change"
+                className={`change-event ${change.event ?? 'change'}`}
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
@@ -197,25 +182,22 @@ function ChangesTab() {
                   border: '1px solid rgba(59,130,246,.15)',
                 }}
               >
-                change
+                {change.event ?? 'change'}
               </span>
               <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
                 {dateStr} {timeStr}
               </span>
-              {(change.linesAdded > 0 || change.linesRemoved > 0) && (
+              {lineDiff !== 0 && (
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontSize: 11, fontFamily: 'var(--mono)' }}>
-                  {change.linesAdded > 0 && (
-                    <span style={{ color: 'var(--green)' }}>+{change.linesAdded}</span>
-                  )}
-                  {change.linesRemoved > 0 && (
-                    <span style={{ color: 'var(--red)' }}>-{change.linesRemoved}</span>
-                  )}
+                  <span style={{ color: lineDiff > 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {lineDiff > 0 ? '+' : ''}{lineDiff} lines
+                  </span>
                 </span>
               )}
             </div>
-            {change.summary && (
+            {change.new_summary && (
               <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text2)', lineHeight: 1.5 }}>
-                {change.summary}
+                {change.new_summary}
               </div>
             )}
             {change.reason && (

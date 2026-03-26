@@ -4,9 +4,6 @@ import type { Sprint, Ticket, RetroFinding } from '@/types';
 
 export interface SprintDetail extends Sprint {
   goal: string | null;
-  retrospective: string | null;
-  tickets: Ticket[];
-  blockers: Array<{ id: number; ticketId: number; description: string; resolvedAt: string | null }>;
 }
 
 export interface SprintStore {
@@ -37,11 +34,11 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, sprints: true }, error: { ...s.error, sprints: null } }));
     try {
       const sprints = await get<Sprint[]>('/api/sprints');
-      set({ sprints });
+      set({ sprints: sprints ?? [] });
       // Auto-select active sprint if none selected
       const { selectedSprintId } = getState();
       if (selectedSprintId === null) {
-        const active = sprints.find((s) => s.status === 'active');
+        const active = (sprints ?? []).find((s) => s.status === 'active');
         if (active) getState().selectSprint(active.id);
       }
     } catch (e) {
@@ -54,8 +51,15 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   selectSprint: async (id: number) => {
     set((s) => ({ selectedSprintId: id, loading: { ...s.loading, detail: true }, error: { ...s.error, detail: null } }));
     try {
-      const detail = await get<SprintDetail>(`/api/sprints/${id}`);
-      set({ sprintDetail: detail, tickets: detail.tickets });
+      // Fetch sprint detail and tickets in parallel
+      const [detail, tickets] = await Promise.all([
+        get<SprintDetail>(`/api/sprint/${id}`),
+        get<Ticket[]>(`/api/sprint/${id}/tickets`),
+      ]);
+      set({
+        sprintDetail: detail ?? null,
+        tickets: Array.isArray(tickets) ? tickets : [],
+      });
     } catch (e) {
       set((s) => ({ error: { ...s.error, detail: (e as Error).message } }));
     } finally {
@@ -64,12 +68,20 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   },
 
   fetchTickets: async (sprintId: number) => {
-    const tickets = await get<Ticket[]>(`/api/sprints/${sprintId}/tickets`);
-    set({ tickets });
+    try {
+      const tickets = await get<Ticket[]>(`/api/sprint/${sprintId}/tickets`);
+      set({ tickets: Array.isArray(tickets) ? tickets : [] });
+    } catch {
+      // Silently fail
+    }
   },
 
   fetchRetro: async (sprintId: number) => {
-    const retroFindings = await get<RetroFinding[]>(`/api/sprints/${sprintId}/retro`);
-    set({ retroFindings });
+    try {
+      const retroFindings = await get<RetroFinding[]>(`/api/sprint/${sprintId}/retro`);
+      set({ retroFindings: Array.isArray(retroFindings) ? retroFindings : [] });
+    } catch {
+      // Silently fail
+    }
   },
 }));
