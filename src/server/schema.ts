@@ -1,3 +1,4 @@
+// Database schema definitions for the code-context MCP server
 import Database from "better-sqlite3";
 
 export function initSchema(db: Database.Database) {

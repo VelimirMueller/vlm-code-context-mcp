@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", ".next", "build", "coverage", ".turbo",
   ".cache", ".output", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv",
+  ".vitepress", ".temp",
 ]);
 
 const SKIP_FILES = new Set([".DS_Store", "Thumbs.db", ".gitkeep"]);
