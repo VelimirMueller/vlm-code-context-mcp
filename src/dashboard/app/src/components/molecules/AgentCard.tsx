@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion';
+import { cardHover } from '@/lib/motion';
 import type { Agent } from '@/types';
 
 interface AgentCardProps {
@@ -23,7 +25,9 @@ export function AgentCard({ agent }: AgentCardProps) {
     moodScore >= 60 ? 'var(--accent)' : moodScore >= 40 ? 'var(--orange)' : 'var(--red)';
 
   return (
-    <div
+    <motion.div
+      whileHover={cardHover}
+      layout
       style={{
         padding: '14px 16px',
         background: 'var(--surface)',
@@ -55,7 +59,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               boxShadow: `0 0 6px ${healthColor[health]}`,
             }}
           />
-          <span style={{ fontSize: 16 }}>{agent.mood_emoji || '😐'}</span>
+          <span style={{ fontSize: 16 }}>{agent.mood_emoji || '\u{1F610}'}</span>
         </div>
       </div>
 
@@ -122,6 +126,6 @@ export function AgentCard({ agent }: AgentCardProps) {
         Done: {agent.done_tickets ?? 0} | Active: {agent.active_tickets ?? 0} | Blocked:{' '}
         {agent.blocked_tickets ?? 0}
       </div>
-    </div>
+    </motion.div>
   );
 }

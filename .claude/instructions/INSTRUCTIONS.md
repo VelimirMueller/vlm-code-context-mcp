@@ -24,5 +24,3 @@ all mcp server connections are read only - write everything locally in a newly c
 4. respect all skills in .claude/skills for each teammember - frontend writes design specc po write milestones and product vision manager makes resource planning and po manager and lead dev and scrum master improve sprint process
 5. sprint process basics are in SPRINT_PROCESS.md
 6. sprints can only be finished if all tickets have been closed and are qa verified
-
-## TASK

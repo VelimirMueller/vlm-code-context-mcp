@@ -33,3 +33,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 .page-nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .page-content { flex: 1; overflow: hidden; }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

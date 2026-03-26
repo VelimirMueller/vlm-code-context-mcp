@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion';
+import { cardHover } from '@/lib/motion';
 import type { Ticket } from '@/types';
 
 interface TicketCardProps {
@@ -15,7 +17,9 @@ export function TicketCard({ ticket }: TicketCardProps) {
   const pColor = priorityColor[ticket.priority] ?? '#6b7280';
 
   return (
-    <div
+    <motion.div
+      whileHover={cardHover}
+      layout
       style={{
         padding: '10px 12px',
         background: 'var(--surface)',
@@ -81,6 +85,6 @@ export function TicketCard({ ticket }: TicketCardProps) {
           {ticket.story_points ?? 0}sp
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }
