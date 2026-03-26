@@ -25,7 +25,7 @@ all mcp server connections are read only - write everything locally in a newly c
 5. sprint process basics are in SPRINT_PROCESS.md
 
 ## TASK
-SETUP A PROPER SPRINT PROCESS RESPECTING ALL TEAMMEMBERS AND MANAGERS AND LEADS, then ANALYZE AS TEAM AS FIRST EPIC WHAT THIS MCP SERVER NEED
-TO BE RESPECTED BY EXTREMELY SENIOR ENGINEERS AND THEY WILL WANT TO NEED IT INSTALLED, I WANT TO HAVE A PRODCUT VISION AND A MILESTONES AND A KILLER SPRINT PROCESS
-
-IN THE END UPDATE THE DOCUMENTATION BY THESE PROCESS THINGS
+the whole .claude folder needs to be persisted as mcp service too, the idea is to call the sprint where ever this npm packe will be installed and load the whole dev team with all processes and skills
+via mcp in the app i develop later or anybody in any app. i think a new sqlite database is perfectly suited for this, the mcp server should be build modular, the api should be properly designed by best practicesa and respecting all rest principles.
+instructions will be passed as parameter or instruction file from another location, it should always be possible to review all agents, processes, sprint results and skills but also via mcp service possible to adjust single files with it.
+also we need a new page in the dashboard for the sprint process and we need to visualize it too. stay with the tickets and retro findings in the mvp.

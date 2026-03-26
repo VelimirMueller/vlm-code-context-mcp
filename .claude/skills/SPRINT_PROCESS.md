@@ -27,6 +27,7 @@
 
 ### Phase 3: Assignment and Subtasks (10 min)
 - Team self-assigns based on expertise and current load
+- **No single developer takes more than 8 story points.** If they finish early, they pick from backlog.
 - Sprint capacity is calculated (see RESOURCE_PLANNING.md)
 - Team commits to a set of tickets that fits within capacity
 - Each member creates their own subtasks in SUBTASKS.md -- nobody assigns subtasks to someone else
@@ -58,7 +59,14 @@ If stuck for 30 minutes: escalate. No heroics. No silent suffering.
 ### Status Updates
 - Each dev updates their subtask status in SUBTASKS.md: TODO / IN_PROGRESS / DONE / BLOCKED
 - Blocked tasks must include what they are blocked on
-- Scrum Master runs an async status check at end of Day 2: What is done? What is in progress? What is blocked?
+- **Scrum Master runs a MANDATORY status check at end of Day 2:** Every dev must have at least one subtask IN_PROGRESS or DONE with evidence (file exists, test written, code changed). Zero-progress roles are escalated immediately — they swap tasks or pair with another dev.
+
+### Subagent Output Verification
+When work is delegated to subagents, the developer MUST verify before marking anything done:
+1. Check that files actually exist on disk (`ls`, `test -f`)
+2. Run `npm test` and confirm tests pass
+3. Verify specific acceptance criteria against actual state
+"Subagent said it's done" is NOT evidence. QA will reject tickets where the only proof is subagent output.
 
 ### Communication Protocol
 - Async-first: use ticket comments, not synchronous calls
