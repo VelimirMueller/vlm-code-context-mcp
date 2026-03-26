@@ -1,4 +1,4 @@
-# code-context-mcp
+# code-context-mcp test this works great
 
 MCP server that indexes codebases into a SQLite database, exposing file metadata, exports, dependency graphs, and per-file change tracking.
 
@@ -14,16 +14,17 @@ MCP server that indexes codebases into a SQLite database, exposing file metadata
 
 ## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `index_directory` | Scan a directory and build the index |
+
+| Tool               | Description                                                 |
+| ------------------ | ----------------------------------------------------------- |
+| `index_directory`  | Scan a directory and build the index                        |
 | `get_file_context` | Get file summary, exports, dependencies, and recent changes |
-| `find_symbol` | Find files exporting a given symbol (supports `%` wildcards) |
-| `search_files` | Search files by path or summary |
-| `get_changes` | Get recent changes grouped by file |
-| `set_description` | Set a manual description for a file |
-| `query` | Run a read-only SELECT against the database |
-| `execute` | Run INSERT/UPDATE/DELETE statements |
+| `find_symbol`      | Find files exporting a given symbol (supports`%` wildcards) |
+| `search_files`     | Search files by path or summary                             |
+| `get_changes`      | Get recent changes grouped by file                          |
+| `set_description`  | Set a manual description for a file                         |
+| `query`            | Run a read-only SELECT against the database                 |
+| `execute`          | Run INSERT/UPDATE/DELETE statements                         |
 
 ## Setup
 
@@ -58,6 +59,7 @@ npm run dashboard -- ./context.db 3333
 ```
 
 Opens at `http://localhost:3333` with:
+
 - File sidebar with language-colored indicators
 - Detail panel showing exports, packages, imports, and dependents
 - Changes tab with per-file diff history (collapsible inline diffs)
