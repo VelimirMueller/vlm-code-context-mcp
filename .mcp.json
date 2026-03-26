@@ -2,10 +2,7 @@
   "mcpServers": {
     "code-context": {
       "command": "node",
-      "args": [
-        "/home/velimir/WebstormProjects/mcp-server/dist/index.js",
-        "/home/velimir/WebstormProjects/mcp-server/context.db"
-      ]
+      "args": ["dist/index.js", "./context.db"]
     }
   }
 }

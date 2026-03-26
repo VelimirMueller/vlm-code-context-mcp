@@ -6,7 +6,7 @@ import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 // ## works
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(__dirname, "../..");
 
 const TARGET_DIR = process.argv[2] ?? process.cwd();
 const DB_NAME = "context.db";
@@ -36,7 +36,7 @@ console.log("[3/3] Configuring MCP client...");
 const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
 const serverEntry = {
   command: "node",
-  args: [path.resolve(ROOT, "dist/index.js"), DB_PATH],
+  args: [path.resolve(ROOT, "dist/server/index.js"), DB_PATH],
 };
 
 let mcpConfig: Record<string, any> = { mcpServers: {} };
