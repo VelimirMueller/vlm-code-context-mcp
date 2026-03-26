@@ -7,6 +7,8 @@ import { DependencyGraph } from '@/components/organisms/DependencyGraph';
 import { SearchBar } from '@/components/molecules/SearchBar';
 import { TabBar } from '@/components/molecules/TabBar';
 import { StatGroup } from '@/components/molecules/StatGroup';
+import { HeroText } from '@/components/molecules/HeroText';
+import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { Badge } from '@/components/atoms/Badge';
 import { Skeleton } from '@/components/atoms/Skeleton';
 import { fmtSize, langColors } from '@/lib/utils';
@@ -234,6 +236,7 @@ export function CodeExplorer() {
 
   const stats = useFileStore((s) => s.stats);
   const files = useFileStore((s) => s.files);
+  const directories = useFileStore((s) => s.directories);
   const fetchStats = useFileStore((s) => s.fetchStats);
 
   // Fetch stats once files load
@@ -352,6 +355,16 @@ export function CodeExplorer() {
             activeTab={explorerTab}
             onTabChange={setTab}
           />
+
+          <HeroText>
+            {'Tracking '}
+            <AnimatedNumber value={files.length} />
+            {' files across '}
+            <AnimatedNumber value={directories.length} />
+            {' directories — '}
+            <AnimatedNumber value={stats?.exports ?? 0} />
+            {' exports indexed'}
+          </HeroText>
 
           <div style={{ flex: 1, overflowY: explorerTab === 'graph' ? 'hidden' : 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {explorerTab === 'detail' && <DetailTab />}
