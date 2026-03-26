@@ -202,6 +202,40 @@
   .pill-tab:hover { color: var(--text2); }
   .pill-tab.active { background: var(--accent); border-color: var(--accent); color: white; }
 
+  /* ── Bento Grid ── */
+  .bento-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: auto auto; gap: 14px; padding: 20px; }
+  .bento-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; transition: all .25s; position: relative; overflow: hidden; }
+  .bento-card:hover { border-color: var(--border2); transform: translateY(-2px); box-shadow: var(--shadow-card); }
+  .bento-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .bento-card.bento-recurring::before { background: var(--purple); }
+  .bento-card.bento-good::before { background: var(--accent); }
+  .bento-card.bento-bad::before { background: var(--red); }
+  .bento-card.bento-best::before { background: var(--blue); }
+  .bento-card.bento-worst::before { background: var(--orange); }
+  .bento-card.bento-wide { grid-column: span 2; }
+  .bento-card.bento-tall { grid-row: span 2; }
+  .bento-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .bento-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .bento-icon.purple { background: rgba(167,139,250,.12); }
+  .bento-icon.green { background: rgba(16,185,129,.12); }
+  .bento-icon.red { background: rgba(248,113,113,.12); }
+  .bento-icon.blue { background: rgba(59,130,246,.12); }
+  .bento-icon.orange { background: rgba(251,191,36,.12); }
+  .bento-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .bento-subtitle { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  .bento-list { list-style: none; padding: 0; margin: 0; }
+  .bento-list li { font-size: 13px; color: var(--text2); padding: 6px 0; border-bottom: 1px solid var(--border); line-height: 1.5; }
+  .bento-list li:last-child { border-bottom: none; }
+  .bento-list li::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 10px; vertical-align: middle; }
+  .bento-card.bento-recurring .bento-list li::before { background: var(--purple); }
+  .bento-card.bento-good .bento-list li::before { background: var(--accent); }
+  .bento-card.bento-bad .bento-list li::before { background: var(--red); }
+  .bento-card.bento-best .bento-list li::before { background: var(--blue); }
+  .bento-card.bento-worst .bento-list li::before { background: var(--orange); }
+  .bento-stat { font-size: 28px; font-weight: 800; font-family: var(--mono); color: var(--text); line-height: 1; margin-bottom: 4px; }
+  .bento-stat-label { font-size: 11px; color: var(--text3); }
+  @media (max-width: 768px) { .bento-grid { grid-template-columns: 1fr; } .bento-card.bento-wide { grid-column: span 1; } }
+
   /* ── Kanban (T-031) ── */
   .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 180px; }
@@ -269,13 +303,21 @@
   @keyframes scaleIn { from { opacity:0; transform:scale(0); } to { opacity:1; transform:scale(1); } }
   @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
   @keyframes fadeSlideUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes typeIn { from { width:0; opacity:1; } to { width:100%; opacity:1; } }
+  @keyframes slideCardRight { from { transform:translateX(0); } to { transform:translateX(calc(100% + 6px)); } }
+  @keyframes drawLine { from { width:0; } to { width:100%; } }
+  @keyframes countUp { from { opacity:0; transform:scale(.8); } to { opacity:1; transform:scale(1); } }
+
+  .anim-text { position:absolute; font-family:var(--mono); font-size:10px; letter-spacing:.03em; opacity:0; white-space:nowrap; overflow:hidden; }
+  .anim-metric { position:absolute; font-family:var(--mono); font-weight:700; opacity:0; }
+  .anim-kanban-card { position:absolute; width:18px; height:10px; border-radius:3px; opacity:0; }
 
   /* Pulse ring */
   .anim-ring { position: absolute; border-radius: 50%; border: 1px solid var(--accent); opacity: 0; }
   @keyframes ringPulse { 0% { opacity:.4; transform:scale(.5); } 100% { opacity:0; transform:scale(3); } }
 
-  .landing-enter { padding: 16px 48px; font-size: 16px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font); letter-spacing: .5px; opacity: 0; animation: fadeIn .5s 7.5s forwards, btnPulse 2s 8s infinite; }
-  .landing-enter:hover { background: #059669; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(16,185,129,.3); animation: none; opacity: 1; }
+  .landing-enter { padding: 16px 48px; font-size: 16px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font); letter-spacing: .5px; opacity: 1; animation: btnPulse 2s 1s infinite; }
+  .landing-enter:hover { background: #059669; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(16,185,129,.3); animation: none; }
   @keyframes btnPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,.4); } 50% { box-shadow: 0 0 0 12px rgba(16,185,129,0); } }
   .landing-version { position: absolute; bottom: 24px; font-size: 11px; color: var(--text3); font-family: var(--mono); }
 </style>
@@ -286,42 +328,92 @@
   <div class="landing-logo">code<span>context</span></div>
   <div class="landing-sub">AI-native codebase intelligence.<br>Pre-indexed metadata. Structured queries. Sprint management.<br>Everything your agent needs, nothing it doesn't.</div>
 
-  <div class="landing-anim" style="width:520px;height:280px;">
+  <div class="landing-anim" style="width:620px;height:340px;">
     <!-- Phase 1: Grid background (0-1s) -->
     <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(16,185,129,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(16,185,129,.06) 1px,transparent 1px);background-size:40px 40px;opacity:0;animation:fadeIn .8s .3s forwards;border-radius:12px;"></div>
-    <!-- Phase 2: Code file nodes (1-2.5s) -->
-    <div class="anim-node file" style="left:8%;top:25%;width:12px;height:12px;animation:scaleIn .5s 1s forwards;"></div>
-    <div class="anim-node file" style="left:18%;top:55%;width:10px;height:10px;animation:scaleIn .5s 1.2s forwards;"></div>
-    <div class="anim-node file" style="left:12%;top:78%;width:8px;height:8px;animation:scaleIn .5s 1.4s forwards;"></div>
-    <div class="anim-node file" style="left:28%;top:38%;width:14px;height:14px;animation:scaleIn .5s 1.6s forwards;"></div>
-    <div class="anim-node file" style="left:22%;top:15%;width:9px;height:9px;animation:scaleIn .5s 1.8s forwards;"></div>
+
+    <!-- Phase 2: Code file nodes + text (1-2.5s) -->
+    <div class="anim-node file" style="left:6%;top:18%;width:12px;height:12px;animation:scaleIn .5s 1s forwards;"></div>
+    <div class="anim-node file" style="left:16%;top:42%;width:10px;height:10px;animation:scaleIn .5s 1.2s forwards;"></div>
+    <div class="anim-node file" style="left:10%;top:62%;width:8px;height:8px;animation:scaleIn .5s 1.4s forwards;"></div>
+    <div class="anim-node file" style="left:24%;top:30%;width:14px;height:14px;animation:scaleIn .5s 1.6s forwards;"></div>
+    <div class="anim-node file" style="left:20%;top:12%;width:9px;height:9px;animation:scaleIn .5s 1.8s forwards;"></div>
+    <!-- Text: phase description -->
+    <div class="anim-text" style="left:4%;top:78%;color:var(--accent);font-size:9px;animation:fadeSlideUp .5s 2s forwards;">Indexed in &lt;2s</div>
+    <div class="anim-metric" style="left:18%;top:2%;color:var(--accent);font-size:18px;animation:countUp .6s 2.2s forwards;">58</div>
+    <div class="anim-text" style="left:15%;top:10%;color:var(--text3);font-size:8px;animation:fadeIn .3s 2.4s forwards;">tests passing</div>
+
     <!-- Phase 3: Sprint board wireframe (2.5-4s) -->
-    <div style="position:absolute;left:38%;top:15%;width:24%;height:70%;border:1px solid var(--blue);border-radius:8px;opacity:0;animation:fadeIn .6s 2.5s forwards;">
+    <div style="position:absolute;left:34%;top:8%;width:28%;height:55%;border:1px solid var(--blue);border-radius:8px;opacity:0;animation:fadeIn .6s 2.5s forwards;">
       <div style="height:4px;background:var(--blue);border-radius:4px 4px 0 0;"></div>
-      <div style="padding:8px;display:flex;flex-direction:column;gap:4px;">
-        <div style="height:6px;width:80%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3s forwards;opacity:0;"></div>
-        <div style="height:6px;width:60%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3.2s forwards;opacity:0;"></div>
-        <div style="height:6px;width:70%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.4s forwards;opacity:0;"></div>
-        <div style="height:6px;width:50%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.6s forwards;opacity:0;"></div>
+      <div style="padding:6px;display:flex;flex-direction:column;gap:3px;">
+        <div style="height:5px;width:80%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3s forwards;opacity:0;"></div>
+        <div style="height:5px;width:60%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3.2s forwards;opacity:0;"></div>
+        <div style="height:5px;width:70%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.4s forwards;opacity:0;"></div>
+        <div style="height:5px;width:50%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.6s forwards;opacity:0;"></div>
       </div>
     </div>
+    <div class="anim-text" style="left:36%;top:1%;color:var(--blue);font-size:9px;animation:fadeSlideUp .4s 3s forwards;">Sprint</div>
+
     <!-- Phase 4: Agent constellation (4-5.5s) -->
-    <div class="anim-node agent" style="left:72%;top:20%;width:14px;height:14px;animation:scaleIn .5s 4s forwards;"></div>
-    <div class="anim-node agent" style="left:82%;top:42%;width:12px;height:12px;animation:scaleIn .5s 4.3s forwards;"></div>
-    <div class="anim-node agent" style="left:75%;top:65%;width:10px;height:10px;animation:scaleIn .5s 4.6s forwards;"></div>
-    <div class="anim-node agent" style="left:88%;top:72%;width:11px;height:11px;animation:scaleIn .5s 4.9s forwards;"></div>
-    <!-- Connecting lines between phases -->
-    <div style="position:absolute;left:25%;top:35%;width:60px;height:1px;background:linear-gradient(90deg,var(--accent),transparent);opacity:0;animation:fadeIn .4s 2s forwards;transform:rotate(-5deg);"></div>
-    <div style="position:absolute;left:60%;top:30%;width:50px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.2s forwards;transform:rotate(15deg);"></div>
-    <div style="position:absolute;left:62%;top:55%;width:45px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.5s forwards;transform:rotate(-10deg);"></div>
+    <div class="anim-node agent" style="left:68%;top:14%;width:14px;height:14px;animation:scaleIn .5s 4s forwards;"></div>
+    <div class="anim-node agent" style="left:78%;top:32%;width:12px;height:12px;animation:scaleIn .5s 4.3s forwards;"></div>
+    <div class="anim-node agent" style="left:72%;top:50%;width:10px;height:10px;animation:scaleIn .5s 4.6s forwards;"></div>
+    <div class="anim-node agent" style="left:85%;top:56%;width:11px;height:11px;animation:scaleIn .5s 4.9s forwards;"></div>
+    <div class="anim-text" style="left:70%;top:6%;color:var(--purple);font-size:9px;animation:fadeSlideUp .4s 4.2s forwards;">AI Agent Team</div>
+    <div class="anim-metric" style="left:82%;top:14%;color:var(--purple);font-size:14px;animation:countUp .5s 4.5s forwards;">9</div>
+
+    <!-- Connecting lines -->
+    <div style="position:absolute;left:25%;top:28%;width:60px;height:1px;background:linear-gradient(90deg,var(--accent),transparent);opacity:0;animation:fadeIn .4s 2s forwards;transform:rotate(-5deg);"></div>
+    <div style="position:absolute;left:58%;top:24%;width:50px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.2s forwards;transform:rotate(15deg);"></div>
+    <div style="position:absolute;left:60%;top:44%;width:45px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.5s forwards;transform:rotate(-10deg);"></div>
+
     <!-- Pulse rings -->
-    <div class="anim-ring" style="left:48%;top:48%;width:60px;height:60px;animation:ringPulse 4s 2s infinite;"></div>
-    <div class="anim-ring" style="left:76%;top:40%;width:40px;height:40px;animation:ringPulse 4s 4s infinite;border-color:var(--purple);"></div>
+    <div class="anim-ring" style="left:44%;top:38%;width:60px;height:60px;animation:ringPulse 4s 2s infinite;"></div>
+    <div class="anim-ring" style="left:74%;top:32%;width:40px;height:40px;animation:ringPulse 4s 4s infinite;border-color:var(--purple);"></div>
+
     <!-- Phase 5: Feature labels (5.5-7s) -->
-    <div style="position:absolute;left:2%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--accent);opacity:0;animation:fadeSlideUp .5s 5.5s forwards;">27 MCP Tools</div>
-    <div style="position:absolute;left:32%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--blue);opacity:0;animation:fadeSlideUp .5s 6s forwards;">Kanban Board</div>
-    <div style="position:absolute;left:58%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--purple);opacity:0;animation:fadeSlideUp .5s 6.5s forwards;">9 Agents</div>
-    <div style="position:absolute;right:2%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--orange);opacity:0;animation:fadeSlideUp .5s 7s forwards;">Sprint Mgmt</div>
+    <div style="position:absolute;left:2%;bottom:26%;font-size:11px;font-family:var(--mono);color:var(--accent);opacity:0;animation:fadeSlideUp .5s 5.5s forwards;">28 MCP Tools</div>
+    <div style="position:absolute;left:32%;bottom:26%;font-size:11px;font-family:var(--mono);color:var(--blue);opacity:0;animation:fadeSlideUp .5s 6s forwards;">Kanban Board</div>
+    <div style="position:absolute;left:58%;bottom:26%;font-size:11px;font-family:var(--mono);color:var(--purple);opacity:0;animation:fadeSlideUp .5s 6.5s forwards;">9 Agents</div>
+    <div style="position:absolute;right:2%;bottom:26%;font-size:11px;font-family:var(--mono);color:var(--orange);opacity:0;animation:fadeSlideUp .5s 7s forwards;">Sprint Mgmt</div>
+
+    <!-- Phase 6: Sprint section preview (7-9s) -->
+    <div style="position:absolute;left:4%;bottom:0;right:4%;height:60px;border:1px solid var(--border2);border-radius:8px;background:rgba(19,19,24,.8);opacity:0;animation:fadeSlideUp .6s 7s forwards;overflow:hidden;">
+      <!-- Mini kanban columns -->
+      <div style="display:flex;height:100%;padding:6px 8px;gap:6px;">
+        <!-- TODO column -->
+        <div style="flex:1;border-right:1px solid var(--border);padding-right:6px;">
+          <div style="font-size:7px;font-family:var(--mono);color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;opacity:0;animation:fadeIn .3s 7.3s forwards;">Todo</div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.2);animation:fadeIn .3s 7.5s forwards;"></div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;margin-top:3px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.15);animation:fadeIn .3s 7.7s forwards;"></div>
+        </div>
+        <!-- IN_PROGRESS column -->
+        <div style="flex:1;border-right:1px solid var(--border);padding-right:6px;">
+          <div style="font-size:7px;font-family:var(--mono);color:var(--blue);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;opacity:0;animation:fadeIn .3s 7.4s forwards;">In Progress</div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.2);animation:fadeIn .3s 7.8s forwards;"></div>
+        </div>
+        <!-- DONE column -->
+        <div style="flex:1;border-right:1px solid var(--border);padding-right:6px;">
+          <div style="font-size:7px;font-family:var(--mono);color:var(--accent);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;opacity:0;animation:fadeIn .3s 7.5s forwards;">Done</div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.2);animation:fadeIn .3s 7.9s forwards;"></div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;margin-top:3px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.15);animation:fadeIn .3s 8.1s forwards;"></div>
+          <div class="anim-kanban-card" style="position:relative;width:100%;margin-top:3px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.1);animation:fadeIn .3s 8.3s forwards;"></div>
+        </div>
+        <!-- Velocity mini chart -->
+        <div style="flex:1;">
+          <div style="font-size:7px;font-family:var(--mono);color:var(--orange);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;opacity:0;animation:fadeIn .3s 7.6s forwards;">Velocity</div>
+          <div style="display:flex;align-items:flex-end;gap:2px;height:28px;opacity:0;animation:fadeIn .4s 8s forwards;">
+            <div style="width:6px;background:var(--accent);border-radius:2px 2px 0 0;height:60%;opacity:.6;"></div>
+            <div style="width:6px;background:var(--accent);border-radius:2px 2px 0 0;height:80%;opacity:.7;"></div>
+            <div style="width:6px;background:var(--accent);border-radius:2px 2px 0 0;height:100%;"></div>
+            <div style="width:6px;background:var(--accent);border-radius:2px 2px 0 0;height:90%;opacity:.8;"></div>
+            <div style="width:6px;background:var(--blue);border-radius:2px 2px 0 0;height:70%;opacity:.5;"></div>
+          </div>
+          <div class="anim-text" style="position:relative;left:0;top:1px;color:var(--text3);font-size:7px;animation:fadeIn .3s 8.2s forwards;">19pt avg</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <button class="landing-enter" onclick="document.getElementById('landing').classList.add('hidden');setTimeout(()=>document.getElementById('landing').style.display='none',600);">Enter Dashboard</button>
@@ -346,7 +438,8 @@
   <!-- Page Navigation -->
   <div class="page-nav">
     <div class="page-nav-item active" data-page="explorer">Code Explorer</div>
-    <div class="page-nav-item" data-page="sprint">Sprint Process</div>
+    <div class="page-nav-item" data-page="planning">Project Management</div>
+    <div class="page-nav-item" data-page="sprint">Sprint</div>
   </div>
 
   <!-- PAGE: Code Explorer -->
@@ -375,13 +468,13 @@
     </div>
   </div>
 
-  <!-- PAGE: Sprint Process -->
+  <!-- PAGE: Sprint -->
   <div class="page" id="page-sprint">
     <div class="sprint-page-content">
       <div class="sprint-sub-tabs">
         <div class="sprint-sub-tab active" data-stab="board">Board</div>
-        <div class="sprint-sub-tab" data-stab="planning">Project Planning</div>
         <div class="sprint-sub-tab" data-stab="team">Team</div>
+        <div class="sprint-sub-tab" data-stab="insights">Retro Insights</div>
       </div>
 
       <!-- Board sub-tab -->
@@ -392,17 +485,49 @@
         </div>
       </div>
 
-      <!-- Project Planning sub-tab -->
-      <div class="sprint-sub-content" id="stab-planning">
-        <div class="content-view" id="planning-content">
+      <!-- Team sub-tab -->
+      <div class="sprint-sub-content" id="stab-team">
+        <div class="agent-grid" id="team-content"></div>
+      </div>
+
+      <!-- Retro Insights sub-tab -->
+      <div class="sprint-sub-content" id="stab-insights">
+        <div class="content-view" id="insights-content">
+          <div class="skeleton skeleton-bar" style="width:60%;height:24px;margin:20px;"></div>
+          <div class="skeleton skeleton-bar" style="width:90%;margin:20px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: Project Management -->
+  <div class="page" id="page-planning">
+    <div class="sprint-page-content">
+      <div class="sprint-sub-tabs">
+        <div class="sprint-sub-tab active" data-ptab="milestones">Milestones</div>
+        <div class="sprint-sub-tab" data-ptab="vision">Product Vision</div>
+        <div class="sprint-sub-tab" data-ptab="gantt">Gantt Chart</div>
+      </div>
+
+      <div class="sprint-sub-content active" id="ptab-milestones">
+        <div class="content-view" id="milestones-content">
           <div class="skeleton skeleton-bar" style="width:60%;height:24px;margin:20px;"></div>
           <div class="skeleton skeleton-bar" style="width:90%;margin:20px;"></div>
         </div>
       </div>
 
-      <!-- Team sub-tab -->
-      <div class="sprint-sub-content" id="stab-team">
-        <div class="agent-grid" id="team-content"></div>
+      <div class="sprint-sub-content" id="ptab-vision">
+        <div class="content-view" id="vision-content">
+          <div class="skeleton skeleton-bar" style="width:60%;height:24px;margin:20px;"></div>
+          <div class="skeleton skeleton-bar" style="width:90%;margin:20px;"></div>
+        </div>
+      </div>
+
+      <div class="sprint-sub-content" id="ptab-gantt">
+        <div class="content-view" id="gantt-content">
+          <div class="skeleton skeleton-bar" style="width:60%;height:24px;margin:20px;"></div>
+          <div class="skeleton skeleton-bar" style="width:90%;margin:20px;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -467,6 +592,8 @@ function renderStats(s) {
     el.appendChild(div);
   });
 }
+
+let expandToFileFn = null;
 
 function renderFileTree(files, dirs) {
   const el = $('#file-list');
@@ -542,6 +669,7 @@ function renderFileTree(files, dirs) {
       if (!info) return;
       const folder = document.createElement('div');
       folder.className = 'tree-folder';
+      folder.dataset.folderPath = childPath;
 
       const head = document.createElement('div');
       head.className = 'tree-folder-head';
@@ -564,13 +692,6 @@ function renderFileTree(files, dirs) {
 
       const children = document.createElement('div');
       children.className = 'tree-children collapsed';
-
-      // Auto-expand first two levels
-      if (depth < 2) {
-        children.classList.remove('collapsed');
-        chevron.classList.add('open');
-        expandedDirs.add(childPath);
-      }
 
       head.addEventListener('click', () => {
         const isOpen = expandedDirs.has(childPath);
@@ -599,12 +720,38 @@ function renderFileTree(files, dirs) {
   }
 
   renderDir(rootDir, el, 0);
+
+  // Auto-expand parent folder chain for a given file path
+  function expandToFile(filePath) {
+    const parts = filePath.split('/');
+    let current = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      current = current ? current + '/' + parts[i] : parts[i];
+      if (!expandedDirs.has(current)) {
+        expandedDirs.add(current);
+        const folderEl = el.querySelector('[data-folder-path="' + CSS.escape(current) + '"]');
+        if (folderEl) {
+          const childrenEl = folderEl.querySelector('.tree-children');
+          const chevronEl = folderEl.querySelector('.chevron');
+          if (childrenEl) childrenEl.classList.remove('collapsed');
+          if (chevronEl) chevronEl.classList.add('open');
+        }
+      }
+    }
+  }
+
+  expandToFileFn = expandToFile;
 }
 
 let selectedFileId = null;
 
 async function selectFile(id, pushHash = true) {
   selectedFileId = id;
+  // Auto-expand parent folders for selected file
+  const fileData = allFiles.find(f => f.id === id);
+  if (fileData && expandToFileFn) {
+    expandToFileFn(fileData.path);
+  }
   $$('.file-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
   if (pushHash) location.hash = '#file/' + id;
   const data = await fetch('/api/file/' + id).then(r => r.json());
@@ -814,6 +961,9 @@ $('#search').addEventListener('input', (e) => {
     item.addEventListener('click', () => selectFile(f.id));
     el.appendChild(item);
   });
+  if (q && expandToFileFn) {
+    filtered.forEach(f => expandToFileFn(f.path));
+  }
   $('#file-count').textContent = filtered.length;
 });
 
@@ -824,17 +974,21 @@ $$('.page-nav-item').forEach(item => {
     $$('.page').forEach(p => p.classList.remove('active'));
     item.classList.add('active');
     $('#page-' + item.dataset.page).classList.add('active');
-    if (item.dataset.page === 'sprint') { loadSprintList(); loadPlanning(); loadTeam(); }
+    if (item.dataset.page === 'sprint') { loadSprintList(); loadTeam(); loadInsights(); }
+    if (item.dataset.page === 'planning') { loadMilestones(); loadVision(); loadGantt(); }
   });
 });
 
 // ─── Sprint sub-tab navigation ──────────────────────────────────────────────
 $$('.sprint-sub-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    $$('.sprint-sub-tab').forEach(t => t.classList.remove('active'));
-    $$('.sprint-sub-content').forEach(c => c.classList.remove('active'));
+    const parent = tab.closest('.sprint-page-content');
+    parent.querySelectorAll('.sprint-sub-tab').forEach(t => t.classList.remove('active'));
+    parent.querySelectorAll('.sprint-sub-content').forEach(c => c.classList.remove('active'));
     tab.classList.add('active');
-    $('#stab-' + tab.dataset.stab).classList.add('active');
+    const id = tab.dataset.stab || tab.dataset.ptab;
+    const prefix = tab.dataset.stab ? 'stab' : 'ptab';
+    $('#' + prefix + '-' + id).classList.add('active');
   });
 });
 
@@ -1135,25 +1289,13 @@ async function loadSprintBoard(id, cardEl) {
     </div>`;
 
     html += `<div class="pill-tabs"><div class="pill-tab active" onclick="showBoardView('tickets',this)">Implementation</div><div class="pill-tab" onclick="showBoardView('planning',this)">Planning</div><div class="pill-tab" onclick="showBoardView('qa',this)">QA</div><div class="pill-tab" onclick="showBoardView('retro',this)">Retro</div></div>`;
-    html += '<div id="board-view">';
+    html += '<div id="board-view"></div>';
 
-    // Default: tickets view
-    if (tickets.length) {
-      html += `<table style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);border-collapse:collapse;"><thead><tr style="background:var(--bg);font-size:11px;color:var(--text2);text-transform:uppercase;">
-        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Title</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Pri</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Assignee</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Pts</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Status</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">QA</th>
-      </tr></thead><tbody>${tickets.map(t=>`<tr style="border-bottom:1px solid var(--border);font-size:13px;">
-        <td style="padding:8px 10px;font-family:var(--mono);font-size:12px;">${esc(t.ticket_ref||'#'+t.id)}</td><td style="padding:8px 10px;">${esc(t.title)}</td>
-        <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${pC[t.priority]||'#6b7280'};color:white;">${esc(t.priority)}</span></td>
-        <td style="padding:8px 10px;color:var(--text2);font-size:12px;">${esc(t.assigned_to||'—')}</td><td style="padding:8px 10px;font-family:var(--mono);">${t.story_points||0}</td>
-        <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:6px;font-size:10px;font-weight:600;background:${sC[t.status]||'#6b7280'};color:white;">${esc((t.status||'').replace('_',' '))}</span></td>
-        <td style="padding:8px 10px;">${t.qa_verified?'<span style="color:var(--accent);">✓</span>':'<span style="color:var(--red);">✗</span>'}</td>
-      </tr>`).join('')}</tbody></table>`;
-    } else html += '<div class="empty">No tickets in this sprint</div>';
-    html += '</div>';
-
-    // Store data for sub-view switching
+    // Store data then render kanban as default view
     panel.innerHTML = html;
     panel._tickets = tickets; panel._retro = retro; panel._sprint = sprint;
+    showBoardView('tickets', panel.querySelector('.pill-tab'));
+    return;
   } catch(e) { panel.innerHTML = '<div class="empty">Error loading sprint</div>'; }
 }
 
@@ -1234,61 +1376,77 @@ function showBoardView(view, pillEl) {
   }
 }
 
-async function loadPlanning() {
-  const el = $('#planning-content');
+async function loadMilestones() {
+  const el = $('#milestones-content');
   try {
-    const [mRes, vRes] = await Promise.all([fetch('/api/skill/MILESTONES'), fetch('/api/skill/PRODUCT_VISION')]);
+    const mRes = await fetch('/api/skill/MILESTONES');
     const milestones = mRes.ok ? await mRes.json() : null;
+    let h = '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Milestone Roadmap</div>';
+
+    // Gantt overview
+    h += '<div class="gantt" style="margin-bottom:24px;">';
+    h += `<div class="gantt-row"><div class="gantt-label">M1: Production Foundation<br><span class="gantt-label-sub">Sprints 1-4 · Complete</span></div><div class="gantt-track"><div class="gantt-bar done" style="width:100%;">100%</div></div></div>`;
+    h += `<div class="gantt-row"><div class="gantt-label">M2: Dashboard & Process<br><span class="gantt-label-sub">Sprints 5-7+ · Active</span></div><div class="gantt-track"><div class="gantt-bar active" style="width:65%;">65%</div></div></div>`;
+    h += `<div class="gantt-row"><div class="gantt-label">M3: Ecosystem Growth<br><span class="gantt-label-sub">Planned</span></div><div class="gantt-track"><div class="gantt-bar planned" style="width:100%;">Planned</div></div></div>`;
+    h += '</div>';
+
+    if (milestones?.content) {
+      h += `<div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(milestones.content)}</div>`;
+    }
+    el.innerHTML = h || '<div class="empty">No milestone data available</div>';
+  } catch { el.innerHTML = '<div class="empty">Error loading milestones</div>'; }
+}
+
+async function loadVision() {
+  const el = $('#vision-content');
+  try {
+    const vRes = await fetch('/api/skill/PRODUCT_VISION');
     const vision = vRes.ok ? await vRes.json() : null;
+    if (vision?.content) {
+      el.innerHTML = `<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Product Vision</div><div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(vision.content)}</div>`;
+    } else {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">&#9776;</div>No product vision defined yet</div>';
+    }
+  } catch { el.innerHTML = '<div class="empty">Error loading vision</div>'; }
+}
+
+async function loadGantt() {
+  const el = $('#gantt-content');
+  try {
+    const sprints = await fetch('/api/sprints').then(r => r.json());
+    const sprintData = sprints.filter(s => (s.velocity_committed || 0) > 0).reverse();
 
     // Velocity trend chart
     let h = '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Sprint Velocity</div>';
-    try {
-      const sprints = await fetch('/api/sprints').then(r => r.json());
-      const sprintData = sprints.filter(s => (s.velocity_committed || 0) > 0).reverse();
-      if (sprintData.length > 0) {
-        const maxPts = Math.max(...sprintData.map(s => Math.max(s.velocity_committed || 0, s.velocity_completed || 0)), 1);
-        h += '<div style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:20px;">';
-        sprintData.forEach(s => {
-          const cH = Math.round(((s.velocity_committed||0)/maxPts)*110);
-          const dH = Math.round(((s.velocity_completed||0)/maxPts)*110);
-          const label = s.name.slice(-6);
-          h += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
-            <div style="display:flex;gap:2px;align-items:flex-end;height:110px;">
-              <div style="width:14px;height:${cH}px;background:var(--border);border-radius:3px 3px 0 0;" title="Committed: ${s.velocity_committed}"></div>
-              <div style="width:14px;height:${dH}px;background:${dH>=cH?'var(--accent)':'var(--orange)'};border-radius:3px 3px 0 0;" title="Completed: ${s.velocity_completed}"></div>
-            </div>
-            <div style="font-size:9px;color:var(--text3);font-family:var(--mono);writing-mode:vertical-rl;transform:rotate(180deg);height:40px;overflow:hidden;">${esc(label)}</div>
-          </div>`;
-        });
-        h += '</div>';
-        h += '<div style="display:flex;gap:12px;font-size:11px;color:var(--text3);margin-bottom:24px;"><span><span style="display:inline-block;width:10px;height:10px;background:var(--border);border-radius:2px;margin-right:4px;"></span>Committed</span><span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;margin-right:4px;"></span>Completed</span></div>';
-      }
-    } catch {}
+    if (sprintData.length > 0) {
+      const maxPts = Math.max(...sprintData.map(s => Math.max(s.velocity_committed || 0, s.velocity_completed || 0)), 1);
+      h += '<div style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:20px;">';
+      sprintData.forEach(s => {
+        const cH = Math.round(((s.velocity_committed||0)/maxPts)*110);
+        const dH = Math.round(((s.velocity_completed||0)/maxPts)*110);
+        const label = s.name.slice(-6);
+        h += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+          <div style="display:flex;gap:2px;align-items:flex-end;height:110px;">
+            <div style="width:14px;height:${cH}px;background:var(--border);border-radius:3px 3px 0 0;" title="Committed: ${s.velocity_committed}"></div>
+            <div style="width:14px;height:${dH}px;background:${dH>=cH?'var(--accent)':'var(--orange)'};border-radius:3px 3px 0 0;" title="Completed: ${s.velocity_completed}"></div>
+          </div>
+          <div style="font-size:9px;color:var(--text3);font-family:var(--mono);writing-mode:vertical-rl;transform:rotate(180deg);height:40px;overflow:hidden;">${esc(label)}</div>
+        </div>`;
+      });
+      h += '</div>';
+      h += '<div style="display:flex;gap:12px;font-size:11px;color:var(--text3);margin-bottom:24px;"><span><span style="display:inline-block;width:10px;height:10px;background:var(--border);border-radius:2px;margin-right:4px;"></span>Committed</span><span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;margin-right:4px;"></span>Completed</span></div>';
+    }
 
-    h += '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Project Roadmap</div>';
-
-    // Gantt chart
+    // Gantt timeline
+    h += '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Project Timeline</div>';
     h += '<div class="gantt">';
     h += `<div class="gantt-row"><div class="gantt-label">M1: Production Foundation<br><span class="gantt-label-sub">Sprints 1-4 · Complete</span></div><div class="gantt-track"><div class="gantt-bar done" style="width:100%;">100%</div></div></div>`;
     h += `<div class="gantt-row"><div class="gantt-label">M2: Dashboard & Process<br><span class="gantt-label-sub">Sprints 5-7+ · Active</span></div><div class="gantt-track"><div class="gantt-bar active" style="width:65%;">65%</div></div></div>`;
     h += `<div class="gantt-row"><div class="gantt-label">M3: Ecosystem Growth<br><span class="gantt-label-sub">Planned</span></div><div class="gantt-track"><div class="gantt-bar planned" style="width:100%;">Planned</div></div></div>`;
     h += '</div>';
 
-    // Milestones detail
-    if (milestones?.content) {
-      h += '<div style="margin-top:24px;"><div style="font-size:15px;font-weight:600;margin-bottom:12px;">Milestone Details</div>';
-      h += `<div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(milestones.content)}</div></div>`;
-    }
-
-    // Vision
-    if (vision?.content) {
-      h += '<div style="margin-top:24px;"><div style="font-size:15px;font-weight:600;margin-bottom:12px;">Product Vision</div>';
-      h += `<div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(vision.content)}</div></div>`;
-    }
-
-    el.innerHTML = h || '<div class="empty">No planning data available</div>';
-  } catch { el.innerHTML = '<div class="empty">Error loading planning data</div>'; }
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty">Error loading gantt data</div>'; }
 }
 
 async function loadTeam() {
@@ -1313,6 +1471,161 @@ async function loadTeam() {
       </div>`;
     }).join('');
   } catch { $('#team-content').innerHTML = '<div class="empty">Error loading team</div>'; }
+}
+
+// ─── Retro Insights (bento grid) ────────────────────────────────────────────
+async function loadInsights() {
+  const el = $('#insights-content');
+  try {
+    const res = await fetch('/api/sprints');
+    const sprints = await res.json();
+    const totalSprints = sprints.length;
+
+    // Fetch retro findings per sprint via existing API
+    const allFindings = [];
+    for (const s of sprints) {
+      try {
+        const r = await fetch('/api/sprint/' + encodeURIComponent(s.id) + '/retro');
+        const retro = await r.json();
+        if (Array.isArray(retro)) allFindings.push(...retro);
+      } catch {}
+    }
+
+    const well = allFindings.filter(f => f.category === 'went_well');
+    const wrong = allFindings.filter(f => f.category === 'went_wrong');
+    const tryNext = allFindings.filter(f => f.category === 'try_next');
+
+    // Build bento grid using safe DOM methods
+    el.textContent = '';
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:20px 20px 8px;display:flex;align-items:baseline;gap:12px;';
+    const title = document.createElement('span');
+    title.style.cssText = 'font-size:18px;font-weight:700;color:var(--text);';
+    title.textContent = 'Retro Insights';
+    const sub = document.createElement('span');
+    sub.style.cssText = 'font-size:12px;color:var(--text3);';
+    sub.textContent = allFindings.length + ' findings across ' + totalSprints + ' sprints';
+    header.appendChild(title);
+    header.appendChild(sub);
+    el.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'bento-grid';
+
+    function makeBentoCard(opts) {
+      const card = document.createElement('div');
+      card.className = 'bento-card ' + (opts.cls || '');
+      const hdr = document.createElement('div');
+      hdr.className = 'bento-header';
+      const icon = document.createElement('div');
+      icon.className = 'bento-icon ' + (opts.iconCls || '');
+      icon.textContent = opts.icon;
+      const titWrap = document.createElement('div');
+      const t = document.createElement('div');
+      t.className = 'bento-title';
+      t.textContent = opts.title;
+      const s = document.createElement('div');
+      s.className = 'bento-subtitle';
+      s.textContent = opts.subtitle;
+      titWrap.appendChild(t);
+      titWrap.appendChild(s);
+      hdr.appendChild(icon);
+      hdr.appendChild(titWrap);
+      card.appendChild(hdr);
+      if (opts.items) {
+        const ul = document.createElement('ul');
+        ul.className = 'bento-list';
+        opts.items.forEach(text => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); });
+        card.appendChild(ul);
+      }
+      return card;
+    }
+
+    // Recurring Topics (wide)
+    grid.appendChild(makeBentoCard({
+      cls: 'bento-recurring bento-wide', icon: '\u{1F504}', iconCls: 'purple',
+      title: 'Recurring Topics', subtitle: 'Patterns across all sprints',
+      items: [
+        'Subagent file writes fail silently \u2014 never trust claims without disk verification',
+        'Retros skipped when sprints feel "green" \u2014 3 consecutive skips before enforcement added',
+        'Ticket ID confusion \u2014 internal DB IDs vs sequential numbers cause update errors',
+        'Sprint velocity stabilized at 19pt after early over-commitment (27pt in S2)',
+        'Frontend/backend capacity imbalance recurs \u2014 8pt individual cap was the fix',
+      ]
+    }));
+
+    // Stats card
+    const statsCard = document.createElement('div');
+    statsCard.className = 'bento-card';
+    statsCard.style.cssText = 'display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;';
+    [{v: well.length, c: 'var(--accent)', l: 'went well'}, {v: wrong.length, c: 'var(--red)', l: 'went wrong'}, {v: tryNext.length, c: 'var(--purple)', l: 'try next'}].forEach((d, i) => {
+      const n = document.createElement('div');
+      n.className = 'bento-stat';
+      n.style.color = d.c;
+      n.textContent = d.v;
+      const lb = document.createElement('div');
+      lb.className = 'bento-stat-label';
+      lb.style.marginBottom = i < 2 ? '16px' : '0';
+      lb.textContent = d.l;
+      statsCard.appendChild(n);
+      statsCard.appendChild(lb);
+    });
+    grid.appendChild(statsCard);
+
+    // Recurring Good
+    grid.appendChild(makeBentoCard({
+      cls: 'bento-good', icon: '\u2705', iconCls: 'green',
+      title: 'Recurring Good', subtitle: 'Consistently positive',
+      items: [
+        '19pt velocity target hit consistently \u2014 conservative planning works',
+        'Zero-dependency approach \u2014 CSS-only animations, no new libs added',
+        'Parallel QA agents cut verification from 4min to 60s',
+        'Direct file writes + build verification prevents false completions',
+        'MCP-driven sprint process enables full delivery in one session',
+      ]
+    }));
+
+    // Recurring Bad
+    grid.appendChild(makeBentoCard({
+      cls: 'bento-bad', icon: '\u26A0', iconCls: 'red',
+      title: 'Recurring Bad', subtitle: 'Persistent pain points',
+      items: [
+        'Subagents hallucinate file writes \u2014 report success with zero disk changes',
+        'Retro process repeatedly skipped despite being flagged every time',
+        'No integration tests for MCP tools \u2014 only schema tests exist',
+        'Context limits from plugin injections force mid-sprint handoffs',
+        'Data import idempotency issues cause CASCADE deletes',
+      ]
+    }));
+
+    // Best Moment
+    grid.appendChild(makeBentoCard({
+      cls: 'bento-best', icon: '\u{1F31F}', iconCls: 'blue',
+      title: 'Best Moment', subtitle: 'Highlight across all sprints',
+      items: [
+        'Every INSTRUCTIONS.md requirement delivered \u2014 landing page, dashboard, sprint board, agent health, milestones, mobile responsive, security review, full docs. 6 sprints from zero to complete.',
+        '28 MCP tools, 9 agents, full dashboard with kanban/gantt/velocity shipped by milestone close',
+      ]
+    }));
+
+    // Worst Moment
+    grid.appendChild(makeBentoCard({
+      cls: 'bento-worst', icon: '\u{1F4A5}', iconCls: 'orange',
+      title: 'Worst Moment', subtitle: 'Biggest setback',
+      items: [
+        'Sprint 2 over-committed at 27pt \u2014 only 59% delivered, caused a full cleanup sprint (S4) that shouldn\u2019t have been needed',
+        'Scrum data import race condition \u2014 INSERT OR REPLACE triggered CASCADE deletes wiping ticket statuses',
+      ]
+    }));
+
+    el.appendChild(grid);
+  } catch {
+    el.textContent = '';
+    const err = document.createElement('div');
+    err.className = 'empty';
+    err.textContent = 'Error loading retro insights';
+    el.appendChild(err);
+  }
 }
 
 // Fix kbd hint for platform
