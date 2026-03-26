@@ -437,6 +437,10 @@ function renderDetail(d) {
     const dirLabel = document.createElement('span'); dirLabel.style.cssText = 'color:var(--accent2);font-family:var(--mono);font-weight:500;'; dirLabel.textContent = dirData.name + '/';
     dirName.appendChild(dirIcon); dirName.appendChild(dirLabel);
     dirSection.appendChild(dirName);
+    if (dirData.description) {
+      const dirDesc = document.createElement('div'); dirDesc.className = 'detail-desc'; dirDesc.textContent = dirData.description;
+      dirSection.appendChild(dirDesc);
+    }
 
     const dirStats = document.createElement('div'); dirStats.style.cssText = 'display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;';
     [{n: dirData.file_count, l: 'files'}, {n: dirData.total_lines.toLocaleString(), l: 'lines'}, {n: fmtSize(dirData.total_size_bytes), l: 'size'}].forEach(item => {

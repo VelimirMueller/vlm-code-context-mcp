@@ -162,6 +162,23 @@ server.tool(
   }
 );
 
+// ─── Tool: set_directory_description ─────────────────────────────────────────
+server.tool(
+  "set_directory_description",
+  "Set a manual description for a directory (persists across re-indexes)",
+  {
+    path: z.string().describe("Absolute directory path"),
+    description: z.string().describe("Description of what the directory contains"),
+  },
+  async ({ path: dirPath, description }) => {
+    const result = db.prepare(`UPDATE directories SET description = ? WHERE path = ?`).run(description, dirPath);
+    if (result.changes === 0) {
+      return { content: [{ type: "text", text: `Directory "${dirPath}" not in index.` }], isError: true };
+    }
+    return { content: [{ type: "text", text: `Description set for ${dirPath}` }] };
+  }
+);
+
 // ─── Tool: get_changes ───────────────────────────────────────────────────────
 server.tool(
   "get_changes",

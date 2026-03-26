@@ -52,6 +52,7 @@ export function initSchema(db: Database.Database) {
       total_size_bytes INTEGER NOT NULL DEFAULT 0,
       total_lines      INTEGER NOT NULL DEFAULT 0,
       language_breakdown TEXT,
+      description      TEXT,
       indexed_at       TEXT DEFAULT (datetime('now'))
     );
 
