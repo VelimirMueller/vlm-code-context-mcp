@@ -94,6 +94,13 @@ When work is delegated to subagents, the developer MUST verify before marking an
 | MEDIUM | Added to next sprint backlog | Next sprint |
 | LOW | Added to next sprint backlog | Next sprint |
 
+### Security Review (Day 4, alongside QA)
+- Security Specialist runs the security review checklist (see security-specialist agent)
+- SQL injection audit on all new SQL queries
+- Input validation check on all new MCP tool parameters
+- `npm audit` for dependency vulnerabilities
+- Findings logged as bugs with severity in BUGS.md
+
 ### Polish Work
 - Frontend polishes UI based on QA feedback
 - Backend fixes API edge cases found during QA

@@ -23,9 +23,6 @@ all mcp server connections are read only - write everything locally in a newly c
 3. scrum tickets are only filled during a sprint and will be created new from the default folder in .claude/scrum
 4. respect all skills in .claude/skills for each teammember - frontend writes design specc po write milestones and product vision manager makes resource planning and po manager and lead dev and scrum master improve sprint process
 5. sprint process basics are in SPRINT_PROCESS.md
+6. sprints can only be finished if all tickets have been closed and are qa verified
 
 ## TASK
-the whole .claude folder needs to be persisted as mcp service too, the idea is to call the sprint where ever this npm packe will be installed and load the whole dev team with all processes and skills
-via mcp in the app i develop later or anybody in any app. i think a new sqlite database is perfectly suited for this, the mcp server should be build modular, the api should be properly designed by best practicesa and respecting all rest principles.
-instructions will be passed as parameter or instruction file from another location, it should always be possible to review all agents, processes, sprint results and skills but also via mcp service possible to adjust single files with it.
-also we need a new page in the dashboard for the sprint process and we need to visualize it too. stay with the tickets and retro findings in the mvp.

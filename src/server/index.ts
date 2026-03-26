@@ -5,6 +5,9 @@ import { z } from "zod";
 import path from "path";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
+import { initScrumSchema } from "../scrum/schema.js";
+import { registerScrumTools } from "../scrum/tools.js";
+import { importScrumData } from "../scrum/import.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
@@ -13,6 +16,14 @@ db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
 initSchema(db);
+initScrumSchema(db);
+
+// Import scrum data from .claude/ if present
+const claudeDir = path.resolve(path.dirname(DB_PATH), ".claude");
+const scrumImport = importScrumData(db, claudeDir);
+if (scrumImport.agents + scrumImport.sprints > 0) {
+  console.error(`[scrum] Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets, ${scrumImport.skills} skills`);
+}
 
 const server = new McpServer({ name: "code-context", version: "1.0.0" });
 
@@ -311,8 +322,12 @@ server.tool(
   "Run a read-only SELECT query against the context database",
   { sql: z.string().describe("A SELECT SQL statement") },
   async ({ sql }) => {
-    if (!sql.trim().toLowerCase().startsWith("select")) {
+    const trimmed = sql.trim().toLowerCase();
+    if (!trimmed.startsWith("select")) {
       return { content: [{ type: "text", text: "Only SELECT statements allowed. Use execute() for writes." }], isError: true };
+    }
+    if (/\b(drop|alter|delete|insert|update|create)\b/i.test(sql)) {
+      return { content: [{ type: "text", text: "Dangerous SQL detected in query. Only pure SELECT allowed." }], isError: true };
     }
     try {
       const rows = db.prepare(sql).all();
@@ -328,12 +343,16 @@ server.tool(
   "execute",
   "Run an INSERT, UPDATE, or DELETE against the context database",
   {
-    sql: z.string().describe("A write SQL statement"),
+    sql: z.string().describe("A write SQL statement (INSERT, UPDATE, DELETE only — no DROP or ALTER)"),
     params: z.array(z.any()).optional().describe("Optional positional parameters"),
   },
   async ({ sql, params = [] }) => {
-    if (sql.trim().toLowerCase().startsWith("select")) {
+    const trimmed = sql.trim().toLowerCase();
+    if (trimmed.startsWith("select")) {
       return { content: [{ type: "text", text: "Use query() for SELECT." }], isError: true };
+    }
+    if (/\b(drop\s+table|alter\s+table|drop\s+index)\b/i.test(sql)) {
+      return { content: [{ type: "text", text: "DROP TABLE, ALTER TABLE, and DROP INDEX are not allowed." }], isError: true };
     }
     try {
       const result = db.prepare(sql).run(...params);
@@ -345,6 +364,9 @@ server.tool(
     }
   }
 );
+
+// ─── Scrum tools ─────────────────────────────────────────────────────────────
+registerScrumTools(server, db);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();

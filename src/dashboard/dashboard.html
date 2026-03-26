@@ -28,10 +28,10 @@
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 
-  .app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 64px 1fr 36px; height: 100vh; }
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
   /* ── Topbar ── */
-  .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 20px; padding: 0 28px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .topbar { display: flex; align-items: center; gap: 20px; padding: 0 28px; border-bottom: 1px solid var(--border); background: var(--surface); height: 64px; flex-shrink: 0; }
   .logo { display: flex; align-items: center; gap: 12px; }
   .logo-icon { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, #6ee7b7 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px rgba(16,185,129,.2); }
   .logo-icon svg { width: 16px; height: 16px; fill: white; }
@@ -54,7 +54,7 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
   /* ── Sidebar ── */
-  .sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
+  .sidebar { width: 300px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
   .sidebar-head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
   .sidebar-head .count { background: var(--surface3); color: var(--text2); font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
   .sidebar-body { overflow-y: auto; flex: 1; min-height: 0; padding: 10px 12px; }
@@ -82,13 +82,23 @@
   .file-size { font-size: 10px; color: var(--text3); margin-left: auto; flex-shrink: 0; font-family: var(--mono); }
 
   /* ── Main panel ── */
-  .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); min-width: 0; }
   .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 16px; background: var(--surface); }
   .tab { padding: 14px 22px; font-size: 13px; font-weight: 500; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all .25s; }
   .tab:hover { color: var(--text2); }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); }
   .tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
   .tab-content.active { display: block; }
+
+  /* ── Loading/empty/error states (T-015) ── */
+  @keyframes skeleton-pulse { 0%,100% { opacity:.4; } 50% { opacity:.8; } }
+  .skeleton { background: var(--surface2); border-radius: 6px; animation: skeleton-pulse 1.5s ease-in-out infinite; }
+  .skeleton-bar { height: 14px; margin: 8px 0; }
+  .empty { text-align: center; padding: 48px 20px; color: var(--text3); }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: .5; }
+  .error-msg { padding: 16px 20px; background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.2); border-radius: var(--radius); color: var(--red); margin: 16px 20px; font-size: 13px; }
+  .error-msg button { margin-top: 8px; padding: 4px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 12px; }
+  .kbd-hint { font-size: 11px; color: var(--text3); padding: 2px 6px; background: var(--surface2); border-radius: 4px; border: 1px solid var(--border); font-family: var(--mono); }
 
   /* ── Detail sections (card-based) ── */
   .detail-section { margin: 16px 20px 0; padding: 20px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -143,11 +153,181 @@
 
   canvas { width: 100%; height: 100%; display: block; }
 
-  .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 20px; padding: 0 24px; border-top: 1px solid var(--border); background: var(--surface); font-size: 11.5px; color: var(--text3); font-family: var(--mono); }
+  /* ── Page Navigation (T-021) ── */
+  .page-nav { display: flex; gap: 0; background: var(--bg); border-bottom: 2px solid var(--border); padding: 0 24px; flex-shrink: 0; }
+  .page-nav-item { padding: 12px 24px; font-size: 14px; font-weight: 600; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .page-nav-item:hover { color: var(--text2); }
+  .page-nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .page { display: none; flex: 1; min-height: 0; overflow: hidden; }
+  .page.active { display: flex; }
+  .sprint-page-content { display: flex; flex-direction: column; overflow: hidden; flex: 1; min-height: 0; }
+  .sprint-sub-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 16px; background: var(--surface); flex-shrink: 0; }
+  .sprint-sub-tab { padding: 12px 20px; font-size: 13px; font-weight: 500; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
+  .sprint-sub-tab:hover { color: var(--text2); }
+  .sprint-sub-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .sprint-sub-content { display: none; flex: 1; overflow-y: auto; }
+  .sprint-sub-content.active { display: flex; }
+  .sprint-list { width: 300px; flex-shrink: 0; border-right: 1px solid var(--border); overflow-y: auto; padding: 12px; }
+  .sprint-card { padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; cursor: pointer; transition: all .2s; }
+  .sprint-card:hover { border-color: var(--text3); }
+  .sprint-card.active { border-color: var(--accent); background: var(--accent-glow); }
+  .sprint-card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .sprint-card-meta { font-size: 11px; color: var(--text3); display: flex; gap: 8px; align-items: center; }
+  .sprint-card-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .sprint-card-bar-fill { height: 100%; background: var(--accent); transition: width .3s; }
+  .sprint-detail-panel { flex: 1; overflow-y: auto; padding: 20px; }
+  .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }
+  .agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .agent-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .agent-card-role { font-size: 14px; font-weight: 600; }
+  .agent-health { width: 10px; height: 10px; border-radius: 50%; }
+  .agent-health.active { background: var(--accent); }
+  .agent-health.idle { background: var(--orange); }
+  .agent-health.blocked { background: var(--red); }
+  .agent-card-desc { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+  .agent-card-model { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+  .content-view { flex: 1; overflow-y: auto; padding: 20px; }
+  .md-content { font-size: 14px; line-height: 1.7; }
+  .md-content h1 { font-size: 20px; font-weight: 700; margin: 20px 0 12px; color: var(--text); }
+  .md-content h2 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; color: var(--accent); }
+  .md-content h3 { font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  .md-content p { margin: 8px 0; }
+  .md-content ul, .md-content ol { padding-left: 20px; margin: 8px 0; }
+  .md-content li { margin: 4px 0; }
+  .md-content strong { color: var(--text); }
+  .md-content code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-family: var(--mono); font-size: 12px; }
+  .md-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .pill-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .pill-tab { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); color: var(--text3); cursor: pointer; transition: all .2s; }
+  .pill-tab:hover { color: var(--text2); }
+  .pill-tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+  /* ── Kanban (T-031) ── */
+  .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 180px; }
+  .kanban-col-hdr { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  .kanban-cnt { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--bg); color: var(--text3); }
+  .kanban-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 6px; transition: border-color .2s; }
+  .kanban-card:hover { border-color: var(--text3); }
+  .kanban-card-ref { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+  .kanban-card-title { font-size: 13px; font-weight: 500; margin: 3px 0; }
+  .kanban-card-meta { display: flex; gap: 8px; font-size: 11px; color: var(--text3); }
+  .kc-open { display: block !important; }
+
+  /* ── Gantt (T-032) ── */
+  .gantt { margin: 16px 0; }
+  .gantt-row { display: flex; align-items: center; margin-bottom: 10px; gap: 12px; }
+  .gantt-label { width: 220px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
+  .gantt-label-sub { font-size: 11px; color: var(--text3); font-weight: 400; }
+  .gantt-track { flex: 1; height: 28px; background: var(--surface); border-radius: 6px; overflow: hidden; }
+  .gantt-bar { height: 100%; border-radius: 6px; display: flex; align-items: center; padding: 0 12px; font-size: 11px; font-weight: 600; color: white; transition: width .5s; }
+  .gantt-bar.done { background: var(--accent); }
+  .gantt-bar.active { background: var(--blue); }
+  .gantt-bar.planned { background: var(--border); color: var(--text3); }
+  @media (max-width: 768px) {
+    .page.active { flex-direction: column; }
+    .sidebar { display: none; }
+    .sprint-list { width: 100%; border-right: none; border-bottom: 1px solid var(--border); max-height: 200px; }
+    .sprint-sub-content.active { flex-direction: column; }
+    .page-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .sprint-sub-tabs { overflow-x: auto; }
+    .sprint-detail-panel { padding: 12px; }
+    table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .agent-grid { grid-template-columns: 1fr; }
+    .landing-anim { width: 90vw; }
+    .landing-logo { font-size: 28px; }
+    .landing-sub { font-size: 14px; padding: 0 16px; }
+    .pill-tabs { overflow-x: auto; flex-wrap: nowrap; }
+    .pill-tab { white-space: nowrap; min-height: 44px; }
+    .kanban { grid-template-columns: 1fr 1fr; }
+    .gantt-row { flex-direction: column; }
+    .gantt-label { width: 100%; margin-bottom: 4px; }
+    .landing-enter { min-height: 44px; padding: 14px 36px; }
+    .page-nav-item { min-height: 44px; }
+    .sprint-sub-tab { min-height: 44px; }
+  }
+  @media (max-width: 480px) {
+    .kanban { grid-template-columns: 1fr; }
+  }
+
+  .statusbar { display: flex; align-items: center; gap: 20px; padding: 0 24px; border-top: 1px solid var(--border); background: var(--surface); font-size: 11.5px; color: var(--text3); font-family: var(--mono); height: 36px; flex-shrink: 0; }
   .statusbar .sep { width: 1px; height: 14px; background: var(--border); }
+
+  /* ── Landing Page (T-025) ── */
+  .landing { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #0c0c10; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity .6s, transform .6s; }
+  .landing.hidden { opacity: 0; transform: scale(1.05); pointer-events: none; }
+  .landing-logo { font-size: 48px; font-weight: 800; color: var(--text); letter-spacing: -2px; margin-bottom: 8px; }
+  .landing-logo span { color: var(--accent); }
+  .landing-sub { font-size: 16px; color: var(--text2); margin-bottom: 48px; text-align: center; max-width: 500px; line-height: 1.6; }
+  .landing-anim { width: 400px; height: 220px; position: relative; margin-bottom: 48px; }
+  @media (max-width: 500px) { .landing-anim { width: 90vw; height: 180px; } .landing-logo { font-size: 32px; } }
+
+  /* Animated nodes — sequenced appearance */
+  .anim-node { position: absolute; border-radius: 50%; opacity: 0; }
+  .anim-node.file { background: var(--accent); box-shadow: 0 0 12px rgba(16,185,129,.4); }
+  .anim-node.agent { background: var(--purple); box-shadow: 0 0 12px rgba(167,139,250,.4); }
+  @keyframes scaleIn { from { opacity:0; transform:scale(0); } to { opacity:1; transform:scale(1); } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes fadeSlideUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+  /* Pulse ring */
+  .anim-ring { position: absolute; border-radius: 50%; border: 1px solid var(--accent); opacity: 0; }
+  @keyframes ringPulse { 0% { opacity:.4; transform:scale(.5); } 100% { opacity:0; transform:scale(3); } }
+
+  .landing-enter { padding: 16px 48px; font-size: 16px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 12px; cursor: pointer; font-family: var(--font); letter-spacing: .5px; opacity: 0; animation: fadeIn .5s 7.5s forwards, btnPulse 2s 8s infinite; }
+  .landing-enter:hover { background: #059669; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(16,185,129,.3); animation: none; opacity: 1; }
+  @keyframes btnPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,.4); } 50% { box-shadow: 0 0 0 12px rgba(16,185,129,0); } }
+  .landing-version { position: absolute; bottom: 24px; font-size: 11px; color: var(--text3); font-family: var(--mono); }
 </style>
 </head>
 <body>
+<!-- Landing Page -->
+<div class="landing" id="landing">
+  <div class="landing-logo">code<span>context</span></div>
+  <div class="landing-sub">AI-native codebase intelligence.<br>Pre-indexed metadata. Structured queries. Sprint management.<br>Everything your agent needs, nothing it doesn't.</div>
+
+  <div class="landing-anim" style="width:520px;height:280px;">
+    <!-- Phase 1: Grid background (0-1s) -->
+    <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(16,185,129,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(16,185,129,.06) 1px,transparent 1px);background-size:40px 40px;opacity:0;animation:fadeIn .8s .3s forwards;border-radius:12px;"></div>
+    <!-- Phase 2: Code file nodes (1-2.5s) -->
+    <div class="anim-node file" style="left:8%;top:25%;width:12px;height:12px;animation:scaleIn .5s 1s forwards;"></div>
+    <div class="anim-node file" style="left:18%;top:55%;width:10px;height:10px;animation:scaleIn .5s 1.2s forwards;"></div>
+    <div class="anim-node file" style="left:12%;top:78%;width:8px;height:8px;animation:scaleIn .5s 1.4s forwards;"></div>
+    <div class="anim-node file" style="left:28%;top:38%;width:14px;height:14px;animation:scaleIn .5s 1.6s forwards;"></div>
+    <div class="anim-node file" style="left:22%;top:15%;width:9px;height:9px;animation:scaleIn .5s 1.8s forwards;"></div>
+    <!-- Phase 3: Sprint board wireframe (2.5-4s) -->
+    <div style="position:absolute;left:38%;top:15%;width:24%;height:70%;border:1px solid var(--blue);border-radius:8px;opacity:0;animation:fadeIn .6s 2.5s forwards;">
+      <div style="height:4px;background:var(--blue);border-radius:4px 4px 0 0;"></div>
+      <div style="padding:8px;display:flex;flex-direction:column;gap:4px;">
+        <div style="height:6px;width:80%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3s forwards;opacity:0;"></div>
+        <div style="height:6px;width:60%;background:rgba(59,130,246,.2);border-radius:3px;animation:fadeIn .3s 3.2s forwards;opacity:0;"></div>
+        <div style="height:6px;width:70%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.4s forwards;opacity:0;"></div>
+        <div style="height:6px;width:50%;background:rgba(16,185,129,.3);border-radius:3px;animation:fadeIn .3s 3.6s forwards;opacity:0;"></div>
+      </div>
+    </div>
+    <!-- Phase 4: Agent constellation (4-5.5s) -->
+    <div class="anim-node agent" style="left:72%;top:20%;width:14px;height:14px;animation:scaleIn .5s 4s forwards;"></div>
+    <div class="anim-node agent" style="left:82%;top:42%;width:12px;height:12px;animation:scaleIn .5s 4.3s forwards;"></div>
+    <div class="anim-node agent" style="left:75%;top:65%;width:10px;height:10px;animation:scaleIn .5s 4.6s forwards;"></div>
+    <div class="anim-node agent" style="left:88%;top:72%;width:11px;height:11px;animation:scaleIn .5s 4.9s forwards;"></div>
+    <!-- Connecting lines between phases -->
+    <div style="position:absolute;left:25%;top:35%;width:60px;height:1px;background:linear-gradient(90deg,var(--accent),transparent);opacity:0;animation:fadeIn .4s 2s forwards;transform:rotate(-5deg);"></div>
+    <div style="position:absolute;left:60%;top:30%;width:50px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.2s forwards;transform:rotate(15deg);"></div>
+    <div style="position:absolute;left:62%;top:55%;width:45px;height:1px;background:linear-gradient(90deg,var(--blue),var(--purple));opacity:0;animation:fadeIn .4s 4.5s forwards;transform:rotate(-10deg);"></div>
+    <!-- Pulse rings -->
+    <div class="anim-ring" style="left:48%;top:48%;width:60px;height:60px;animation:ringPulse 4s 2s infinite;"></div>
+    <div class="anim-ring" style="left:76%;top:40%;width:40px;height:40px;animation:ringPulse 4s 4s infinite;border-color:var(--purple);"></div>
+    <!-- Phase 5: Feature labels (5.5-7s) -->
+    <div style="position:absolute;left:2%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--accent);opacity:0;animation:fadeSlideUp .5s 5.5s forwards;">27 MCP Tools</div>
+    <div style="position:absolute;left:32%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--blue);opacity:0;animation:fadeSlideUp .5s 6s forwards;">Kanban Board</div>
+    <div style="position:absolute;left:58%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--purple);opacity:0;animation:fadeSlideUp .5s 6.5s forwards;">9 Agents</div>
+    <div style="position:absolute;right:2%;bottom:8%;font-size:11px;font-family:var(--mono);color:var(--orange);opacity:0;animation:fadeSlideUp .5s 7s forwards;">Sprint Mgmt</div>
+  </div>
+
+  <button class="landing-enter" onclick="document.getElementById('landing').classList.add('hidden');setTimeout(()=>document.getElementById('landing').style.display='none',600);">Enter Dashboard</button>
+  <div class="landing-version">v2.0.0 — 28 MCP tools · 9 agents · 14 tables</div>
+</div>
+
 <div class="app">
   <div class="topbar">
     <div class="logo">
@@ -157,32 +337,73 @@
     <div class="search-wrap">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input class="search" id="search" placeholder="Search files..." autocomplete="off">
+      <span class="kbd-hint" style="margin-left:6px;" id="kbd-hint">⌘K</span>
     </div>
     <div class="stats" id="stats"></div>
     <div class="live-dot" title="Live"></div>
   </div>
 
-  <div class="sidebar">
-    <div class="sidebar-head">Files <span class="count" id="file-count">0</span></div>
-    <div class="sidebar-body" id="file-list"></div>
+  <!-- Page Navigation -->
+  <div class="page-nav">
+    <div class="page-nav-item active" data-page="explorer">Code Explorer</div>
+    <div class="page-nav-item" data-page="sprint">Sprint Process</div>
   </div>
 
-  <div class="main">
-    <div class="tabs">
-      <div class="tab active" data-tab="detail">Detail</div>
-      <div class="tab" data-tab="changes">Changes</div>
-      <div class="tab" data-tab="graph">Graph</div>
+  <!-- PAGE: Code Explorer -->
+  <div class="page active" id="page-explorer">
+    <div class="sidebar">
+      <div class="sidebar-head">Files <span class="count" id="file-count">0</span></div>
+      <div class="sidebar-body" id="file-list"></div>
     </div>
-    <div class="tab-content active" id="tab-detail" style="flex:1;overflow-y:auto;">
-      <div class="empty" id="detail-empty"><div class="empty-icon">&#9776;</div>Select a file to inspect</div>
-      <div id="detail" style="display:none;"></div>
+    <div class="main">
+      <div class="tabs">
+        <div class="tab active" data-tab="detail">Detail</div>
+        <div class="tab" data-tab="changes">Changes</div>
+        <div class="tab" data-tab="graph">Graph</div>
+      </div>
+      <div class="tab-content active" id="tab-detail" style="flex:1;overflow-y:auto;">
+        <div class="empty" id="detail-empty"><div class="empty-icon">&#9776;</div>Select a file to inspect</div>
+        <div id="detail" style="display:none;"></div>
+      </div>
+      <div class="tab-content" id="tab-changes" style="flex:1;overflow-y:auto;padding-top:8px;">
+        <div class="empty" id="changes-empty"><div class="empty-icon">&#9716;</div>Select a file to view its changes</div>
+        <div id="changes-list"></div>
+      </div>
+      <div class="tab-content" id="tab-graph" style="flex:1;position:relative;">
+        <canvas id="graph"></canvas>
+      </div>
     </div>
-    <div class="tab-content" id="tab-changes" style="flex:1;overflow-y:auto;padding-top:8px;">
-      <div class="empty" id="changes-empty"><div class="empty-icon">&#9716;</div>Select a file to view its changes</div>
-      <div id="changes-list"></div>
-    </div>
-    <div class="tab-content" id="tab-graph" style="flex:1;position:relative;">
-      <canvas id="graph"></canvas>
+  </div>
+
+  <!-- PAGE: Sprint Process -->
+  <div class="page" id="page-sprint">
+    <div class="sprint-page-content">
+      <div class="sprint-sub-tabs">
+        <div class="sprint-sub-tab active" data-stab="board">Board</div>
+        <div class="sprint-sub-tab" data-stab="planning">Project Planning</div>
+        <div class="sprint-sub-tab" data-stab="team">Team</div>
+      </div>
+
+      <!-- Board sub-tab -->
+      <div class="sprint-sub-content active" id="stab-board" style="flex-direction:row;">
+        <div class="sprint-list" id="sprint-list"></div>
+        <div class="sprint-detail-panel" id="sprint-detail">
+          <div class="empty"><div class="empty-icon">&#9776;</div>Select a sprint from the list</div>
+        </div>
+      </div>
+
+      <!-- Project Planning sub-tab -->
+      <div class="sprint-sub-content" id="stab-planning">
+        <div class="content-view" id="planning-content">
+          <div class="skeleton skeleton-bar" style="width:60%;height:24px;margin:20px;"></div>
+          <div class="skeleton skeleton-bar" style="width:90%;margin:20px;"></div>
+        </div>
+      </div>
+
+      <!-- Team sub-tab -->
+      <div class="sprint-sub-content" id="stab-team">
+        <div class="agent-grid" id="team-content"></div>
+      </div>
     </div>
   </div>
 
@@ -382,14 +603,63 @@ function renderFileTree(files, dirs) {
 
 let selectedFileId = null;
 
-async function selectFile(id) {
+async function selectFile(id, pushHash = true) {
   selectedFileId = id;
   $$('.file-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
+  if (pushHash) location.hash = '#file/' + id;
   const data = await fetch('/api/file/' + id).then(r => r.json());
   renderDetail(data);
   loadFileChanges(id);
   renderGraph();
 }
+
+// ─── T-013: Hash routing ────────────────────────────────────────────────────
+function parseHash() {
+  const h = location.hash.slice(1);
+  if (h.startsWith('file/')) return { view: 'detail', fileId: Number(h.split('/')[1]) };
+  if (h === 'graph') return { view: 'graph' };
+  if (h === 'changes') return { view: 'changes' };
+  if (h === 'sprint') return { view: 'sprint' };
+  return { view: 'detail' };
+}
+
+window.addEventListener('hashchange', () => {
+  const state = parseHash();
+  if (state.view !== 'detail' || !state.fileId) {
+    const tab = document.querySelector(`.tab[data-tab="${state.view}"]`);
+    if (tab) tab.click();
+  }
+  if (state.fileId && state.fileId !== selectedFileId) selectFile(state.fileId, false);
+});
+
+// ─── T-014: Keyboard shortcuts ──────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  // Cmd+K / Ctrl+K: focus search
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    const input = document.querySelector('#file-list')?.parentElement?.querySelector('input') || document.querySelector('input');
+    if (input) { input.focus(); input.select(); }
+    return;
+  }
+  // Esc: blur search / clear
+  if (e.key === 'Escape') {
+    const active = document.activeElement;
+    if (active && active.tagName === 'INPUT') { active.value = ''; active.dispatchEvent(new Event('input')); active.blur(); }
+    return;
+  }
+  // Arrow keys: navigate file tree
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const items = [...document.querySelectorAll('.file-item')];
+    if (!items.length) return;
+    const activeIdx = items.findIndex(el => el.classList.contains('active'));
+    let nextIdx;
+    if (e.key === 'ArrowDown') nextIdx = activeIdx < items.length - 1 ? activeIdx + 1 : 0;
+    else nextIdx = activeIdx > 0 ? activeIdx - 1 : items.length - 1;
+    const nextId = Number(items[nextIdx].dataset.id);
+    if (nextId) { selectFile(nextId); items[nextIdx].scrollIntoView({ block: 'nearest' }); }
+    e.preventDefault();
+  }
+});
 
 function badgeClass(kind) {
   const map = { 'function': 'badge-fn', 'type': 'badge-type', 'enum': 'badge-type', 'const': 'badge-const', 'class': 'badge-class', 'interface': 'badge-interface' };
@@ -547,6 +817,28 @@ $('#search').addEventListener('input', (e) => {
   $('#file-count').textContent = filtered.length;
 });
 
+// ─── Page navigation ────────────────────────────────────────────────────────
+$$('.page-nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    $$('.page-nav-item').forEach(i => i.classList.remove('active'));
+    $$('.page').forEach(p => p.classList.remove('active'));
+    item.classList.add('active');
+    $('#page-' + item.dataset.page).classList.add('active');
+    if (item.dataset.page === 'sprint') { loadSprintList(); loadPlanning(); loadTeam(); }
+  });
+});
+
+// ─── Sprint sub-tab navigation ──────────────────────────────────────────────
+$$('.sprint-sub-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.sprint-sub-tab').forEach(t => t.classList.remove('active'));
+    $$('.sprint-sub-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    $('#stab-' + tab.dataset.stab).classList.add('active');
+  });
+});
+
+// ─── Code Explorer tab navigation ───────────────────────────────────────────
 $$('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     $$('.tab').forEach(t => t.classList.remove('active'));
@@ -759,7 +1051,282 @@ async function loadFileChanges(id) {
   });
 }
 
-init();
+// ─── Sprint functions (T-021 restructured) ─────────────────────────────────
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+function simpleMarkdown(md) {
+  if (!md) return '<div class="empty">No content available.</div>';
+  return md.replace(/^### (.+)/gm, '<h3>$1</h3>').replace(/^## (.+)/gm, '<h2>$1</h2>').replace(/^# (.+)/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^---$/gm, '<hr>').replace(/^- (.+)/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/gs, m => '<ul>'+m+'</ul>').replace(/<\/ul>\s*<ul>/g, '')
+    .replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\n\n/g, '</p><p>').replace(/^/, '<p>').replace(/$/, '</p>')
+    .replace(/<p><h/g, '<h').replace(/<\/h(\d)><\/p>/g, '</h$1>').replace(/<p><hr><\/p>/g, '<hr>')
+    .replace(/<p><ul>/g, '<ul>').replace(/<\/ul><\/p>/g, '</ul>');
+}
+
+async function loadSprintList() {
+  const el = $('#sprint-list');
+  try {
+    const sprints = await fetch('/api/sprints').then(r => r.json());
+    if (!sprints.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>No sprints found</div>'; return; }
+    el.innerHTML = sprints.map(s => {
+      const pct = s.ticket_count > 0 ? Math.round((s.done_count/s.ticket_count)*100) : 0;
+      const statusCls = s.status === 'active' ? 'color:var(--accent)' : s.status === 'closed' ? 'color:var(--text3)' : 'color:var(--blue)';
+      const allDone = s.ticket_count > 0 && s.done_count === s.ticket_count;
+      const allQa = s.ticket_count > 0 && s.qa_count === s.ticket_count;
+      const hasRetro = (s.retro_count || 0) > 0;
+      const noBlockers = (s.open_blockers || 0) === 0;
+      const healthy = allDone && allQa && hasRetro && noBlockers;
+      return `<div class="sprint-card" data-sid="${s.id}" onclick="loadSprintBoard(${s.id},this)">
+        <div class="sprint-card-name">${esc(s.name)} ${healthy ? '<span style="color:var(--accent);font-size:11px;">✓ complete</span>' : ''}</div>
+        <div class="sprint-card-meta"><span style="${statusCls};font-weight:600;text-transform:uppercase;">${s.status}</span><span>${s.done_count}/${s.ticket_count} tickets</span><span>${s.velocity_completed||0}/${s.velocity_committed||0} pts</span></div>
+        <div class="sprint-card-bar"><div class="sprint-card-bar-fill" style="width:${pct}%"></div></div>
+        <div style="display:flex;gap:6px;margin-top:6px;font-size:10px;">
+          <span style="color:${allDone?'var(--accent)':'var(--text3)'};">${allDone?'✓':'○'} tickets</span>
+          <span style="color:${allQa?'var(--accent)':'var(--text3)'};">${allQa?'✓':'○'} QA</span>
+          <span style="color:${hasRetro?'var(--accent)':'var(--text3)'};">${hasRetro?'✓':'○'} retro</span>
+          <span style="color:${noBlockers?'var(--accent)':'var(--red)'};">${noBlockers?'✓':'✗'} blockers</span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<div class="empty">Error loading sprints</div>'; }
+}
+
+async function loadSprintBoard(id, cardEl) {
+  $$('.sprint-card').forEach(c => c.classList.remove('active'));
+  if (cardEl) cardEl.classList.add('active');
+  const panel = $('#sprint-detail');
+  panel.innerHTML = '<div class="skeleton skeleton-bar" style="width:60%;height:20px;margin:16px 0;"></div><div class="skeleton skeleton-bar" style="width:90%;"></div>';
+  try {
+    const [sRes, tRes, rRes] = await Promise.all([fetch(`/api/sprint/${id}`), fetch(`/api/sprint/${id}/tickets`), fetch(`/api/sprint/${id}/retro`)]);
+    const sprint = await sRes.json(); const tickets = await tRes.json(); const retro = await rRes.json();
+    const totalPts = tickets.reduce((s,t)=>s+(t.story_points||0),0);
+    const donePts = tickets.filter(t=>t.status==='DONE').reduce((s,t)=>s+(t.story_points||0),0);
+    const pct = totalPts>0?Math.round(donePts/totalPts*100):0;
+    const counts = {TODO:0,IN_PROGRESS:0,DONE:0,BLOCKED:0};
+    tickets.forEach(t=>{if(counts[t.status]!==undefined)counts[t.status]++;});
+    const sc = sprint.status==='active'?'var(--accent)':sprint.status==='closed'?'#6b7280':'var(--blue)';
+    const pC = {P0:'var(--red)',P1:'var(--orange)',P2:'#eab308',P3:'#6b7280'};
+    const sC = {TODO:'#6b7280',IN_PROGRESS:'var(--blue)',DONE:'var(--accent)',BLOCKED:'var(--red)',PARTIAL:'var(--orange)',NOT_DONE:'#6b7280'};
+
+    // Pill tabs for sub-views
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div><div style="font-size:18px;font-weight:600;">${esc(sprint.name)}</div></div>
+      <div style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase;background:${sc};color:white;">${esc(sprint.status)}</div>
+    </div>`;
+    if (sprint.goal) html += `<div style="padding:10px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);font-size:13px;margin-bottom:16px;">${esc(sprint.goal)}</div>`;
+
+    // Velocity metrics row
+    html += `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px;">
+      <div style="padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;"><div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;">Velocity</div><div style="font-size:18px;font-weight:700;">${donePts}/${totalPts}</div><div style="height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden;"><div style="height:100%;background:var(--accent);width:${pct}%;"></div></div></div>
+      <div style="padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;"><div style="font-size:10px;color:var(--text3);font-weight:600;">TODO</div><div style="font-size:18px;font-weight:700;">${counts.TODO}</div></div>
+      <div style="padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;"><div style="font-size:10px;color:var(--blue);font-weight:600;">PROGRESS</div><div style="font-size:18px;font-weight:700;">${counts.IN_PROGRESS}</div></div>
+      <div style="padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;"><div style="font-size:10px;color:var(--accent);font-weight:600;">DONE</div><div style="font-size:18px;font-weight:700;">${counts.DONE}</div></div>
+      <div style="padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;"><div style="font-size:10px;color:var(--red);font-weight:600;">BLOCKED</div><div style="font-size:18px;font-weight:700;">${counts.BLOCKED}</div></div>
+    </div>`;
+
+    // Pill sub-view tabs
+    // Mini burndown: simple visual showing % done over ticket count
+    const doneRatio = tickets.length > 0 ? tickets.filter(t=>t.status==='DONE').length / tickets.length : 0;
+    html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text3);font-weight:600;width:80px;">Burndown</div>
+      <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.round(doneRatio*100)}%;background:var(--accent);transition:width .3s;"></div></div>
+      <div style="font-size:12px;font-weight:600;color:var(--accent);">${Math.round(doneRatio*100)}%</div>
+    </div>`;
+
+    html += `<div class="pill-tabs"><div class="pill-tab active" onclick="showBoardView('tickets',this)">Implementation</div><div class="pill-tab" onclick="showBoardView('planning',this)">Planning</div><div class="pill-tab" onclick="showBoardView('qa',this)">QA</div><div class="pill-tab" onclick="showBoardView('retro',this)">Retro</div></div>`;
+    html += '<div id="board-view">';
+
+    // Default: tickets view
+    if (tickets.length) {
+      html += `<table style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);border-collapse:collapse;"><thead><tr style="background:var(--bg);font-size:11px;color:var(--text2);text-transform:uppercase;">
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Title</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Pri</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Assignee</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Pts</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">Status</th><th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);">QA</th>
+      </tr></thead><tbody>${tickets.map(t=>`<tr style="border-bottom:1px solid var(--border);font-size:13px;">
+        <td style="padding:8px 10px;font-family:var(--mono);font-size:12px;">${esc(t.ticket_ref||'#'+t.id)}</td><td style="padding:8px 10px;">${esc(t.title)}</td>
+        <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${pC[t.priority]||'#6b7280'};color:white;">${esc(t.priority)}</span></td>
+        <td style="padding:8px 10px;color:var(--text2);font-size:12px;">${esc(t.assigned_to||'—')}</td><td style="padding:8px 10px;font-family:var(--mono);">${t.story_points||0}</td>
+        <td style="padding:8px 10px;"><span style="padding:2px 6px;border-radius:6px;font-size:10px;font-weight:600;background:${sC[t.status]||'#6b7280'};color:white;">${esc((t.status||'').replace('_',' '))}</span></td>
+        <td style="padding:8px 10px;">${t.qa_verified?'<span style="color:var(--accent);">✓</span>':'<span style="color:var(--red);">✗</span>'}</td>
+      </tr>`).join('')}</tbody></table>`;
+    } else html += '<div class="empty">No tickets in this sprint</div>';
+    html += '</div>';
+
+    // Store data for sub-view switching
+    panel.innerHTML = html;
+    panel._tickets = tickets; panel._retro = retro; panel._sprint = sprint;
+  } catch(e) { panel.innerHTML = '<div class="empty">Error loading sprint</div>'; }
+}
+
+function showBoardView(view, pillEl) {
+  $$('.pill-tab').forEach(p=>p.classList.remove('active'));
+  if (pillEl) pillEl.classList.add('active');
+  const panel = $('#sprint-detail');
+  const bv = panel.querySelector('#board-view') || panel;
+  const tickets = panel._tickets || []; const retro = panel._retro || [];
+  const pC = {P0:'var(--red)',P1:'var(--orange)',P2:'#eab308',P3:'#6b7280'};
+  const sC = {TODO:'#6b7280',IN_PROGRESS:'var(--blue)',DONE:'var(--accent)',BLOCKED:'var(--red)',PARTIAL:'var(--orange)',NOT_DONE:'#6b7280'};
+
+  if (view === 'planning') {
+    const byRole = {}; tickets.forEach(t => { const r = t.assigned_to||'unassigned'; (byRole[r]=byRole[r]||[]).push(t); });
+    let h = '<div style="font-size:14px;font-weight:600;margin-bottom:12px;">Planning — Tickets by Assignee</div>';
+    for (const [role, rTickets] of Object.entries(byRole)) {
+      const pts = rTickets.reduce((s,t)=>s+(t.story_points||0),0);
+      const over = pts > 8 ? 'color:var(--red);' : '';
+      h += `<div style="margin-bottom:16px;"><div style="font-size:13px;font-weight:600;margin-bottom:6px;">${esc(role)} <span style="font-size:12px;font-weight:400;${over}">${pts}/8 pts</span></div>`;
+      rTickets.forEach(t => h += `<div style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:13px;display:flex;justify-content:space-between;"><span>${esc(t.ticket_ref||'#'+t.id)}: ${esc(t.title)}</span><span style="font-family:var(--mono);color:var(--text3);">${t.story_points||0}sp</span></div>`);
+      h += '</div>';
+    }
+    bv.innerHTML = h;
+  } else if (view === 'qa') {
+    let h = '<div style="font-size:14px;font-weight:600;margin-bottom:12px;">QA — Acceptance Criteria</div>';
+    tickets.forEach(t => {
+      h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:600;">${esc(t.ticket_ref||'#'+t.id)}: ${esc(t.title)}</span>
+          <span style="padding:2px 6px;border-radius:6px;font-size:10px;font-weight:600;background:${sC[t.status]||'#6b7280'};color:white;">${esc((t.status||'').replace('_',' '))}</span>
+        </div>`;
+      if (t.acceptance_criteria) {
+        try { const ac = JSON.parse(t.acceptance_criteria); h += '<div style="font-size:12px;">'; ac.forEach(c => h += `<div style="padding:3px 0;color:var(--text2);">${t.qa_verified?'✅':'⬜'} ${esc(c)}</div>`); h += '</div>'; } catch {}
+      }
+      h += `<div style="font-size:11px;margin-top:6px;color:var(--text3);">QA: ${t.qa_verified?'<span style="color:var(--accent);">Verified</span>':'<span style="color:var(--red);">Not verified</span>'}</div></div>`;
+    });
+    bv.innerHTML = h;
+  } else if (view === 'retro') {
+    if (!retro.length) { bv.innerHTML = '<div class="empty">No retro findings for this sprint</div>'; return; }
+    const cats = {went_well:{l:'What Went Well',c:'var(--accent)'},went_wrong:{l:'What Went Wrong',c:'var(--red)'},try_next:{l:'What to Try Next',c:'var(--blue)'}};
+    let h = '<div style="font-size:14px;font-weight:600;margin-bottom:12px;">Retrospective</div>';
+    for (const [cat,cfg] of Object.entries(cats)) {
+      const items = retro.filter(f=>f.category===cat);
+      if (!items.length) continue;
+      h += `<div style="margin-bottom:16px;"><div style="font-size:13px;font-weight:600;color:${cfg.c};margin-bottom:6px;">${cfg.l}</div>`;
+      items.forEach(f => h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px;"><span style="padding:1px 6px;border-radius:4px;font-size:10px;background:var(--bg);color:var(--text3);margin-right:8px;">${esc(f.role||'team')}</span>${esc(f.finding)}</div>`);
+      h += '</div>';
+    }
+    bv.innerHTML = h;
+  } else { // kanban (default Implementation view)
+    const cols = {TODO:{l:'To Do',c:'var(--text3)'},IN_PROGRESS:{l:'In Progress',c:'var(--blue)'},DONE:{l:'Done',c:'var(--accent)'},BLOCKED:{l:'Blocked',c:'var(--red)'}};
+    let h = '<div class="kanban">';
+    for (const [st, cfg] of Object.entries(cols)) {
+      const ct = tickets.filter(t => t.status === st);
+      const pts = ct.reduce((s,t) => s+(t.story_points||0), 0);
+      h += `<div class="kanban-col"><div class="kanban-col-hdr"><span style="color:${cfg.c}">${cfg.l}</span><span class="kanban-cnt">${ct.length} · ${pts}sp</span></div>`;
+      ct.forEach(t => {
+        const hasDetails = t.description || t.acceptance_criteria;
+        h += `<div class="kanban-card" ${hasDetails?'onclick="this.querySelector(\'.kc-details\').classList.toggle(\'kc-open\')" style="cursor:pointer;"':''}><div class="kanban-card-ref">${esc(t.ticket_ref||'#'+t.id)} <span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;background:${pC[t.priority]||'#6b7280'};color:white;">${esc(t.priority)}</span></div><div class="kanban-card-title">${esc(t.title)}</div><div class="kanban-card-meta"><span>${esc(t.assigned_to||'—')}</span><span>${t.story_points||0}sp</span>${t.qa_verified?'<span style="color:var(--accent);">✓QA</span>':''}</div>`;
+        if (hasDetails) {
+          h += `<div class="kc-details" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text2);">`;
+          if (t.description) h += `<div style="margin-bottom:6px;">${esc(t.description)}</div>`;
+          if (t.acceptance_criteria) { try { const ac = JSON.parse(t.acceptance_criteria); ac.forEach(c => h += `<div style="padding:2px 0;">☐ ${esc(c)}</div>`); } catch {} }
+          h += '</div>';
+        }
+        h += '</div>';
+      });
+      // Also show NOT_DONE/PARTIAL in the TODO column
+      if (st === 'TODO') {
+        tickets.filter(t => t.status === 'NOT_DONE' || t.status === 'PARTIAL').forEach(t => {
+          h += `<div class="kanban-card" style="opacity:.6;"><div class="kanban-card-ref">${esc(t.ticket_ref||'#'+t.id)} <span style="font-size:9px;color:var(--orange);">${t.status}</span></div><div class="kanban-card-title">${esc(t.title)}</div></div>`;
+        });
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    bv.innerHTML = h;
+  }
+}
+
+async function loadPlanning() {
+  const el = $('#planning-content');
+  try {
+    const [mRes, vRes] = await Promise.all([fetch('/api/skill/MILESTONES'), fetch('/api/skill/PRODUCT_VISION')]);
+    const milestones = mRes.ok ? await mRes.json() : null;
+    const vision = vRes.ok ? await vRes.json() : null;
+
+    // Velocity trend chart
+    let h = '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Sprint Velocity</div>';
+    try {
+      const sprints = await fetch('/api/sprints').then(r => r.json());
+      const sprintData = sprints.filter(s => (s.velocity_committed || 0) > 0).reverse();
+      if (sprintData.length > 0) {
+        const maxPts = Math.max(...sprintData.map(s => Math.max(s.velocity_committed || 0, s.velocity_completed || 0)), 1);
+        h += '<div style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:20px;">';
+        sprintData.forEach(s => {
+          const cH = Math.round(((s.velocity_committed||0)/maxPts)*110);
+          const dH = Math.round(((s.velocity_completed||0)/maxPts)*110);
+          const label = s.name.slice(-6);
+          h += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+            <div style="display:flex;gap:2px;align-items:flex-end;height:110px;">
+              <div style="width:14px;height:${cH}px;background:var(--border);border-radius:3px 3px 0 0;" title="Committed: ${s.velocity_committed}"></div>
+              <div style="width:14px;height:${dH}px;background:${dH>=cH?'var(--accent)':'var(--orange)'};border-radius:3px 3px 0 0;" title="Completed: ${s.velocity_completed}"></div>
+            </div>
+            <div style="font-size:9px;color:var(--text3);font-family:var(--mono);writing-mode:vertical-rl;transform:rotate(180deg);height:40px;overflow:hidden;">${esc(label)}</div>
+          </div>`;
+        });
+        h += '</div>';
+        h += '<div style="display:flex;gap:12px;font-size:11px;color:var(--text3);margin-bottom:24px;"><span><span style="display:inline-block;width:10px;height:10px;background:var(--border);border-radius:2px;margin-right:4px;"></span>Committed</span><span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;margin-right:4px;"></span>Completed</span></div>';
+      }
+    } catch {}
+
+    h += '<div style="font-size:18px;font-weight:700;margin-bottom:16px;">Project Roadmap</div>';
+
+    // Gantt chart
+    h += '<div class="gantt">';
+    h += `<div class="gantt-row"><div class="gantt-label">M1: Production Foundation<br><span class="gantt-label-sub">Sprints 1-4 · Complete</span></div><div class="gantt-track"><div class="gantt-bar done" style="width:100%;">100%</div></div></div>`;
+    h += `<div class="gantt-row"><div class="gantt-label">M2: Dashboard & Process<br><span class="gantt-label-sub">Sprints 5-7+ · Active</span></div><div class="gantt-track"><div class="gantt-bar active" style="width:65%;">65%</div></div></div>`;
+    h += `<div class="gantt-row"><div class="gantt-label">M3: Ecosystem Growth<br><span class="gantt-label-sub">Planned</span></div><div class="gantt-track"><div class="gantt-bar planned" style="width:100%;">Planned</div></div></div>`;
+    h += '</div>';
+
+    // Milestones detail
+    if (milestones?.content) {
+      h += '<div style="margin-top:24px;"><div style="font-size:15px;font-weight:600;margin-bottom:12px;">Milestone Details</div>';
+      h += `<div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(milestones.content)}</div></div>`;
+    }
+
+    // Vision
+    if (vision?.content) {
+      h += '<div style="margin-top:24px;"><div style="font-size:15px;font-weight:600;margin-bottom:12px;">Product Vision</div>';
+      h += `<div class="md-content" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">${simpleMarkdown(vision.content)}</div></div>`;
+    }
+
+    el.innerHTML = h || '<div class="empty">No planning data available</div>';
+  } catch { el.innerHTML = '<div class="empty">Error loading planning data</div>'; }
+}
+
+async function loadTeam() {
+  try {
+    const agents = await fetch('/api/agents').then(r => r.json());
+    if (!agents.length) { $('#team-content').innerHTML = '<div class="empty"><div class="empty-icon">👥</div>No agents found</div>'; return; }
+    $('#team-content').innerHTML = agents.map(a => {
+      const health = a.blocked_tickets > 0 ? 'blocked' : a.active_tickets > 0 || a.done_tickets > 0 ? 'active' : 'idle';
+      const moodEmoji = a.mood_emoji || '😐';
+      const moodLabel = a.mood_label || 'neutral';
+      const moodScore = a.mood ?? 50;
+      const moodColor = moodScore >= 60 ? 'var(--accent)' : moodScore >= 40 ? 'var(--orange)' : 'var(--red)';
+      return `<div class="agent-card">
+        <div class="agent-card-header"><span class="agent-card-role">${esc(a.name || a.role)}</span><div style="display:flex;align-items:center;gap:6px;"><div class="agent-health ${health}" title="${health}"></div><span style="font-size:16px;">${moodEmoji}</span></div></div>
+        <div class="agent-card-desc">${esc(a.description || 'No description')}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <div class="agent-card-model">${esc(a.model || 'default')}</div>
+          <div style="font-size:11px;color:${moodColor};font-weight:600;">${moodLabel} (${moodScore})</div>
+        </div>
+        <div style="height:3px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden;"><div style="height:100%;background:${moodColor};width:${moodScore}%;transition:width .3s;"></div></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Done: ${a.done_tickets||0} | Active: ${a.active_tickets||0} | Blocked: ${a.blocked_tickets||0}</div>
+      </div>`;
+    }).join('');
+  } catch { $('#team-content').innerHTML = '<div class="empty">Error loading team</div>'; }
+}
+
+// Fix kbd hint for platform
+if (!navigator.platform?.includes('Mac')) { const kh = document.getElementById('kbd-hint'); if (kh) kh.textContent = 'Ctrl+K'; }
+
+init().then(() => {
+  // T-013: Restore state from hash
+  const state = parseHash();
+  if (state.fileId) selectFile(state.fileId, false);
+  if (state.view && state.view !== 'detail') {
+    const tab = document.querySelector(`.tab[data-tab="${state.view}"]`);
+    if (tab) tab.click();
+  }
+});
 loadFileChanges(null);
 
 const es = new EventSource('/api/events');

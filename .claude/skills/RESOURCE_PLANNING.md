@@ -12,6 +12,7 @@ A 5-day sprint with 8 roles has a theoretical maximum capacity. In practice, ove
 | Backend Developer | 2.5 | 8-13 | Day 4 afternoon for edge cases |
 | Architect | 1.5 | 3-5 | Reviews + infrastructure tasks only |
 | Lead Developer | 1.0 | 2-3 | Mostly review/conflict resolution, occasional coding |
+| Security Specialist | 0.5 (Day 4) | N/A | Security review alongside QA -- does not take story points |
 | QA Engineer | 1.0 (Day 4) | N/A | QA does not take story points -- they verify |
 | PO | 0 | N/A | Vision, tickets, milestones -- not implementation |
 | Scrum Master | 0 | N/A | Process, blockers -- not implementation |
@@ -19,7 +20,7 @@ A 5-day sprint with 8 roles has a theoretical maximum capacity. In practice, ove
 
 **Team Sprint Capacity: 21-34 story points**
 
-Planning target: **25 story points** (middle of range, leaves buffer for unknowns).
+Planning target: **19 story points** (rolling average from S1-S4: 21, 11, 19, 24).
 
 ### Velocity Tracking
 
