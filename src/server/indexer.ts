@@ -387,6 +387,130 @@ function diffAndLogChanges(db: Database.Database, before: Map<string, FileSnapsh
   }
 }
 
+// ─── Auto-generate file description ─────────────────────────────────────────
+function generateFileDescription(filePath: string, lang: string, ext: string, lineCount: number, content: string, summary: string, externals: string | null): string | null {
+  const name = path.basename(filePath);
+  const exports = PARSEABLE_EXTENSIONS.has(ext) ? parseExports(content) : [];
+  const imports = PARSEABLE_EXTENSIONS.has(ext) ? parseImports(content) : [];
+  const localImports = imports.filter(i => i.source.startsWith("."));
+  const externalPkgs = externals ? externals.split(", ") : [];
+
+  const parts: string[] = [];
+
+  // Identify file role from name patterns
+  if (name === "index.ts" || name === "index.js") parts.push("Entry point");
+  else if (name.includes("setup")) parts.push("Setup/bootstrap script");
+  else if (name.includes("schema")) parts.push("Schema definitions");
+  else if (name.includes("config")) parts.push("Configuration");
+  else if (name.endsWith(".test.ts") || name.endsWith(".spec.ts")) parts.push("Test suite");
+
+  // What does it export?
+  if (exports.length > 0) {
+    const fns = exports.filter(e => e.kind === "function").map(e => e.name);
+    const types = exports.filter(e => ["type", "interface", "enum"].includes(e.kind)).map(e => e.name);
+    const classes = exports.filter(e => e.kind === "class").map(e => e.name);
+    const consts = exports.filter(e => e.kind === "const").map(e => e.name);
+    if (fns.length) parts.push(`exports ${fns.join(", ")}`);
+    if (classes.length) parts.push(`defines ${classes.join(", ")}`);
+    if (types.length) parts.push(`types: ${types.join(", ")}`);
+    if (consts.length > 0 && consts.length <= 3) parts.push(`constants: ${consts.join(", ")}`);
+  }
+
+  // What does it depend on?
+  if (externalPkgs.length) {
+    parts.push(`uses ${externalPkgs.join(", ")}`);
+  }
+
+  // Internal imports
+  if (localImports.length) {
+    const imported = localImports.map(i => {
+      const base = path.basename(i.source).replace(/\.(m|c)?js$/, "");
+      return i.symbols.length ? `${i.symbols.join(", ")} from ${base}` : base;
+    });
+    if (imported.length <= 3) parts.push(`imports ${imported.join("; ")}`);
+  }
+
+  // Size context
+  if (lineCount > 500) parts.push(`${lineCount} lines`);
+
+  // For non-code files, use summary if meaningful
+  if (!PARSEABLE_EXTENSIONS.has(ext)) {
+    if (ext === ".md" || ext === ".mdx") {
+      return summary !== name ? summary : null;
+    }
+    if (ext === ".json") {
+      return summary !== name ? summary : null;
+    }
+    if (ext === ".html") {
+      parts.unshift("HTML document");
+    }
+    return parts.length ? parts.join(". ") + "." : null;
+  }
+
+  if (parts.length === 0) return null;
+  // Capitalize first letter
+  const desc = parts.join(". ");
+  return desc.charAt(0).toUpperCase() + desc.slice(1) + ".";
+}
+
+// ─── Auto-generate directory description ────────────────────────────────────
+function generateDirDescription(dirPath: string, stats: { files: number; size: number; lines: number; langs: Map<string, number> }, rootDir: string): string {
+  const name = path.basename(dirPath);
+  const topLangs = Array.from(stats.langs.entries()).sort((a, b) => b[1] - a[1]);
+  const langStr = topLangs.slice(0, 2).map(([l]) => l).join(" and ");
+
+  // Check what files are in this direct directory
+  const dirFiles = fs.readdirSync(dirPath, { withFileTypes: true });
+  const fileNames = dirFiles.filter(e => e.isFile()).map(e => e.name);
+  const subDirs = dirFiles.filter(e => e.isDirectory() && !SKIP_DIRS.has(e.name)).map(e => e.name);
+
+  // Try to infer purpose from directory name
+  const nameHints: Record<string, string> = {
+    src: "Source code",
+    lib: "Library modules",
+    server: "Server-side logic",
+    client: "Client-side code",
+    dashboard: "Dashboard UI",
+    api: "API endpoints",
+    components: "UI components",
+    utils: "Utility functions",
+    helpers: "Helper functions",
+    types: "Type definitions",
+    models: "Data models",
+    services: "Service layer",
+    middleware: "Middleware",
+    routes: "Route definitions",
+    config: "Configuration",
+    scripts: "Build/utility scripts",
+    test: "Test suites",
+    tests: "Test suites",
+    __tests__: "Test suites",
+    docs: "Documentation",
+    guide: "Guides and tutorials",
+    tools: "Tool documentation",
+    database: "Database utilities",
+    db: "Database layer",
+    public: "Static assets",
+    assets: "Assets and resources",
+    styles: "Stylesheets",
+  };
+
+  const hint = nameHints[name.toLowerCase()];
+  const parts: string[] = [];
+
+  if (hint) parts.push(hint);
+
+  if (langStr && !hint) parts.push(`${langStr} modules`);
+
+  if (subDirs.length) {
+    parts.push(`contains ${subDirs.join(", ")}`);
+  }
+
+  parts.push(`${stats.files} file${stats.files !== 1 ? "s" : ""}, ${stats.lines.toLocaleString()} lines`);
+
+  return parts.join(". ") + ".";
+}
+
 // ─── Main indexer ────────────────────────────────────────────────────────────
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number } {
   const rootDir = path.resolve(dirPath);
@@ -438,6 +562,16 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
 
       upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, content, meta.createdAt, meta.modifiedAt);
       const row = getFileId.get(filePath) as { id: number };
+
+      // Auto-generate description if none set manually
+      const existing = db.prepare(`SELECT description FROM files WHERE id = ?`).get(row.id) as { description: string | null };
+      if (!existing.description) {
+        const autoDesc = generateFileDescription(filePath, lang, ext, lineCount, content, summary, externals);
+        if (autoDesc) {
+          db.prepare(`UPDATE files SET description = ? WHERE id = ?`).run(autoDesc, row.id);
+        }
+      }
+
       clearExports.run(row.id);
 
       if (PARSEABLE_EXTENSIONS.has(ext)) {
@@ -519,6 +653,13 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
           .map(([lang, count]) => ({ lang, count }))
       );
       upsertDir.run(dirPath, name, parentPath, depth, stats.files, stats.size, stats.lines, langBreakdown);
+
+      // Auto-generate description if none set manually
+      const existingDir = db.prepare(`SELECT description FROM directories WHERE path = ?`).get(dirPath) as { description: string | null } | undefined;
+      if (!existingDir?.description) {
+        const autoDesc = generateDirDescription(dirPath, stats, rootDir);
+        db.prepare(`UPDATE directories SET description = ? WHERE path = ?`).run(autoDesc, dirPath);
+      }
     }
   });
   indexDirs();
