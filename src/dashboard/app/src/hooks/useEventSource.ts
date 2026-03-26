@@ -34,12 +34,22 @@ export function useEventSource({
     };
 
     es.onmessage = (e: MessageEvent) => {
+      const data = e.data as string;
+
+      // Try JSON first (future-proof)
       try {
-        const event: SSEEvent = JSON.parse(e.data);
+        const event = JSON.parse(data) as SSEEvent;
         onEventRef.current?.(event);
+        return;
       } catch {
-        // Ignore malformed events
+        // Not JSON — handle as plain text event
       }
+
+      // Plain text events from server
+      if (data === 'updated') {
+        onEventRef.current?.({ type: 'file_changed' });
+      }
+      // 'connected' is just a keepalive, ignore
     };
 
     es.onerror = () => {

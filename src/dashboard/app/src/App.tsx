@@ -39,10 +39,11 @@ export function App() {
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
 
   useEventSource({
-    onEvent: (e) => {
-      if (e.type === 'file_changed') refreshFiles();
-      if (e.type === 'sprint_updated' || e.type === 'ticket_updated') fetchSprints();
-      if (e.type === 'agent_status') fetchAgents();
+    onEvent: () => {
+      // Refresh all data stores on any server event
+      refreshFiles();
+      fetchSprints();
+      fetchAgents();
     },
   });
 
