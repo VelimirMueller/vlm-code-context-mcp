@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { get, post, put } from '@/lib/api';
+import { parseMilestoneMarkdown } from '@/lib/utils';
 import type { Sprint, Ticket, Milestone } from '@/types';
 
 export interface CreateMilestoneInput {
@@ -51,10 +52,25 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   fetchMilestones: async () => {
     set((s) => ({ loading: { ...s.loading, milestones: true } }));
     try {
-      const milestones = await get<Milestone[]>('/api/milestones');
+      // Try DB milestones first
+      let milestones = await get<Milestone[]>('/api/milestones');
+
+      // If empty, fall back to skill content and parse
+      if (!milestones || !Array.isArray(milestones) || milestones.length === 0) {
+        try {
+          const skill = await get<{ content: string }>('/api/skill/MILESTONES');
+          if (skill?.content) {
+            milestones = parseMilestoneMarkdown(skill.content);
+          }
+        } catch {
+          // Skill endpoint also failed — keep empty
+        }
+      }
+
       set({ milestones: Array.isArray(milestones) ? milestones : [] });
     } catch {
       // Silently fail
+      set({ milestones: [] });
     } finally {
       set((s) => ({ loading: { ...s.loading, milestones: false } }));
     }
@@ -84,9 +100,15 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   },
 
   fetchVision: async () => {
-    // Note: /api/vision GET does not exist on the server.
-    // Vision is write-only (PUT). We just set null to avoid a 404 error.
-    set((s) => ({ loading: { ...s.loading, vision: false } }));
+    set((s) => ({ loading: { ...s.loading, vision: true } }));
+    try {
+      const skill = await get<{ content: string }>('/api/skill/PRODUCT_VISION');
+      set({ vision: skill?.content ?? null });
+    } catch {
+      set({ vision: null });
+    } finally {
+      set((s) => ({ loading: { ...s.loading, vision: false } }));
+    }
   },
 
   updateVision: async (content: string) => {
