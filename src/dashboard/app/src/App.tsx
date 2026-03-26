@@ -5,6 +5,9 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
+import { CodeExplorer } from '@/pages/CodeExplorer';
+import { Sprint } from '@/pages/Sprint';
+import { ProjectManagement } from '@/pages/ProjectManagement';
 
 const pages = ['explorer', 'planning', 'sprint'] as const;
 type Page = (typeof pages)[number];
@@ -69,9 +72,9 @@ export function App() {
         ))}
       </nav>
       <main className="page-content">
-        <div style={{ padding: 40, color: 'var(--text2)', fontSize: 16 }}>
-          {pageLabels[activePage]} — React scaffold ready
-        </div>
+        {activePage === 'explorer' && <CodeExplorer />}
+        {activePage === 'planning' && <ProjectManagement />}
+        {activePage === 'sprint' && <Sprint />}
       </main>
     </div>
   );
