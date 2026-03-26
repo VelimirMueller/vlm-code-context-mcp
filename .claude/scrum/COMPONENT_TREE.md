@@ -11,6 +11,7 @@ src/dashboard/app/
 │
 ├── components/
 │   ├── atoms/
+│   │   ├── AnimatedNumber.tsx        # Framer Motion number counter (S10)
 │   │   ├── Badge.tsx                 # Status/priority badge (color variants)
 │   │   ├── Button.tsx                # Action button (primary/ghost/danger)
 │   │   ├── Dot.tsx                   # Status dot (language color, health)
@@ -18,11 +19,13 @@ src/dashboard/app/
 │   │   ├── Input.tsx                 # Text input with optional icon
 │   │   ├── Skeleton.tsx              # Shimmer loading placeholder
 │   │   ├── Stat.tsx                  # Single stat (number + label)
+│   │   ├── Toast.tsx                 # Notification toast with animation (S10)
 │   │   └── Tooltip.tsx               # Hover tooltip
 │   │
 │   ├── molecules/
 │   │   ├── FileItem.tsx              # File row in tree (dot + name + size)
 │   │   ├── FolderItem.tsx            # Folder row with chevron + count
+│   │   ├── HeroText.tsx              # Animated hero heading with motion (S10)
 │   │   ├── TicketCard.tsx            # Kanban card (ref, title, assignee, pts)
 │   │   ├── AgentCard.tsx             # Team grid card (role, mood, health bar)
 │   │   ├── SprintCard.tsx            # Sprint list card (name, status, velocity)
@@ -42,6 +45,7 @@ src/dashboard/app/
 │   │   ├── SprintDetail.tsx          # Selected sprint overview + kanban
 │   │   ├── DependencyGraph.tsx       # Canvas-based force graph (smart)
 │   │   ├── GanttChart.tsx            # Timeline bar visualization
+│   │   ├── LandingAnimation.tsx      # Framer Motion landing intro sequence (S10)
 │   │   ├── MilestoneList.tsx         # Milestones with create/edit (smart)
 │   │   ├── VisionEditor.tsx          # Markdown editor + preview (smart)
 │   │   ├── SprintPlanner.tsx         # Sprint planning modal flow (smart)
@@ -83,7 +87,7 @@ src/dashboard/app/
     └── index.ts                      # Shared interfaces: File, Sprint, Ticket, Agent, etc.
 ```
 
-**Total: 47 components** — 8 atoms, 11 molecules, 12 organisms, 3 templates, 3 pages, 8 hooks, 5 stores, 3 lib files, 1 types file
+**Total: 51 components** — 10 atoms, 12 molecules, 13 organisms, 3 templates, 3 pages, 8 hooks, 5 stores, 3 lib files, 1 types file (S10: +AnimatedNumber, +Toast, +HeroText, +LandingAnimation)
 
 ---
 
@@ -104,8 +108,8 @@ src/dashboard/app/
 
 ### Dumb Components (props only, no side effects)
 All atoms, most molecules, layout templates, and display organisms:
-- **Atoms**: Badge, Button, Dot, Icon, Input, Skeleton, Stat, Tooltip
-- **Molecules**: FileItem, FolderItem, TicketCard, AgentCard, SprintCard, BentoCard, StatGroup, SearchBar, TabBar, SubTabBar, MarkdownRenderer
+- **Atoms**: AnimatedNumber, Badge, Button, Dot, Icon, Input, Skeleton, Stat, Toast, Tooltip
+- **Molecules**: FileItem, FolderItem, HeroText, TicketCard, AgentCard, SprintCard, BentoCard, StatGroup, SearchBar, TabBar, SubTabBar, MarkdownRenderer
 - **Organisms**: KanbanBoard, BentoGrid, TeamGrid, SprintList, SprintDetail, GanttChart
 - **Templates**: ExplorerLayout, SprintLayout, PlanningLayout
 
