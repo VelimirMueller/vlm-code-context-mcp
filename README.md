@@ -8,7 +8,7 @@ AI agents waste most of their context window reading raw source files just to un
 npx code-context-mcp .
 ```
 
-That's it. Your codebase is indexed, `.mcp.json` is configured, and your AI client has 10 tools to query files, exports, dependencies, changes, and directory metadata — without ever reading a single source file.
+That's it. Your codebase is indexed, `.mcp.json` is configured, and your AI client has 10 tools to query files, exports, dependencies, changes, and directory metadata — without ever reading a single source file. With a `.claude/` directory present, 25 additional scrum management tools activate.
 
 ## The problem
 
@@ -20,7 +20,19 @@ Every time an AI agent needs to understand your codebase, it reads files. All of
 2. **Query many times** — AI agents use MCP tools to get structured answers: file context, symbol lookups, dependency edges, change history with reasons — all pre-computed.
 3. **Stay current** — the dashboard watches for file changes and re-indexes automatically. Descriptions persist across re-indexes.
 
-## MCP Tools (28 total: 10 code-context + 18 scrum)
+## Architecture
+
+Three integrated components form the system:
+
+**MCP Server** (`src/server/`) — TypeScript parser indexes files, exports, imports, and dependencies into SQLite. Ten MCP tools expose structured metadata to AI agents, replacing raw file reads.
+
+**Scrum System** (`src/scrum/`) — 10 database tables covering the full sprint lifecycle. 25 MCP tools for sprint, ticket, milestone, retro, blocker, and bug management. Imports from a `.claude/` directory structure.
+
+**React Dashboard** (`src/dashboard/`) — Vite + React 18 + Tailwind CSS frontend with Framer Motion animations, served by a Node.js HTTP server. Five Zustand stores manage file, sprint, agent, planning, and UI state.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component hierarchy, API endpoint reference, and build pipeline.
+
+## MCP Tools (35 total: 10 code-context + 25 scrum)
 
 
 | Tool                        | What it does                                                             |
@@ -144,7 +156,7 @@ The first index costs more (you need to read files to generate metadata). Every 
 
 ## Scrum MCP tools
 
-In addition to the 10 code context tools, the server exposes scrum management tools when a `.claude/` directory is present:
+In addition to the 10 code context tools, the server exposes 25 scrum management tools when a `.claude/` directory is present:
 
 
 | Tool                  | Type  | What it does                                         |
