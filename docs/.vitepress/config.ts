@@ -30,6 +30,8 @@ export default defineConfig({
           { text: "index_directory", link: "/tools/index-directory" },
           { text: "find_symbol", link: "/tools/find-symbol" },
           { text: "get_file_context", link: "/tools/get-file-context" },
+          { text: "set_description", link: "/tools/set-description" },
+          { text: "set_directory_description", link: "/tools/set-directory-description" },
           { text: "get_changes", link: "/tools/get-changes" },
           { text: "search_files", link: "/tools/search-files" },
           { text: "query / execute", link: "/tools/query-execute" },

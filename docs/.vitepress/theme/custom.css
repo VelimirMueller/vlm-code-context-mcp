@@ -2,47 +2,60 @@
 @import url('https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css');
 
 :root {
-  /* Force dark only */
-  --vp-c-bg: #09090b;
-  --vp-c-bg-alt: #0f0f13;
-  --vp-c-bg-soft: #111118;
-  --vp-c-bg-elv: #16161e;
+  /* Dashboard design tokens */
+  --bg: #0c0c10;
+  --surface: #131318;
+  --surface2: #18181f;
+  --surface3: #1e1e28;
+  --border: #1c1c28;
+  --border2: #282838;
+  --text: #e4e4e7;
+  --text2: #a1a1aa;
+  --text3: #63637a;
+  --accent: #10b981;
+  --accent2: #34d399;
 
-  --vp-c-text-1: #e4e4e7;
-  --vp-c-text-2: #a1a1aa;
-  --vp-c-text-3: #71717a;
+  /* VitePress token mapping */
+  --vp-c-bg: var(--bg);
+  --vp-c-bg-alt: var(--surface);
+  --vp-c-bg-soft: var(--surface2);
+  --vp-c-bg-elv: var(--surface3);
 
-  --vp-c-brand-1: #10b981;
-  --vp-c-brand-2: #34d399;
+  --vp-c-text-1: var(--text);
+  --vp-c-text-2: var(--text2);
+  --vp-c-text-3: var(--text3);
+
+  --vp-c-brand-1: var(--accent);
+  --vp-c-brand-2: var(--accent2);
   --vp-c-brand-3: #6ee7b7;
   --vp-c-brand-soft: rgba(16, 185, 129, 0.12);
 
-  --vp-c-border: #1e1e2e;
-  --vp-c-divider: #1e1e2e;
-  --vp-c-gutter: #111118;
+  --vp-c-border: var(--border);
+  --vp-c-divider: var(--border);
+  --vp-c-gutter: var(--surface2);
 
   --vp-font-family-base: 'Geist Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --vp-font-family-mono: 'Geist Mono', 'Fira Code', monospace;
 
-  --vp-home-hero-name-color: #e4e4e7;
+  --vp-home-hero-name-color: var(--text);
 
-  --vp-c-tip-1: #10b981;
+  --vp-c-tip-1: var(--accent);
   --vp-c-tip-soft: rgba(16, 185, 129, 0.12);
 
-  --vp-sidebar-bg-color: #0f0f13;
+  --vp-sidebar-bg-color: var(--surface);
 
-  --vp-c-default-1: #e4e4e7;
+  --vp-c-default-1: var(--text);
   --vp-c-default-soft: rgba(228, 228, 231, 0.06);
 
-  --vp-button-brand-bg: #10b981;
+  --vp-button-brand-bg: var(--accent);
   --vp-button-brand-hover-bg: #059669;
   --vp-button-brand-active-bg: #047857;
-  --vp-button-brand-text: #09090b;
+  --vp-button-brand-text: #0c0c10;
 
-  --vp-button-alt-bg: #111118;
-  --vp-button-alt-hover-bg: #16161e;
-  --vp-button-alt-text: #e4e4e7;
-  --vp-button-alt-border: #1e1e2e;
+  --vp-button-alt-bg: var(--surface2);
+  --vp-button-alt-hover-bg: var(--surface3);
+  --vp-button-alt-text: var(--text);
+  --vp-button-alt-border: var(--border);
 }
 
 /* Force dark mode always */
@@ -51,24 +64,26 @@ html {
 }
 
 html:not(.dark) {
-  --vp-c-bg: #09090b;
-  --vp-c-bg-alt: #0f0f13;
-  --vp-c-bg-soft: #111118;
-  --vp-c-bg-elv: #16161e;
-  --vp-c-text-1: #e4e4e7;
-  --vp-c-text-2: #a1a1aa;
-  --vp-c-text-3: #71717a;
-  --vp-c-border: #1e1e2e;
-  --vp-c-divider: #1e1e2e;
-  --vp-c-gutter: #111118;
-  --vp-sidebar-bg-color: #0f0f13;
+  --vp-c-bg: var(--bg);
+  --vp-c-bg-alt: var(--surface);
+  --vp-c-bg-soft: var(--surface2);
+  --vp-c-bg-elv: var(--surface3);
+  --vp-c-text-1: var(--text);
+  --vp-c-text-2: var(--text2);
+  --vp-c-text-3: var(--text3);
+  --vp-c-border: var(--border);
+  --vp-c-divider: var(--border);
+  --vp-c-gutter: var(--surface2);
+  --vp-sidebar-bg-color: var(--surface);
 }
 
-/* Hero section */
+/* ───────────────────────────────────────────
+   Hero section — clean editorial, no uppercase
+   ─────────────────────────────────────────── */
 .VPHero .name {
-  font-family: 'Geist Mono', monospace !important;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   background: linear-gradient(135deg, #e4e4e7 0%, #a1a1aa 100%) !important;
   -webkit-background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
@@ -76,40 +91,45 @@ html:not(.dark) {
 }
 
 .VPHero .tagline {
-  color: #a1a1aa !important;
-  font-family: 'Geist Mono', monospace !important;
+  color: var(--text2) !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-size: 1.15rem;
+  line-height: 1.6;
 }
 
 .VPHero .text {
-  color: #10b981 !important;
+  color: var(--accent) !important;
   font-family: 'Geist Mono', monospace !important;
-  font-size: 1.1rem !important;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 1rem !important;
+  letter-spacing: 0.02em;
 }
 
-/* Navigation */
+/* ───────────────────────────────────────────
+   Navigation
+   ─────────────────────────────────────────── */
 .VPNav,
 .VPNavBar {
-  border-bottom-color: #1e1e2e !important;
-  background: rgba(9, 9, 11, 0.85) !important;
+  border-bottom-color: var(--border) !important;
+  background: rgba(12, 12, 16, 0.85) !important;
   backdrop-filter: blur(16px);
 }
 
 .VPNavBar .title {
-  font-family: 'Geist Mono', monospace !important;
+  font-family: 'Geist Sans', sans-serif !important;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
 }
 
-/* Sidebar */
+/* ───────────────────────────────────────────
+   Sidebar — Geist Sans everywhere, no mono uppercase
+   ─────────────────────────────────────────── */
 .VPSidebar {
-  border-right-color: #1e1e2e !important;
-  background: #0f0f13 !important;
+  border-right-color: var(--border) !important;
+  background: var(--surface) !important;
 }
 
 .VPSidebar .group + .group {
-  border-top-color: #1e1e2e !important;
+  border-top-color: var(--border) !important;
 }
 
 .VPSidebarItem .text {
@@ -118,155 +138,283 @@ html:not(.dark) {
 }
 
 .VPSidebarItem.level-0 > .item > .text {
-  font-family: 'Geist Mono', monospace !important;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.75rem;
-  color: #10b981 !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-size: 0.8rem;
   font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent) !important;
 }
 
-/* Content area */
+/* ───────────────────────────────────────────
+   Content headings — Geist Sans, no uppercase
+   ─────────────────────────────────────────── */
 .vp-doc h1 {
-  font-family: 'Geist Mono', monospace !important;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #e4e4e7;
-  border-bottom-color: #1e1e2e !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  border-bottom: 1px solid var(--border) !important;
+  padding-bottom: 16px;
 }
 
 .vp-doc h2 {
-  font-family: 'Geist Mono', monospace !important;
-  letter-spacing: 0.02em;
-  color: #e4e4e7;
-  border-top-color: #1e1e2e !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border-top: 1px solid var(--border) !important;
+  padding-top: 24px;
+  margin-top: 40px;
 }
 
 .vp-doc h3 {
   font-family: 'Geist Sans', sans-serif;
-  color: #a1a1aa;
+  font-weight: 600;
+  color: var(--text2);
 }
 
-/* Code blocks */
+.vp-doc h4,
+.vp-doc h5,
+.vp-doc h6 {
+  font-family: 'Geist Sans', sans-serif;
+  color: var(--text2);
+}
+
+/* ───────────────────────────────────────────
+   Code blocks — 14px radius, surface bg
+   ─────────────────────────────────────────── */
 .vp-doc div[class*='language-'] {
-  background: #0f0f13 !important;
-  border: 1px solid #1e1e2e;
-  border-radius: 12px;
+  background: var(--surface) !important;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin: 20px 0;
 }
 
 .vp-doc div[class*='language-'] code {
   font-family: 'Geist Mono', monospace !important;
   font-size: 0.85rem;
+  line-height: 1.7;
 }
 
 .vp-doc :not(pre) > code {
   background: rgba(16, 185, 129, 0.08) !important;
-  color: #10b981 !important;
-  border-radius: 4px;
-  padding: 2px 6px;
+  color: var(--accent) !important;
+  border-radius: 6px;
+  padding: 2px 7px;
   font-family: 'Geist Mono', monospace !important;
   font-size: 0.85em;
 }
 
-/* Tables */
+/* ───────────────────────────────────────────
+   Tables — card-like, rounded, padded
+   ─────────────────────────────────────────── */
 .vp-doc table {
-  border-collapse: collapse;
+  display: table;
   width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 20px 0;
 }
 
 .vp-doc tr {
-  border-top-color: #1e1e2e !important;
   background: transparent !important;
 }
 
+.vp-doc tr:not(:last-child) td {
+  border-bottom: 1px solid var(--border);
+}
+
 .vp-doc tr:nth-child(2n) {
-  background: rgba(255, 255, 255, 0.02) !important;
+  background: rgba(255, 255, 255, 0.015) !important;
 }
 
 .vp-doc th {
-  font-family: 'Geist Mono', monospace !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--text3) !important;
+  background: var(--surface2) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
+  padding: 14px 20px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.75rem;
-  color: #71717a !important;
-  background: #0f0f13 !important;
-  border-color: #1e1e2e !important;
 }
 
 .vp-doc td {
-  border-color: #1e1e2e !important;
+  border: none !important;
+  padding: 14px 20px;
   font-size: 0.875rem;
+  color: var(--text2);
 }
 
-/* Feature cards on home page */
+/* ───────────────────────────────────────────
+   Feature cards — generous padding, large radius
+   ─────────────────────────────────────────── */
 .VPFeature {
-  background: #111118 !important;
-  border: 1px solid #1e1e2e !important;
-  border-radius: 12px !important;
-  transition: border-color 0.2s ease;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 18px !important;
+  padding: 24px !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .VPFeature:hover {
-  border-color: #10b981 !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.06);
 }
 
 .VPFeature .title {
-  font-family: 'Geist Mono', monospace !important;
-  color: #e4e4e7 !important;
+  font-family: 'Geist Sans', sans-serif !important;
+  font-weight: 700;
+  color: var(--text) !important;
+  margin-bottom: 8px;
 }
 
 .VPFeature .details {
-  color: #a1a1aa !important;
+  color: var(--text2) !important;
+  line-height: 1.6;
+  font-size: 0.9rem;
 }
 
-/* Footer */
+.VPFeatures .container {
+  gap: 20px;
+}
+
+/* ───────────────────────────────────────────
+   Footer
+   ─────────────────────────────────────────── */
 .VPFooter {
-  border-top-color: #1e1e2e !important;
-  background: #09090b !important;
+  border-top-color: var(--border) !important;
+  background: var(--bg) !important;
 }
 
-/* Custom container (tip, warning, etc.) */
+/* ───────────────────────────────────────────
+   Custom containers (tip, warning, etc.)
+   ─────────────────────────────────────────── */
 .vp-doc .custom-block {
-  border-radius: 8px;
-  border-color: #1e1e2e;
+  border-radius: 14px;
+  border-color: var(--border);
+  padding: 20px 24px;
+  margin: 20px 0;
 }
 
 .vp-doc .custom-block.tip {
   background: rgba(16, 185, 129, 0.06);
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: rgba(16, 185, 129, 0.25);
 }
 
-/* Links */
+.vp-doc .custom-block.warning {
+  border-radius: 14px;
+}
+
+.vp-doc .custom-block.danger {
+  border-radius: 14px;
+}
+
+.vp-doc .custom-block .custom-block-title {
+  font-family: 'Geist Sans', sans-serif;
+  font-weight: 600;
+}
+
+/* ───────────────────────────────────────────
+   Links
+   ─────────────────────────────────────────── */
 .vp-doc a {
-  color: #10b981;
+  color: var(--accent);
   text-decoration: none;
+  transition: color 0.2s ease;
 }
 
 .vp-doc a:hover {
-  color: #34d399;
+  color: var(--accent2);
   text-decoration: underline;
 }
 
-/* Scrollbar */
+/* ───────────────────────────────────────────
+   Scrollbar
+   ─────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: var(--bg);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e1e2e;
+  background: var(--border2);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2e2e3e;
+  background: #38384a;
 }
 
-/* Badge-like labels */
+/* ───────────────────────────────────────────
+   Header anchors
+   ─────────────────────────────────────────── */
 .vp-doc .header-anchor {
-  color: #10b981 !important;
+  color: var(--accent) !important;
+}
+
+/* ───────────────────────────────────────────
+   Content body spacing
+   ─────────────────────────────────────────── */
+.vp-doc p {
+  line-height: 1.75;
+  margin: 16px 0;
+}
+
+.vp-doc ul,
+.vp-doc ol {
+  padding-left: 24px;
+  margin: 16px 0;
+}
+
+.vp-doc li {
+  margin: 6px 0;
+  line-height: 1.7;
+}
+
+/* ───────────────────────────────────────────
+   Blockquotes — card-like
+   ─────────────────────────────────────────── */
+.vp-doc blockquote {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 14px 14px 0;
+  padding: 16px 20px;
+  margin: 20px 0;
+  color: var(--text2);
+}
+
+/* ───────────────────────────────────────────
+   Horizontal rules
+   ─────────────────────────────────────────── */
+.vp-doc hr {
+  border-color: var(--border);
+  margin: 32px 0;
+}
+
+/* ───────────────────────────────────────────
+   Detail cards — only h3 inside these gets
+   the small uppercase label treatment
+   ─────────────────────────────────────────── */
+.vp-doc .details h3,
+.vp-doc details h3 {
+  font-family: 'Geist Sans', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text3);
 }
