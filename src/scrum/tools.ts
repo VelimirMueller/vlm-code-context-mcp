@@ -791,4 +791,81 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );
+
+  // ─── Onboarding ──────────────────────────────────────────────────────────────
+  server.tool(
+    "get_onboarding_status",
+    "Check project setup status and return what is configured vs missing",
+    {},
+    async () => {
+      const checks = [
+        { name: "Database initialized", check: () => { try { db.prepare("SELECT 1 FROM files LIMIT 1").get(); return true; } catch { return false; } }, fix: "Run: code-context-mcp setup ." },
+        { name: "Files indexed", check: () => (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c > 0, fix: "Run: code-context-mcp setup . (or index_directory tool)" },
+        { name: "Agents configured", check: () => (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c > 0, fix: "Create .claude/agents/ with agent .md files, then run sync_scrum_data" },
+        { name: "Sprint process loaded", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='SPRINT_PROCESS'").get() as any; return s.c > 0; }, fix: "Create .claude/skills/SPRINT_PROCESS.md" },
+        { name: "Product vision exists", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='PRODUCT_VISION'").get() as any; return s.c > 0; }, fix: "Create .claude/skills/PRODUCT_VISION.md or use update_vision tool" },
+        { name: "Milestones defined", check: () => { const m = db.prepare("SELECT COUNT(*) as c FROM milestones").get() as any; const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='MILESTONES'").get() as any; return m.c > 0 || s.c > 0; }, fix: "Create milestones with create_milestone tool" },
+        { name: "At least one sprint", check: () => (db.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c > 0, fix: "Create a sprint with create_sprint or plan_sprint tool" },
+      ];
+
+      const results = checks.map(c => {
+        const ok = c.check();
+        return `${ok ? "✅" : "❌"} ${c.name}${ok ? "" : "\n   Fix: " + c.fix}`;
+      });
+
+      const done = checks.filter(c => c.check()).length;
+      const total = checks.length;
+
+      return { content: [{ type: "text" as const, text: `# Onboarding Status (${done}/${total})\n\n${results.join("\n\n")}` }] };
+    }
+  );
+
+  server.tool(
+    "run_onboarding",
+    "Run the full project onboarding sequence — checks and fixes all missing setup steps",
+    {
+      project_path: z.string().optional().describe("Project root path (default: cwd)"),
+    },
+    async ({ project_path }) => {
+      const steps: string[] = [];
+      const projectDir = project_path || process.cwd();
+
+      // Step 1: Check agents
+      const agentCount = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+      if (agentCount === 0) {
+        // Try to import from .claude/agents/
+        const fs = await import("fs");
+        const path = await import("path");
+        const claudeDir = path.resolve(projectDir, ".claude");
+        const agentsDir = path.join(claudeDir, "agents");
+        if (fs.existsSync(agentsDir)) {
+          const { importScrumData } = await import("../scrum/import.js");
+          const result = importScrumData(db, claudeDir);
+          steps.push(`Imported ${result.agents} agents, ${result.sprints} sprints, ${result.skills} skills`);
+        } else {
+          steps.push("⚠️ No .claude/agents/ found — run setup first to create templates");
+        }
+      } else {
+        steps.push(`✅ ${agentCount} agents already configured`);
+      }
+
+      // Step 2: Check sprint process
+      const sprintProcess = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='SPRINT_PROCESS'").get() as any;
+      if (sprintProcess.c === 0) {
+        steps.push("⚠️ No sprint process loaded — create .claude/skills/SPRINT_PROCESS.md");
+      } else {
+        steps.push("✅ Sprint process loaded");
+      }
+
+      // Step 3: Check files indexed
+      const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c;
+      if (fileCount === 0) {
+        steps.push("⚠️ No files indexed — run: code-context-mcp setup . (or index_directory tool)");
+      } else {
+        steps.push(`✅ ${fileCount} files indexed`);
+      }
+
+      return { content: [{ type: "text" as const, text: `# Onboarding Complete\n\n${steps.join("\n")}` }] };
+    }
+  );
 }
