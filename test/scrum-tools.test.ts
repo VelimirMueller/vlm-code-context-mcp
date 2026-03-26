@@ -157,6 +157,71 @@ describe("Error Handling", () => {
   });
 });
 
+describe("dump/restore tools", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    initScrumSchema(db);
+  });
+
+  it("should dump and restore a sprint roundtrip", () => {
+    // Create test data
+    db.prepare("INSERT INTO sprints (name, status) VALUES (?, ?)").run("test-sprint", "active");
+    db.prepare("INSERT INTO agents (role, name) VALUES (?, ?)").run("qa", "QA Agent");
+
+    // Dump
+    const allTables = ["agents", "sprints", "tickets"];
+    const dump: Record<string, any[]> = {};
+    for (const t of allTables) {
+      try { dump[t] = db.prepare(`SELECT * FROM ${t}`).all(); } catch {}
+    }
+
+    // Verify dump has data
+    expect(dump["sprints"]).toHaveLength(1);
+    expect(dump["agents"]).toHaveLength(1);
+
+    // Clear and restore
+    db.prepare("DELETE FROM sprints").run();
+    db.prepare("DELETE FROM agents").run();
+    expect((db.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c).toBe(0);
+
+    // Restore
+    for (const table of ["agents", "sprints"]) {
+      const rows = dump[table];
+      if (!rows || rows.length === 0) continue;
+      const cols = Object.keys(rows[0]);
+      const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
+      for (const row of rows) { stmt.run(...cols.map((c: string) => (row as any)[c] ?? null)); }
+    }
+
+    expect((db.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c).toBe(1);
+    expect((db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c).toBe(1);
+  });
+
+  it("should restore with transaction rollback on error", () => {
+    // Verify transaction safety: inserting into a non-existent table within a transaction
+    db.prepare("INSERT INTO agents (role, name) VALUES (?, ?)").run("dev", "Developer");
+    const before = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+    expect(before).toBe(1);
+
+    // Attempt a bad restore — the agent data should remain untouched
+    try {
+      const transaction = db.transaction(() => {
+        db.prepare("DELETE FROM agents").run();
+        // This will throw because 'nonexistent_table' doesn't exist
+        db.prepare("SELECT * FROM nonexistent_table").all();
+      });
+      transaction();
+    } catch {
+      // Expected
+    }
+
+    const after = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+    expect(after).toBe(1); // Transaction rolled back
+  });
+});
+
 describe("milestone tools", () => {
   let db: Database.Database;
 

@@ -497,6 +497,190 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     }
   );
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DATABASE DUMP / RESTORE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "dump_database",
+    "Export the entire database to JSON for backup/restore",
+    {
+      tables: z.array(z.string()).optional().describe("Specific tables to export (default: all)"),
+    },
+    async ({ tables }) => {
+      try {
+        const allTables = [
+          "agents", "sprints", "tickets", "subtasks", "retro_findings",
+          "blockers", "bugs", "skills", "processes", "milestones",
+          "files", "exports", "dependencies", "directories", "changes"
+        ];
+        const targetTables = tables && tables.length > 0 ? tables : allTables;
+
+        const dump: Record<string, any[]> = {};
+        for (const table of targetTables) {
+          try {
+            dump[table] = db.prepare(`SELECT * FROM ${table}`).all();
+          } catch {
+            // Table might not exist — skip
+          }
+        }
+
+        const output = {
+          version: "2.0.0",
+          exported_at: new Date().toISOString(),
+          tables: dump,
+        };
+
+        return { content: [{ type: "text" as const, text: JSON.stringify(output) }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "restore_database",
+    "Restore database from a JSON dump. Wraps in transaction for safety.",
+    {
+      dump_json: z.string().describe("The full JSON dump string from dump_database"),
+    },
+    async ({ dump_json }) => {
+      try {
+        const dump = JSON.parse(dump_json);
+        if (!dump.version || !dump.tables) {
+          return { content: [{ type: "text" as const, text: "Error: Invalid dump format. Expected {version, tables}." }], isError: true };
+        }
+
+        // Foreign key ordering: parents before children
+        const order = [
+          "milestones", "agents", "skills", "processes",
+          "sprints", "tickets", "subtasks",
+          "retro_findings", "blockers", "bugs",
+          "files", "exports", "dependencies", "directories", "changes"
+        ];
+
+        const results: string[] = [];
+        const transaction = db.transaction(() => {
+          for (const table of order) {
+            const rows = dump.tables[table];
+            if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
+
+            const cols = Object.keys(rows[0]);
+            const placeholders = cols.map(() => "?").join(",");
+            const stmt = db.prepare(
+              `INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${placeholders})`
+            );
+
+            let count = 0;
+            for (const row of rows) {
+              stmt.run(...cols.map(c => row[c] ?? null));
+              count++;
+            }
+            results.push(`${table}: ${count} rows`);
+          }
+        });
+
+        transaction();
+
+        return { content: [{ type: "text" as const, text: `# Restore Complete\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "export_to_file",
+    "Export database to a JSON file on disk",
+    {
+      output_path: z.string().optional().describe("File path (default: ./code-context-dump.json)"),
+    },
+    async ({ output_path }) => {
+      try {
+        const filePath = output_path || "./code-context-dump.json";
+
+        const allTables = [
+          "agents", "sprints", "tickets", "subtasks", "retro_findings",
+          "blockers", "bugs", "skills", "processes", "milestones",
+          "files", "exports", "dependencies", "directories", "changes"
+        ];
+
+        const dump: Record<string, any[]> = {};
+        for (const table of allTables) {
+          try { dump[table] = db.prepare(`SELECT * FROM ${table}`).all(); } catch {}
+        }
+
+        const output = {
+          version: "2.0.0",
+          exported_at: new Date().toISOString(),
+          tables: dump,
+        };
+
+        const fs = await import("fs");
+        const json = JSON.stringify(output, null, 2);
+        fs.writeFileSync(filePath, json);
+
+        const sizeMB = (Buffer.byteLength(json) / 1024 / 1024).toFixed(2);
+        const tableCount = Object.keys(dump).filter(k => dump[k].length > 0).length;
+        const rowCount = Object.values(dump).reduce((s, rows) => s + rows.length, 0);
+
+        return { content: [{ type: "text" as const, text: `Exported to ${filePath} (${sizeMB}MB, ${tableCount} tables, ${rowCount} rows)` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "import_from_file",
+    "Restore database from a JSON dump file on disk",
+    {
+      input_path: z.string().describe("Path to the JSON dump file"),
+    },
+    async ({ input_path }) => {
+      try {
+        const fs = await import("fs");
+        if (!fs.existsSync(input_path)) {
+          return { content: [{ type: "text" as const, text: `Error: File not found: ${input_path}` }], isError: true };
+        }
+
+        const json = fs.readFileSync(input_path, "utf-8");
+        const dump = JSON.parse(json);
+
+        if (!dump.version || !dump.tables) {
+          return { content: [{ type: "text" as const, text: "Error: Invalid dump format." }], isError: true };
+        }
+
+        // Same restore logic as restore_database
+        const order = [
+          "milestones", "agents", "skills", "processes",
+          "sprints", "tickets", "subtasks",
+          "retro_findings", "blockers", "bugs",
+          "files", "exports", "dependencies", "directories", "changes"
+        ];
+
+        const results: string[] = [];
+        const transaction = db.transaction(() => {
+          for (const table of order) {
+            const rows = dump.tables[table];
+            if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
+            const cols = Object.keys(rows[0]);
+            const placeholders = cols.map(() => "?").join(",");
+            const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${placeholders})`);
+            let count = 0;
+            for (const row of rows) { stmt.run(...cols.map(c => row[c] ?? null)); count++; }
+            results.push(`${table}: ${count} rows`);
+          }
+        });
+        transaction();
+
+        return { content: [{ type: "text" as const, text: `# Restored from ${input_path}\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ─── Sprint Process Instructions ────────────────────────────────────────────
   const INSTRUCTION_SECTIONS: Record<string, string> = {
     lifecycle: `## Sprint Lifecycle
@@ -568,6 +752,43 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       }
       const full = `# Sprint Process Instructions\n\n${Object.values(INSTRUCTION_SECTIONS).join("\n\n---\n\n")}`;
       return { content: [{ type: "text" as const, text: full }] };
+    }
+  );
+
+  // ─── Project Status ──────────────────────────────────────────────────────────
+  server.tool(
+    "get_project_status",
+    "Check if the project is properly set up and return health status",
+    {},
+    async () => {
+      const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c;
+      const agentCount = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+      const sprintCount = (db.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c;
+      const ticketCount = (db.prepare("SELECT COUNT(*) as c FROM tickets").get() as any).c;
+      const skillCount = (db.prepare("SELECT COUNT(*) as c FROM skills").get() as any).c;
+
+      const status = {
+        initialized: fileCount > 0,
+        files_indexed: fileCount,
+        agents_configured: agentCount,
+        sprints_created: sprintCount,
+        tickets_total: ticketCount,
+        skills_loaded: skillCount,
+      };
+
+      const lines = [
+        "# Project Status",
+        "",
+        `Files indexed: ${status.files_indexed}`,
+        `Agents: ${status.agents_configured}`,
+        `Sprints: ${status.sprints_created}`,
+        `Tickets: ${status.tickets_total}`,
+        `Skills: ${status.skills_loaded}`,
+        "",
+        status.initialized ? "Project is set up and ready." : "Project needs setup. Run: code-context-mcp setup .",
+      ];
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );
 }
