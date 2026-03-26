@@ -41,9 +41,18 @@ export function SprintList() {
     );
   }
 
+  const statusOrder: Record<string, number> = { active: 0, planning: 1, review: 2, closed: 3 };
+  const sortedSprints = [...sprints].sort((a, b) => {
+    const aOrder = statusOrder[a.status] ?? 3;
+    const bOrder = statusOrder[b.status] ?? 3;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    // Within same status, newest first
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
+
   return (
     <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
-      {sprints.map((sprint) => (
+      {sortedSprints.map((sprint) => (
         <SprintCard
           key={sprint.id}
           sprint={sprint}

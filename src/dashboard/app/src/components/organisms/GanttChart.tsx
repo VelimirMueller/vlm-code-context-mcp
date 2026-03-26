@@ -17,13 +17,15 @@ interface GanttBarProps {
   sprint: Sprint;
   index: number;
   totalBars: number;
+  leftPct: number;
+  widthPct: number;
 }
 
-function GanttBar({ sprint, index }: GanttBarProps) {
+function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps) {
   const s = getStatusStyle(sprint.status);
   const done = sprint.velocity_completed ?? 0;
   const committed = sprint.velocity_committed ?? 0;
-  const pct = committed > 0 ? Math.min(100, Math.round((done / committed) * 100)) : 0;
+  const velocityPct = committed > 0 ? Math.min(100, Math.round((done / committed) * 100)) : 0;
 
   return (
     <div
@@ -33,7 +35,7 @@ function GanttBar({ sprint, index }: GanttBarProps) {
         alignItems: 'center',
         gap: 14,
         padding: '8px 0',
-        borderBottom: index > 0 ? '1px solid var(--border)' : 'none',
+        borderBottom: index < totalBars - 1 ? '1px solid var(--border)' : 'none',
       }}
     >
       {/* Label */}
@@ -66,29 +68,42 @@ function GanttBar({ sprint, index }: GanttBarProps) {
 
       {/* Bar */}
       <div style={{ position: 'relative', height: 28 }}>
-        {/* Track */}
+        {/* Track background */}
         <div
           style={{
             position: 'absolute',
             inset: '6px 0',
             background: 'var(--surface3)',
             borderRadius: 4,
+          }}
+        />
+        {/* Positioned bar representing timeline slot */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 6,
+            bottom: 6,
+            left: `${leftPct}%`,
+            width: `${widthPct}%`,
+            background: s.bg,
+            borderRadius: 4,
+            boxShadow: `inset 0 0 0 1px ${s.border}`,
             overflow: 'hidden',
+            transition: 'left .4s ease, width .4s ease',
           }}
         >
+          {/* Velocity fill within the positioned bar */}
           <div
             style={{
-              width: `${pct}%`,
+              width: `${velocityPct}%`,
               height: '100%',
-              background: s.bg,
-              border: `none`,
+              background: s.border,
+              opacity: 0.45,
               borderRadius: 4,
-              transition: 'width .4s ease',
-              boxShadow: `inset 0 0 0 1px ${s.border}`,
             }}
           />
         </div>
-        {/* Percent label */}
+        {/* Velocity label */}
         <div
           style={{
             position: 'absolute',
@@ -103,7 +118,7 @@ function GanttBar({ sprint, index }: GanttBarProps) {
             paddingRight: 2,
           }}
         >
-          {pct}%
+          {velocityPct}%
         </div>
       </div>
     </div>
@@ -124,11 +139,50 @@ function VelocityLegend({ sprints }: { sprints: Sprint[] }) {
   );
 }
 
+function computeBarLayout(sprints: Sprint[]): { leftPct: number; widthPct: number }[] {
+  const hasDates = sprints.some((s) => s.start_date && s.end_date);
+
+  if (hasDates) {
+    const starts = sprints.map((s) => (s.start_date ? new Date(s.start_date).getTime() : null));
+    const ends = sprints.map((s) => (s.end_date ? new Date(s.end_date).getTime() : null));
+    const validStarts = starts.filter((t): t is number => t !== null);
+    const validEnds = ends.filter((t): t is number => t !== null);
+    const minTime = Math.min(...validStarts);
+    const maxTime = Math.max(...validEnds);
+    const range = maxTime - minTime || 1;
+
+    return sprints.map((s, i) => {
+      const start = starts[i] ?? minTime;
+      const end = ends[i] ?? maxTime;
+      const leftPct = ((start - minTime) / range) * 100;
+      const widthPct = Math.max(4, ((end - start) / range) * 100);
+      return { leftPct, widthPct };
+    });
+  }
+
+  // Fallback: equal-width bars in chronological order
+  const count = sprints.length || 1;
+  const barWidth = Math.min(90 / count, 30);
+  const gap = count > 1 ? (100 - barWidth * count) / (count - 1) : 0;
+  return sprints.map((_, i) => ({
+    leftPct: i * (barWidth + gap),
+    widthPct: barWidth,
+  }));
+}
+
 export function GanttChart() {
   const ganttData = usePlanningStore((s) => s.ganttData);
   const loading = usePlanningStore((s) => s.loading.gantt);
 
-  const sorted = useMemo(() => [...ganttData].reverse(), [ganttData]);
+  const sorted = useMemo(
+    () =>
+      [...ganttData].sort((a, b) =>
+        (a.created_at || '').localeCompare(b.created_at || ''),
+      ),
+    [ganttData],
+  );
+
+  const barLayout = useMemo(() => computeBarLayout(sorted), [sorted]);
 
   if (loading && ganttData.length === 0) {
     return (
@@ -189,7 +243,14 @@ export function GanttChart() {
         <VelocityLegend sprints={sorted} />
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           {sorted.map((sprint, i) => (
-            <GanttBar key={sprint.id} sprint={sprint} index={i} totalBars={sorted.length} />
+            <GanttBar
+              key={sprint.id}
+              sprint={sprint}
+              index={i}
+              totalBars={sorted.length}
+              leftPct={barLayout[i]?.leftPct ?? 0}
+              widthPct={barLayout[i]?.widthPct ?? 100}
+            />
           ))}
         </div>
       </div>
