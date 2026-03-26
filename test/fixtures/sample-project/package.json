@@ -1,0 +1,7 @@
+{
+  "name": "sample-project",
+  "version": "0.1.0",
+  "description": "A minimal fixture project for testing the indexer",
+  "type": "module",
+  "main": "src/index.ts"
+}

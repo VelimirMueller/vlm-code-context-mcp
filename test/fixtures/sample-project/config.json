@@ -1,0 +1,17 @@
+{
+  "name": "sample-config",
+  "description": "Configuration for the sample project",
+  "server": {
+    "port": 3000,
+    "host": "localhost"
+  },
+  "database": {
+    "url": "sqlite://data.db",
+    "pool": 5
+  },
+  "features": {
+    "caching": true,
+    "logging": true,
+    "debug": false
+  }
+}
