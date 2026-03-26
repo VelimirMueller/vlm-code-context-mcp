@@ -15,11 +15,11 @@ export function StatGroup({ stats }: StatGroupProps) {
       className="stats"
       style={{ display: 'flex', alignItems: 'center', gap: 24, flexShrink: 0 }}
     >
-      <Stat value={stats.files} label="files" />
-      <Stat value={stats.exports} label="exports" />
-      <Stat value={stats.dependencies} label="deps" />
-      <Stat value={stats.lines.toLocaleString()} label="lines" />
-      <Stat value={fmtSize(stats.size)} label="size" />
+      <Stat value={stats.files ?? 0} label="files" />
+      <Stat value={stats.exports ?? 0} label="exports" />
+      <Stat value={stats.deps ?? 0} label="deps" />
+      <Stat value={(stats.totalLines ?? 0).toLocaleString()} label="lines" />
+      <Stat value={fmtSize(stats.totalSize ?? 0)} label="size" />
     </div>
   );
 }

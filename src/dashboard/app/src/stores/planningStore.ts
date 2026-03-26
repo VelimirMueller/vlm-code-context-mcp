@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { get, post, put, patch } from '@/lib/api';
+import { get, post, put } from '@/lib/api';
 import type { Sprint, Ticket, Milestone } from '@/types';
 
 export interface CreateMilestoneInput {
@@ -52,7 +52,9 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, milestones: true } }));
     try {
       const milestones = await get<Milestone[]>('/api/milestones');
-      set({ milestones });
+      set({ milestones: Array.isArray(milestones) ? milestones : [] });
+    } catch {
+      // Silently fail
     } finally {
       set((s) => ({ loading: { ...s.loading, milestones: false } }));
     }
@@ -60,7 +62,7 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
 
   createMilestone: async (data: CreateMilestoneInput) => {
     const created = await post<Milestone>('/api/milestones', data);
-    set((s) => ({ milestones: [...s.milestones, created] }));
+    if (created) set((s) => ({ milestones: [...s.milestones, created] }));
   },
 
   updateMilestone: async (id: number, data: UpdateMilestoneInput) => {
@@ -69,8 +71,11 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
       milestones: s.milestones.map((m) => (m.id === id ? { ...m, ...data } : m)),
     }));
     try {
-      const updated = await patch<Milestone>(`/api/milestones/${id}`, data);
-      set((s) => ({ milestones: s.milestones.map((m) => (m.id === id ? updated : m)) }));
+      // Server uses PUT on /api/milestone/{id} (singular)
+      const updated = await put<Milestone>(`/api/milestone/${id}`, data);
+      if (updated) {
+        set((s) => ({ milestones: s.milestones.map((m) => (m.id === id ? updated : m)) }));
+      }
     } catch (e) {
       // Rollback on error -- re-fetch authoritative state
       getState().fetchMilestones();
@@ -79,13 +84,9 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   },
 
   fetchVision: async () => {
-    set((s) => ({ loading: { ...s.loading, vision: true } }));
-    try {
-      const { content } = await get<{ content: string }>('/api/vision');
-      set({ vision: content });
-    } finally {
-      set((s) => ({ loading: { ...s.loading, vision: false } }));
-    }
+    // Note: /api/vision GET does not exist on the server.
+    // Vision is write-only (PUT). We just set null to avoid a 404 error.
+    set((s) => ({ loading: { ...s.loading, vision: false } }));
   },
 
   updateVision: async (content: string) => {
@@ -95,10 +96,13 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   },
 
   fetchGantt: async () => {
+    // Gantt data reuses sprint list — /api/gantt does not exist
     set((s) => ({ loading: { ...s.loading, gantt: true } }));
     try {
-      const ganttData = await get<Sprint[]>('/api/gantt');
-      set({ ganttData });
+      const ganttData = await get<Sprint[]>('/api/sprints');
+      set({ ganttData: Array.isArray(ganttData) ? ganttData : [] });
+    } catch {
+      // Silently fail
     } finally {
       set((s) => ({ loading: { ...s.loading, gantt: false } }));
     }
@@ -108,14 +112,16 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, backlog: true } }));
     try {
       const backlog = await get<Ticket[]>('/api/backlog');
-      set({ backlog });
+      set({ backlog: Array.isArray(backlog) ? backlog : [] });
+    } catch {
+      // Silently fail
     } finally {
       set((s) => ({ loading: { ...s.loading, backlog: false } }));
     }
   },
 
   planSprint: async (data: PlanSprintInput) => {
-    const result = await post<{ id: number }>('/api/sprints', data);
+    const result = await post<{ id: number }>('/api/sprints/plan', data);
     // Refresh gantt and backlog after planning
     await Promise.all([getState().fetchGantt(), getState().fetchBacklog()]);
     return result;

@@ -15,7 +15,7 @@ export function BentoGrid() {
     setLoading(true);
     Promise.all(
       sprints.map((s) =>
-        fetch(`/api/sprints/${s.id}/retro`)
+        fetch(`/api/sprint/${s.id}/retro`)
           .then((r) => r.json())
           .catch(() => [] as RetroFinding[])
       )

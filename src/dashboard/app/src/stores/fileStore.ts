@@ -5,37 +5,48 @@ import type { File, Directory, Stats } from '@/types';
 export interface FileDetail {
   id: number;
   path: string;
-  content: string;
   language: string;
-  symbols: Array<{ name: string; type: string; line: number; exported: boolean }>;
-  imports: string[];
-  exports: string[];
+  extension: string;
+  size_bytes: number;
+  line_count: number;
+  summary: string;
   description: string | null;
-  changeCount: number;
+  external_imports: string | null;
+  content: string;
+  created_at: string;
+  modified_at: string;
+  indexed_at: string;
+  exports: string[];
+  imports: string[];
+  importedBy: string[];
 }
 
 export interface Change {
   id: number;
-  fileId: number;
+  file_path: string;
+  event: string;
   timestamp: string;
-  summary: string;
-  linesAdded: number;
-  linesRemoved: number;
+  old_summary: string;
+  new_summary: string;
+  old_line_count: number;
+  new_line_count: number;
+  old_size_bytes: number;
+  new_size_bytes: number;
+  old_exports: string;
+  new_exports: string;
+  diff_text: string;
   reason: string | null;
 }
 
 export interface GraphNode {
-  id: string;
+  id: number;
   label: string;
-  type: 'file' | 'directory' | 'external';
-  size: number;
 }
 
 export interface GraphEdge {
-  source: string;
-  target: string;
-  type: 'import' | 'export' | 'dependency';
-  weight: number;
+  source: number;
+  target: number;
+  symbols: string;
 }
 
 export interface FileStore {
@@ -72,7 +83,7 @@ export const useFileStore = create<FileStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, files: true }, error: { ...s.error, files: null } }));
     try {
       const files = await get<File[]>('/api/files');
-      set({ files });
+      set({ files: files ?? [] });
     } catch (e) {
       set((s) => ({ error: { ...s.error, files: (e as Error).message } }));
     } finally {
@@ -81,8 +92,12 @@ export const useFileStore = create<FileStore>((set, getState) => ({
   },
 
   fetchDirectories: async () => {
-    const directories = await get<Directory[]>('/api/directories');
-    set({ directories });
+    try {
+      const directories = await get<Directory[]>('/api/directories');
+      set({ directories: directories ?? [] });
+    } catch {
+      // Silently fail — directories are optional enhancement
+    }
   },
 
   selectFile: async (id: number) => {
@@ -93,12 +108,12 @@ export const useFileStore = create<FileStore>((set, getState) => ({
     }));
     try {
       const [detail, changes] = await Promise.all([
-        get<FileDetail>(`/api/files/${id}`),
-        get<Change[]>(`/api/files/${id}/changes`),
+        get<FileDetail>(`/api/file/${id}`),
+        get<Change[]>(`/api/file/${id}/changes?limit=50`),
       ]);
       set((s) => ({
-        fileDetail: detail,
-        fileChanges: changes,
+        fileDetail: detail ?? null,
+        fileChanges: Array.isArray(changes) ? changes : [],
         loading: { ...s.loading, detail: false, changes: false },
       }));
     } catch (e) {
@@ -113,15 +128,21 @@ export const useFileStore = create<FileStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, graph: true } }));
     try {
       const graphData = await get<{ nodes: GraphNode[]; edges: GraphEdge[] }>('/api/graph');
-      set({ graphData });
+      set({ graphData: graphData ?? null });
+    } catch {
+      // Silently fail
     } finally {
       set((s) => ({ loading: { ...s.loading, graph: false } }));
     }
   },
 
   fetchStats: async () => {
-    const stats = await get<Stats>('/api/stats');
-    set({ stats });
+    try {
+      const stats = await get<Stats>('/api/stats');
+      set({ stats: stats ?? null });
+    } catch {
+      // Silently fail
+    }
   },
 
   refresh: async () => {
