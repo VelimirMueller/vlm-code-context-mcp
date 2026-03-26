@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 
 /**
  * Initialize the SQLite schema for the Scrum system.
- * Tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes
+ * Tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones
  */
 export function initScrumSchema(db: Database.Database): void {
   db.exec(`
@@ -42,6 +42,7 @@ export function initScrumSchema(db: Database.Database): void {
       assigned_to TEXT,
       story_points INTEGER,
       milestone TEXT,
+      milestone_id INTEGER,
       qa_verified INTEGER NOT NULL DEFAULT 0,
       verified_by TEXT,
       acceptance_criteria TEXT,
@@ -50,6 +51,7 @@ export function initScrumSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+      FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE SET NULL,
       UNIQUE(sprint_id, ticket_ref)
     );
 
@@ -123,6 +125,18 @@ export function initScrumSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS milestones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'active', 'completed')),
+      target_date TEXT,
+      progress INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
     CREATE INDEX IF NOT EXISTS idx_tickets_sprint_id ON tickets(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
     CREATE INDEX IF NOT EXISTS idx_tickets_assigned_to ON tickets(assigned_to);
@@ -131,5 +145,6 @@ export function initScrumSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_blockers_sprint_id ON blockers(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_bugs_sprint_id ON bugs(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
+    CREATE INDEX IF NOT EXISTS idx_tickets_milestone_id ON tickets(milestone_id);
   `);
 }

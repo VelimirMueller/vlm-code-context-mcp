@@ -11,7 +11,7 @@ describe("Scrum Schema", () => {
     initScrumSchema(db);
   });
 
-  it("creates all 9 scrum tables", () => {
+  it("creates all 10 scrum tables", () => {
     const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all() as { name: string }[];
     const tableNames = tables.map(t => t.name);
     expect(tableNames).toContain("agents");
@@ -23,6 +23,7 @@ describe("Scrum Schema", () => {
     expect(tableNames).toContain("bugs");
     expect(tableNames).toContain("skills");
     expect(tableNames).toContain("processes");
+    expect(tableNames).toContain("milestones");
   });
 
   it("inserts and queries agents", () => {
@@ -102,5 +103,40 @@ describe("Scrum Schema", () => {
     db.prepare(`INSERT INTO bugs (sprint_id, severity, description) VALUES (?, ?, ?)`).run(sprint.id, "MEDIUM", "Parser misses async exports");
     const bugs = db.prepare(`SELECT * FROM bugs WHERE sprint_id = ?`).all(sprint.id);
     expect(bugs).toHaveLength(1);
+  });
+});
+
+describe("Milestones Schema", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    initScrumSchema(db);
+  });
+
+  it("creates milestones table with correct columns", () => {
+    const columns = db.prepare(`PRAGMA table_info(milestones)`).all() as { name: string }[];
+    const colNames = columns.map(c => c.name);
+    expect(colNames).toContain("id");
+    expect(colNames).toContain("name");
+    expect(colNames).toContain("description");
+    expect(colNames).toContain("status");
+    expect(colNames).toContain("target_date");
+    expect(colNames).toContain("progress");
+    expect(colNames).toContain("created_at");
+    expect(colNames).toContain("updated_at");
+  });
+
+  it("rejects invalid milestone status", () => {
+    expect(() => {
+      db.prepare(`INSERT INTO milestones (name, status) VALUES (?, ?)`).run("M1", "INVALID");
+    }).toThrow();
+  });
+
+  it("rejects duplicate milestone name", () => {
+    db.prepare(`INSERT INTO milestones (name) VALUES (?)`).run("M1");
+    expect(() => {
+      db.prepare(`INSERT INTO milestones (name) VALUES (?)`).run("M1");
+    }).toThrow();
   });
 });
