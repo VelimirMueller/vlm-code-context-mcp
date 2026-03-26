@@ -95,7 +95,7 @@ server.tool(
     const changes = db.prepare(`
       SELECT event, timestamp, old_summary, new_summary,
              old_line_count, new_line_count, old_size_bytes, new_size_bytes,
-             old_exports, new_exports, diff_text
+             old_exports, new_exports, diff_text, reason
       FROM changes WHERE file_path = ? ORDER BY timestamp DESC LIMIT 20
     `).all(filePath) as any[];
 
@@ -133,6 +133,9 @@ server.tool(
         }
         if (c.old_exports !== c.new_exports && (c.old_exports || c.new_exports)) {
           parts.push(`  Exports: ${c.old_exports ?? "(none)"} → ${c.new_exports ?? "(none)"}`);
+        }
+        if (c.reason) {
+          parts.push(`  Reason: ${c.reason}`);
         }
         if (c.diff_text) {
           parts.push(`  Diff:\n${c.diff_text.split("\n").map((l: string) => `    ${l}`).join("\n")}`);
@@ -179,6 +182,23 @@ server.tool(
   }
 );
 
+// ─── Tool: set_change_reason ─────────────────────────────────────────────────
+server.tool(
+  "set_change_reason",
+  "Set a reason/explanation for a recorded file change",
+  {
+    id: z.number().describe("Change ID"),
+    reason: z.string().describe("Why this change was made"),
+  },
+  async ({ id, reason }) => {
+    const result = db.prepare(`UPDATE changes SET reason = ? WHERE id = ?`).run(reason, id);
+    if (result.changes === 0) {
+      return { content: [{ type: "text", text: `Change ${id} not found.` }], isError: true };
+    }
+    return { content: [{ type: "text", text: `Reason set for change ${id}` }] };
+  }
+);
+
 // ─── Tool: get_changes ───────────────────────────────────────────────────────
 server.tool(
   "get_changes",
@@ -198,7 +218,7 @@ server.tool(
                old_summary, new_summary,
                old_line_count, new_line_count,
                old_size_bytes, new_size_bytes,
-               old_exports, new_exports
+               old_exports, new_exports, reason
         FROM changes
         WHERE file_path LIKE ?
         ORDER BY file_path, timestamp DESC
@@ -210,7 +230,7 @@ server.tool(
                old_summary, new_summary,
                old_line_count, new_line_count,
                old_size_bytes, new_size_bytes,
-               old_exports, new_exports
+               old_exports, new_exports, reason
         FROM changes
         ORDER BY file_path, timestamp DESC
         LIMIT ?

@@ -72,7 +72,8 @@ export function initSchema(db: Database.Database) {
       new_size_bytes INTEGER,
       old_exports   TEXT,
       new_exports   TEXT,
-      diff_text     TEXT
+      diff_text     TEXT,
+      reason        TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_changes_path ON changes(file_path);
