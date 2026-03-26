@@ -1,27 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlanning } from '@/hooks/usePlanning';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useSprintStore } from '@/stores/sprintStore';
+import { useAgentStore } from '@/stores/agentStore';
 import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
 import { GanttChart } from '@/components/organisms/GanttChart';
+import { PlanningInsights } from '@/components/organisms/PlanningInsights';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'milestones' | 'vision' | 'gantt';
+type Tab = 'milestones' | 'vision' | 'gantt' | 'insights';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'milestones', label: 'Milestones' },
   { id: 'vision', label: 'Vision' },
   { id: 'gantt', label: 'Gantt' },
+  { id: 'insights', label: 'Insights' },
 ];
 
 export function ProjectManagement() {
   usePlanning();
   const [activeTab, setActiveTab] = useState<Tab>('milestones');
   const [showPlanner, setShowPlanner] = useState(false);
+
+  // Pre-fetch sprint and agent data for the Insights tab
+  const sprints = useSprintStore((s) => s.sprints);
+  const agents = useAgentStore((s) => s.agents);
+  useEffect(() => {
+    useSprintStore.getState().fetchSprints();
+    useAgentStore.getState().fetchAgents();
+  }, []);
+  // Suppress unused-variable lint — consumed by child via stores
+  void sprints; void agents;
 
   // Milestones hero — first active (in_progress) milestone, fallback to first
   const milestones = usePlanningStore((s) => s.milestones);
@@ -159,6 +173,18 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <GanttChart />
+            </motion.div>
+          )}
+          {activeTab === 'insights' && (
+            <motion.div
+              key="insights"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <PlanningInsights />
             </motion.div>
           )}
         </AnimatePresence>
