@@ -1,181 +1,337 @@
-# code-context-mcp
+<div align="center">
+
+# vlm-code-context-mcp
+
+**AI-Powered Virtual IT Department via Model Context Protocol**
+
+Your codebase, indexed. Your sprints, managed. Your team, automated.
+One MCP server. 42 tools. Zero context waste.
 
 [![CI](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/vlm-code-context-mcp)](https://www.npmjs.com/package/vlm-code-context-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
 
-AI agents waste most of their context window reading raw source files just to understand what a codebase does. This MCP server pre-indexes your project into a SQLite database so agents can query structured metadata instead — **3x fewer tokens, 8x less data, instant answers.**
+</div>
 
-```
-npx code-context-mcp .
-```
+---
 
-That's it. Your codebase is indexed, `.mcp.json` is configured, and your AI client has 10 tools to query files, exports, dependencies, changes, and directory metadata — without ever reading a single source file. With a `.claude/` directory present, 25 additional scrum management tools activate.
+## What is this?
 
-## The problem
+Most AI coding assistants burn through context windows reading raw source files just to understand what a codebase does. `vlm-code-context-mcp` eliminates that waste by pre-indexing your entire project into a SQLite database, then exposing structured metadata through the [Model Context Protocol](https://modelcontextprotocol.io). AI agents query files, exports, dependencies, and change history through MCP tools instead of reading source code directly — using 3x fewer tokens and 8x less data.
 
-Every time an AI agent needs to understand your codebase, it reads files. All of them. A 25-file project burns ~62K tokens just to answer "what does the server directory do?" With pre-indexed metadata, the same answer costs ~20K tokens. The gap widens with larger codebases.
+But code intelligence is only the beginning. This package ships a complete virtual IT department: a 9-role AI scrum team that runs real sprint processes through MCP. Product Owner, Scrum Master, Architect, Backend and Frontend Developers, Lead Developer, QA Engineer, Manager, and Security Specialist — each with defined responsibilities, system prompts, and tool access. Sprints, tickets, retrospectives, blockers, bugs, milestones, and velocity tracking all persist in the same SQLite database and are managed through 32 dedicated MCP tools.
 
-## How it works
+The included React dashboard brings everything together in a single enterprise-grade interface. Built with Vite, React 19, Zustand, Tailwind CSS, and Framer Motion, it provides a code explorer with dependency graphs, a full sprint board with kanban and planning views, project management with Gantt charts and milestone timelines, and a team overview with agent health indicators. Dark theme, keyboard shortcuts, live reload — production-ready out of the box.
 
-1. **Index once** — the indexer walks your project, parses JS/TS imports and exports, extracts summaries from comments and JSDoc, builds a dependency graph, and generates descriptions for every file and directory.
-2. **Query many times** — AI agents use MCP tools to get structured answers: file context, symbol lookups, dependency edges, change history with reasons — all pre-computed.
-3. **Stay current** — the dashboard watches for file changes and re-indexes automatically. Descriptions persist across re-indexes.
-
-## Architecture
-
-Three integrated components form the system:
-
-**MCP Server** (`src/server/`) — TypeScript parser indexes files, exports, imports, and dependencies into SQLite. Ten MCP tools expose structured metadata to AI agents, replacing raw file reads.
-
-**Scrum System** (`src/scrum/`) — 10 database tables covering the full sprint lifecycle. 25 MCP tools for sprint, ticket, milestone, retro, blocker, and bug management. Imports from a `.claude/` directory structure.
-
-**React Dashboard** (`src/dashboard/`) — Vite + React 18 + Tailwind CSS frontend with Framer Motion animations, served by a Node.js HTTP server. Five Zustand stores manage file, sprint, agent, planning, and UI state.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component hierarchy, API endpoint reference, and build pipeline.
-
-## MCP Tools (35 total: 10 code-context + 25 scrum)
-
-
-| Tool                        | What it does                                                             |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `index_directory`           | Scan a directory, build the full index                                   |
-| `find_symbol`               | Find which files export a given function, type, or constant              |
-| `get_file_context`          | Full file context: summary, exports, imports, dependents, change history |
-| `set_description`           | Set a human-written description for a file (persists across re-indexes)  |
-| `set_directory_description` | Set a description for a directory                                        |
-| `set_change_reason`         | Annotate a recorded change with a reason                                 |
-| `get_changes`               | View recent file changes with diffs and reasons                          |
-| `search_files`              | Search files by path or summary                                          |
-| `query`                     | Read-only SQL against the database                                       |
-| `execute`                   | Write SQL (INSERT/UPDATE/DELETE)                                         |
-
-## Setup
+## Quick Start
 
 ```bash
 # Install globally
 npm install -g vlm-code-context-mcp
 
-# Or run directly
-npx code-context-mcp /path/to/your/project
+# Or run setup directly
+npx code-context-mcp setup .
 ```
 
-This will:
+The setup command runs four steps automatically:
 
-- Create `context.db` in your project root
-- Index all files, exports, dependencies, and directories
-- Auto-generate descriptions for every file and folder
-- Write `.mcp.json` so your AI client picks up the tools
+```
+Step 1/4 — Indexing files into context.db...
+  Indexed 25 files, 142 exports, 87 dependencies
 
-## Dashboard
+Step 2/4 — Loading scrum schema...
+  Created 10 scrum tables
+
+Step 3/4 — Importing team from .claude/agents/...
+  Loaded 9 agents, 3 sprints, 24 tickets
+
+Step 4/4 — Writing .mcp.json...
+  Configured MCP server entry
+
+=== Setup complete! (my-project) ===
+```
+
+Then open the dashboard:
 
 ```bash
 npx code-context-dashboard ./context.db
+# Opens at http://localhost:3333
 ```
 
-Opens at `http://localhost:3333` with a landing page and two main sections:
+## Features
 
-**Code Explorer:**
+<table>
+<tr>
+<td width="33%" valign="top">
 
-- Folder tree sidebar with expandable directories
-- File detail panel: exports, packages, imports, dependents, folder metadata
-- Change history with inline diffs and reasons
-- Dependency graph that filters to the selected file's connections
-- Keyboard shortcuts: Cmd+K search, arrow navigation, hash routing for state persistence
-- Live reload — watches for file changes and re-indexes automatically
+### Code Intelligence
 
-**Sprint Process** (when `.claude/` directory is present):
+Pre-indexes JS/TS files into SQLite. AI agents query structured metadata — exports, imports, dependency graphs, change history — instead of reading raw source. Break-even after 2 queries.
 
-- Sprint Board: sprint cards with velocity bars and process health checklist, kanban board (TODO/IN_PROGRESS/DONE/BLOCKED columns), planning view, QA view, retro view
-- Project Planning: velocity trend chart across all sprints, Gantt-style milestone timeline, milestones detail, product vision
-- Team: agent cards with health indicators, mood scores (computed from ticket load + retro sentiment), workload bars
+</td>
+<td width="33%" valign="top">
 
-## Agent Team (9 roles)
+### Virtual Scrum Team
 
-When a `.claude/agents/` directory is present, the scrum MCP service loads the team:
+9 AI agent roles with defined responsibilities, system prompts, and tool access. Each agent participates in sprint ceremonies, reviews work, and tracks quality metrics.
 
+</td>
+<td width="33%" valign="top">
 
-| Role                | Responsibility                                         |
-| ------------------- | ------------------------------------------------------ |
-| Product Owner       | Vision, milestones, tickets                            |
-| Scrum Master        | Blockers, process, sprint health                       |
-| Manager             | Cost efficiency, anti-overengineering                  |
-| Lead Developer      | Conflict resolution, code quality                      |
-| Backend Developer   | APIs, services, database                               |
-| Frontend Developer  | UI, dashboard, styling                                 |
-| Architect           | Infrastructure, CI/CD, system design                   |
-| QA Engineer         | Testing, bug verification, quality gate                |
-| Security Specialist | Vulnerability audit, input validation, secure defaults |
+### Sprint Management
 
-## What gets indexed
+Full lifecycle via MCP: planning, tickets, kanban, retrospectives, blockers, bugs, milestones, and velocity tracking. 42 tools cover every workflow.
 
-- **Files** — path, language, size, line count, summary, auto-generated description, content
-- **Exports** — name and kind (function, const, type, class, interface)
-- **Dependencies** — which file imports what from which file, with symbol names
-- **Directories** — file count, total lines, size, language breakdown, description
-- **Changes** — append-only log of add/change/delete events with before/after snapshots, inline diffs, and reasons
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
 
-## Context efficiency
+### React Dashboard
 
-Tested on this project (25 files, 7K lines):
+Vite + React 19 + Zustand + Framer Motion. Code explorer, sprint board, kanban, Gantt charts, team overview. Dark theme, keyboard shortcuts, live reload.
 
+</td>
+<td width="33%" valign="top">
 
-| Metric               | With MCP  | Without MCP |
-| -------------------- | --------- | ----------- |
-| Tokens per analysis  | ~20K      | ~62K        |
-| Raw data transferred | ~6K chars | ~111K chars |
-| Tool calls           | 7         | 16          |
+### Database Persistence
 
-The first index costs more (you need to read files to generate metadata). Every subsequent query is 3x cheaper. Break-even after ~2 uses.
+All state lives in a single SQLite file. Dump and restore the entire database through MCP tools. Progress survives reinstalls, branch switches, and CI runs.
 
-## Schema reference
+</td>
+<td width="33%" valign="top">
 
-### Code context tables
+### Developer Experience
 
+CLI with `--help`, `--force`, `--name` flags. Onboarding wizard detects missing setup steps. File watcher re-indexes on save. Zero configuration required.
 
-| Table          | Columns                                                                                                                     | Purpose                        |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `files`        | path, language, extension, size_bytes, line_count, summary, description, external_imports, content, created_at, modified_at | Every indexed file             |
-| `exports`      | file_id, name, kind (function/class/type/interface/enum/const/re-export)                                                    | Named exports from JS/TS files |
-| `dependencies` | source_id, target_id, symbols                                                                                               | Import edges between files     |
-| `directories`  | path, name, parent_path, depth, file_count, total_size_bytes, total_lines, language_breakdown, description                  | Directory-level aggregates     |
-| `changes`      | file_path, event (add/change/delete), timestamp, old/new summary/lines/size/exports, diff_text, reason                      | Append-only change log         |
+</td>
+</tr>
+</table>
 
-### Scrum tables
+## Architecture
 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     vlm-code-context-mcp                    │
+├───────────────────┬───────────────────┬─────────────────────┤
+│   MCP Server      │   Scrum System    │   React Dashboard   │
+│   src/server/     │   src/scrum/      │   src/dashboard/    │
+│                   │                   │                     │
+│ - TypeScript      │ - 10 DB tables    │ - 38 components     │
+│   parser/indexer  │ - 32 MCP tools    │ - 6 Zustand stores  │
+│ - 10 MCP tools    │ - 9 agent roles   │ - Atomic design     │
+│ - 5 DB tables     │ - Sprint process  │ - Framer Motion     │
+│ - SQLite via      │ - Import/export   │ - Tailwind CSS      │
+│   better-sqlite3  │ - Dump/restore    │ - Vite 8 build      │
+└───────────────────┴───────────────────┴─────────────────────┘
+         │                   │                     │
+         └───────────────────┴─────────────────────┘
+                    context.db (SQLite)
+                      15 tables
+```
 
-| Table            | Columns                                                                                                             | Purpose                       |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `agents`         | role, name, description, model, tools, system_prompt                                                                | Team agent definitions        |
-| `sprints`        | name, goal, start_date, end_date, status, velocity_committed/completed                                              | Sprint tracking               |
-| `tickets`        | sprint_id, ticket_ref, title, priority (P0-P3), status, assigned_to, story_points, qa_verified, acceptance_criteria | User stories                  |
-| `subtasks`       | ticket_id, description, status, assigned_to                                                                         | Task breakdown                |
-| `retro_findings` | sprint_id, role, category (went_well/went_wrong/try_next), finding, action_owner                                    | Retrospective items           |
-| `blockers`       | sprint_id, ticket_id, description, status (open/resolved)                                                           | Impediments                   |
-| `bugs`           | sprint_id, ticket_id, severity, description, status (open/fixed/deferred)                                           | Defects                       |
-| `skills`         | name, content, owner_role                                                                                           | Team knowledge docs           |
-| `processes`      | name, content, version                                                                                              | Versioned process definitions |
+| Component | Count |
+| --- | --- |
+| MCP tools | 42 (10 code + 32 scrum) |
+| React components | 38 (atoms, molecules, organisms) |
+| Zustand stores | 6 (file, sprint, agent, planning, ui, toast) |
+| Database tables | 15 (5 code + 10 scrum) |
+| Agent roles | 9 |
 
-## Scrum MCP tools
+## MCP Tools (42)
 
-In addition to the 10 code context tools, the server exposes 25 scrum management tools when a `.claude/` directory is present:
+### Code Intelligence (10 tools)
 
+| Tool | Description |
+| --- | --- |
+| `index_directory` | Scan a directory and build the full index |
+| `find_symbol` | Find which files export a given function, type, or constant |
+| `get_file_context` | Full file context: summary, exports, imports, dependents, change history |
+| `set_description` | Set a human-written description for a file (persists across re-indexes) |
+| `set_directory_description` | Set a description for a directory |
+| `set_change_reason` | Annotate a recorded change with a reason |
+| `get_changes` | View recent file changes with diffs and reasons |
+| `search_files` | Search files by path or summary |
+| `query` | Read-only SQL against the database |
+| `execute` | Write SQL (INSERT/UPDATE/DELETE) |
 
-| Tool                  | Type  | What it does                                         |
-| --------------------- | ----- | ---------------------------------------------------- |
-| `list_agents`         | Read  | List all scrum team agents                           |
-| `get_agent`           | Read  | Get agent details by role                            |
-| `list_sprints`        | Read  | List sprints with ticket counts                      |
-| `get_sprint`          | Read  | Full sprint details (tickets, bugs, blockers, retro) |
-| `list_tickets`        | Read  | Filter tickets by sprint, status, assignee           |
-| `get_ticket`          | Read  | Ticket details with subtasks and linked bugs         |
-| `list_retro_findings` | Read  | Filter retro findings by sprint, category            |
-| `search_scrum`        | Read  | Full-text search across scrum data                   |
-| `create_sprint`       | Write | Create a new sprint                                  |
-| `update_sprint`       | Write | Update sprint status/velocity                        |
-| `create_ticket`       | Write | Add a ticket to a sprint                             |
-| `update_ticket`       | Write | Change ticket status, assignment, QA sign-off        |
-| `add_retro_finding`   | Write | Add a retrospective finding                          |
-| `create_blocker`      | Write | Report a blocker                                     |
-| `resolve_blocker`     | Write | Mark blocker as resolved                             |
-| `log_bug`             | Write | Log a bug with severity                              |
-| `sync_scrum_data`     | Write | Re-import from .claude/ directory                    |
-| `export_sprint_report`| Read  | Generate complete markdown sprint report              |
+### Sprint Management (28 tools)
+
+| Tool | Type | Description |
+| --- | --- | --- |
+| `list_agents` | Read | List all scrum team agents |
+| `get_agent` | Read | Get agent details by role |
+| `list_sprints` | Read | List sprints with ticket counts |
+| `get_sprint` | Read | Full sprint details (tickets, bugs, blockers, retro) |
+| `list_tickets` | Read | Filter tickets by sprint, status, assignee |
+| `get_ticket` | Read | Ticket details with subtasks and linked bugs |
+| `list_retro_findings` | Read | Filter retro findings by sprint, category |
+| `search_scrum` | Read | Full-text search across scrum data |
+| `export_sprint_report` | Read | Generate complete markdown sprint report |
+| `get_backlog` | Read | View backlog items across sprints |
+| `get_project_status` | Read | Project health check with metrics |
+| `get_sprint_instructions` | Read | Sprint process guide for agents |
+| `get_onboarding_status` | Read | Check setup completeness |
+| `create_sprint` | Write | Create a new sprint |
+| `update_sprint` | Write | Update sprint status and velocity |
+| `create_ticket` | Write | Add a ticket to a sprint |
+| `update_ticket` | Write | Change ticket status, assignment, QA sign-off |
+| `add_retro_finding` | Write | Add a retrospective finding |
+| `create_blocker` | Write | Report a blocker |
+| `resolve_blocker` | Write | Mark blocker as resolved |
+| `log_bug` | Write | Log a bug with severity |
+| `sync_scrum_data` | Write | Re-import from .claude/ directory |
+| `create_milestone` | Write | Create a project milestone |
+| `update_milestone` | Write | Update milestone status and dates |
+| `link_ticket_to_milestone` | Write | Associate a ticket with a milestone |
+| `update_vision` | Write | Update product vision document |
+| `plan_sprint` | Write | Auto-plan a sprint from backlog |
+| `run_onboarding` | Write | Execute onboarding setup steps |
+
+### Bootstrap and Persistence (4 tools)
+
+| Tool | Type | Description |
+| --- | --- | --- |
+| `dump_database` | Read | Export entire database as JSON |
+| `restore_database` | Write | Restore database from JSON dump |
+| `export_to_file` | Write | Export database to a file on disk |
+| `import_from_file` | Write | Import database from a file on disk |
+
+## Dashboard
+
+The dashboard serves at `http://localhost:3333` and provides three main sections:
+
+**Code Explorer** — File tree sidebar with expandable directories. Select a file to view its exports, imports, dependents, and change history. Dependency graph filters to the selected file's connections. Keyboard shortcuts include Cmd+K for search and arrow keys for navigation.
+
+**Sprint Board** — Sprint cards with velocity bars and process health checklists. Kanban board with TODO, IN_PROGRESS, DONE, and BLOCKED columns. Planning view for sprint preparation. QA view for quality gate tracking. Retrospective view for findings and action items.
+
+**Project Management** — Velocity trend chart across all sprints. Gantt-style milestone timeline. Milestone detail cards with linked tickets. Product vision editor with version history. Planning insights panel.
+
+**Team Overview** — Agent cards for all 9 roles with health indicators, computed mood scores (derived from ticket load and retro sentiment), and workload distribution bars.
+
+The landing page features a Framer Motion animation sequence introducing the product before transitioning to the main interface.
+
+## The Virtual IT Team
+
+| Role | Agent | Responsibility |
+| --- | --- | --- |
+| Product Owner | Defines what to build | Vision, milestones, backlog prioritization, acceptance criteria |
+| Scrum Master | Keeps the process healthy | Sprint ceremonies, blocker resolution, velocity tracking, process improvements |
+| Manager | Guards efficiency | Cost control, anti-overengineering, resource allocation, timeline oversight |
+| Lead Developer | Resolves technical conflicts | Code quality standards, PR reviews, conflict resolution, architectural decisions |
+| Backend Developer | Builds the server side | APIs, services, database schema, integrations, server logic |
+| Frontend Developer | Builds the interface | UI components, dashboard, styling, animations, user experience |
+| Architect | Designs the system | Infrastructure, CI/CD, system design, technology selection, scalability |
+| QA Engineer | Validates quality | Test coverage, bug verification, quality gates, regression testing |
+| Security Specialist | Protects the product | Vulnerability audits, input validation, secure defaults, dependency scanning |
+
+Each agent is defined in the `.claude/agents/` directory with a role identifier, description, model preference, available tools, and a system prompt that guides its behavior during sprint activities.
+
+## Sprint Process
+
+The virtual team follows a structured 5-day sprint cycle:
+
+1. **Day 1 — Planning**: Product Owner presents goals, team estimates tickets, sprint backlog is committed
+2. **Day 2-3 — Execution**: Developers implement tickets, QA writes test plans, Security reviews changes
+3. **Day 4 — Review**: Lead Developer reviews code, QA verifies acceptance criteria, bugs are logged
+4. **Day 5 — Retro**: Team records what went well, what went wrong, and what to try next
+
+All ceremonies are executed through MCP tools. Sprint state, velocity metrics, and retrospective findings persist across sessions in the SQLite database.
+
+## Context Efficiency
+
+Tested on a 25-file, 7K-line TypeScript project:
+
+| Metric | With MCP | Without MCP | Improvement |
+| --- | --- | --- | --- |
+| Tokens per analysis | ~20K | ~62K | 3x reduction |
+| Raw data transferred | ~6K chars | ~111K chars | 8x reduction |
+| Tool calls required | 7 | 16 | 2x fewer |
+
+The first index costs more (files must be read to generate metadata). Every subsequent query is 3x cheaper. Break-even after approximately 2 uses.
+
+## Schema Reference
+
+### Code Context Tables (5)
+
+| Table | Key Columns | Purpose |
+| --- | --- | --- |
+| `files` | path, language, size_bytes, line_count, summary, description, content | Every indexed file |
+| `exports` | file_id, name, kind | Named exports (function, class, type, interface, enum, const) |
+| `dependencies` | source_id, target_id, symbols | Import edges between files |
+| `directories` | path, name, depth, file_count, total_lines, language_breakdown | Directory-level aggregates |
+| `changes` | file_path, event, timestamp, diff_text, reason | Append-only change log |
+
+### Scrum Tables (10)
+
+| Table | Key Columns | Purpose |
+| --- | --- | --- |
+| `agents` | role, name, description, model, tools, system_prompt | Team agent definitions |
+| `sprints` | name, goal, start_date, end_date, status, velocity_committed/completed | Sprint tracking |
+| `tickets` | sprint_id, ticket_ref, title, priority, status, story_points, qa_verified | User stories and tasks |
+| `subtasks` | ticket_id, description, status, assigned_to | Task breakdown |
+| `retro_findings` | sprint_id, role, category, finding, action_owner | Retrospective items |
+| `blockers` | sprint_id, ticket_id, description, status | Impediments |
+| `bugs` | sprint_id, ticket_id, severity, description, status | Defects |
+| `skills` | name, content, owner_role | Team knowledge documents |
+| `processes` | name, content, version | Versioned process definitions |
+| `milestones` | name, description, target_date, status | Project milestones |
+
+## Configuration
+
+### CLI Flags
+
+```bash
+code-context-mcp [path]                # Index a directory (default: cwd)
+code-context-mcp setup [path]          # Full setup: index + scrum + .mcp.json
+code-context-mcp --force .             # Re-initialize from scratch
+code-context-mcp --name my-project .   # Set project name
+code-context-mcp --help                # Show all options
+```
+
+### .mcp.json
+
+The setup command writes an MCP server entry to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "code-context": {
+      "command": "node",
+      "args": ["node_modules/vlm-code-context-mcp/dist/server/index.js", "./context.db"]
+    }
+  }
+}
+```
+
+### Project Structure
+
+```
+your-project/
+  context.db              # SQLite database (auto-generated)
+  .mcp.json               # MCP server configuration (auto-generated)
+  .claude/
+    agents/               # Agent role definitions (YAML)
+    scrum/                # Sprint data, processes, skills
+    instructions/         # Project-level instructions
+```
+
+## Contributing
+
+Contributions are welcome. Please open an issue first to discuss what you would like to change.
+
+```bash
+git clone https://github.com/VelimirMueller/mcp-server.git
+cd mcp-server
+npm install
+npm run build
+npm test
+```
+
+The project uses Vitest for testing and TypeScript for all server-side code. The dashboard is a separate Vite application under `src/dashboard/app/`.
+
+## License
+
+MIT
