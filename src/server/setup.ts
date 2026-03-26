@@ -34,9 +34,11 @@ db.close();
 // 3. Write .mcp.json for Claude Code
 console.log("[3/3] Configuring MCP client...");
 const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
+const relServer = path.relative(TARGET_DIR, path.resolve(ROOT, "dist/server/index.js"));
+const relDb = path.relative(TARGET_DIR, DB_PATH);
 const serverEntry = {
   command: "node",
-  args: [path.resolve(ROOT, "dist/server/index.js"), DB_PATH],
+  args: ["./" + relServer, "./" + relDb],
 };
 
 let mcpConfig: Record<string, any> = { mcpServers: {} };
