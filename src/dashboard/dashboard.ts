@@ -136,7 +136,7 @@ function apiFileChanges(id: number, limit: number) {
       old_line_count, new_line_count,
       old_size_bytes, new_size_bytes,
       old_exports, new_exports,
-      diff_text
+      diff_text, reason
     FROM changes WHERE file_path = ? ORDER BY timestamp DESC, id DESC LIMIT ?
   `).all(file.path, limit);
 }

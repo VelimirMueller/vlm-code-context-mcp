@@ -388,6 +388,7 @@ async function selectFile(id) {
   const data = await fetch('/api/file/' + id).then(r => r.json());
   renderDetail(data);
   loadFileChanges(id);
+  renderGraph();
 }
 
 function badgeClass(kind) {
@@ -569,19 +570,49 @@ function renderGraph() {
   ctx.scale(devicePixelRatio, devicePixelRatio);
   const W = rect.width, H = rect.height;
 
-  const nodes = graphData.nodes.map(n => ({
+  // Filter to selected file's subgraph if a file is selected
+  let visibleNodeIds = null;
+  if (selectedFileId) {
+    visibleNodeIds = new Set();
+    visibleNodeIds.add(selectedFileId);
+    // Add all nodes connected by edges (imports and importedBy)
+    for (const e of graphData.edges) {
+      if (e.source === selectedFileId) visibleNodeIds.add(e.target);
+      if (e.target === selectedFileId) visibleNodeIds.add(e.source);
+    }
+  }
+
+  const filteredNodes = visibleNodeIds
+    ? graphData.nodes.filter(n => visibleNodeIds.has(n.id))
+    : graphData.nodes;
+  const filteredEdges = visibleNodeIds
+    ? graphData.edges.filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
+    : graphData.edges;
+
+  if (!filteredNodes.length) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = '500 14px Geist Sans, system-ui, sans-serif';
+    ctx.fillStyle = '#63637a'; ctx.textAlign = 'center';
+    ctx.fillText('No dependencies for this file', W/2, H/2);
+    return;
+  }
+
+  const nodes = filteredNodes.map(n => ({
     ...n, x: W/2 + (Math.random()-.5)*W*.6, y: H/2 + (Math.random()-.5)*H*.6, vx: 0, vy: 0,
   }));
   const idMap = {};
   nodes.forEach(n => idMap[n.id] = n);
-  const edges = graphData.edges.filter(e => idMap[e.source] && idMap[e.target]);
+  const edges = filteredEdges.filter(e => idMap[e.source] && idMap[e.target]);
+
+  const repulse = visibleNodeIds ? 15000 : 10000;
+  const idealDist = visibleNodeIds ? 180 : 140;
 
   for (let iter = 0; iter < 250; iter++) {
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i+1; j < nodes.length; j++) {
         let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
         let d = Math.sqrt(dx*dx + dy*dy) || 1;
-        let f = 10000 / (d * d);
+        let f = repulse / (d * d);
         nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
         nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
       }
@@ -589,7 +620,7 @@ function renderGraph() {
     for (const e of edges) {
       const s = idMap[e.source], t = idMap[e.target];
       let dx = t.x-s.x, dy = t.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-      let f = (d-140)*0.05;
+      let f = (d-idealDist)*0.05;
       s.vx += dx/d*f; s.vy += dy/d*f;
       t.vx -= dx/d*f; t.vy -= dy/d*f;
     }
@@ -603,33 +634,51 @@ function renderGraph() {
   }
 
   ctx.clearRect(0, 0, W, H);
+
+  // Draw edges
   for (const e of edges) {
     const s = idMap[e.source], t = idMap[e.target];
+    const isFromSelected = selectedFileId && e.source === selectedFileId;
+    const isToSelected = selectedFileId && e.target === selectedFileId;
+    const edgeColor = isFromSelected ? 'rgba(16,185,129,.5)' : isToSelected ? 'rgba(167,139,250,.5)' : 'rgba(59,130,246,.35)';
+    const edgeGlow = isFromSelected ? 'rgba(16,185,129,.1)' : isToSelected ? 'rgba(167,139,250,.1)' : 'rgba(59,130,246,.1)';
+
     ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-    ctx.strokeStyle = 'rgba(59,130,246,.12)'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.strokeStyle = edgeGlow; ctx.lineWidth = 4; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-    ctx.strokeStyle = 'rgba(59,130,246,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = edgeColor; ctx.lineWidth = 1.5; ctx.stroke();
     const angle = Math.atan2(t.y-s.y, t.x-s.x);
     const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
     ctx.beginPath();
-    ctx.moveTo(mx+7*Math.cos(angle), my+7*Math.sin(angle));
-    ctx.lineTo(mx-7*Math.cos(angle-0.4), my-7*Math.sin(angle-0.4));
-    ctx.lineTo(mx-7*Math.cos(angle+0.4), my-7*Math.sin(angle+0.4));
+    ctx.moveTo(mx+8*Math.cos(angle), my+8*Math.sin(angle));
+    ctx.lineTo(mx-8*Math.cos(angle-0.4), my-8*Math.sin(angle-0.4));
+    ctx.lineTo(mx-8*Math.cos(angle+0.4), my-8*Math.sin(angle+0.4));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(59,130,246,.45)'; ctx.fill();
+    ctx.fillStyle = edgeColor; ctx.fill();
   }
+
+  // Draw nodes
   for (const n of nodes) {
-    ctx.beginPath(); ctx.arc(n.x, n.y, 14, 0, Math.PI*2);
-    const glow = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, 14);
-    glow.addColorStop(0, 'rgba(59,130,246,.2)');
-    glow.addColorStop(1, 'rgba(59,130,246,0)');
+    const isSelected = selectedFileId && n.id === selectedFileId;
+    const nodeColor = isSelected ? '#10b981' : '#3b82f6';
+    const nodeStroke = isSelected ? '#34d399' : '#60a5fa';
+    const nodeRadius = isSelected ? 7 : 5;
+    const glowRadius = isSelected ? 20 : 14;
+
+    ctx.beginPath(); ctx.arc(n.x, n.y, glowRadius, 0, Math.PI*2);
+    const glow = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, glowRadius);
+    glow.addColorStop(0, isSelected ? 'rgba(16,185,129,.25)' : 'rgba(59,130,246,.15)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = glow; ctx.fill();
-    ctx.beginPath(); ctx.arc(n.x, n.y, 5, 0, Math.PI*2);
-    ctx.fillStyle = '#3b82f6'; ctx.fill();
-    ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.font = '500 11px Geist, system-ui, sans-serif';
-    ctx.fillStyle = '#8b8fa4'; ctx.textAlign = 'center';
-    ctx.fillText(n.label, n.x, n.y + 20);
+
+    ctx.beginPath(); ctx.arc(n.x, n.y, nodeRadius, 0, Math.PI*2);
+    ctx.fillStyle = nodeColor; ctx.fill();
+    ctx.strokeStyle = nodeStroke; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.font = isSelected ? '600 12px Geist Sans, system-ui, sans-serif' : '500 11px Geist Sans, system-ui, sans-serif';
+    ctx.fillStyle = isSelected ? '#e4e4e7' : '#a1a1aa';
+    ctx.textAlign = 'center';
+    ctx.fillText(n.label, n.x, n.y + (isSelected ? 24 : 20));
   }
 }
 
@@ -656,6 +705,13 @@ async function loadFileChanges(id) {
     const ts = document.createElement('span'); ts.className = 'change-time'; ts.textContent = c.timestamp;
     header.appendChild(badge); header.appendChild(ts);
     item.appendChild(header);
+
+    if (c.reason) {
+      const reason = document.createElement('div');
+      reason.style.cssText = 'font-size:12.5px;color:var(--text2);margin-top:8px;padding:10px 14px;background:var(--surface2);border-radius:10px;border-left:3px solid var(--accent);line-height:1.5;';
+      reason.textContent = c.reason;
+      item.appendChild(reason);
+    }
 
     if (c.event === 'change') {
       const diff = document.createElement('div'); diff.className = 'change-diff';
