@@ -1,5 +1,7 @@
 import http from "http";
+import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import chokidar from "chokidar";
 import { indexDirectory } from "./indexer.js";
@@ -210,7 +212,10 @@ server.listen(PORT, () => {
 });
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
-const HTML = /* html */ `<!DOCTYPE html>
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const HTML = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf-8");
+
+const _UNUSED = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">

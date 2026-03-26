@@ -13,7 +13,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/dashboard.ts",
     "dashboard": "tsx src/dashboard.ts",
-    "setup": "node dist/setup.js"
+    "setup": "node dist/setup.js",
+    "test": "123"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
