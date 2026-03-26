@@ -425,6 +425,48 @@ function renderDetail(d) {
   }
   el.appendChild(titleSection);
 
+  // Folder metadata
+  const fileDirPath = d.path.substring(0, d.path.lastIndexOf('/'));
+  const dirData = allDirs.find(dir => dir.path === fileDirPath);
+  if (dirData) {
+    const dirSection = document.createElement('div'); dirSection.className = 'detail-section';
+    const dirH = document.createElement('h3'); dirH.textContent = 'Folder';
+    dirSection.appendChild(dirH);
+    const dirName = document.createElement('div'); dirName.className = 'detail-meta'; dirName.style.marginTop = '0';
+    const dirIcon = document.createTextNode('\uD83D\uDCC1 ');
+    const dirLabel = document.createElement('span'); dirLabel.style.cssText = 'color:var(--accent2);font-family:var(--mono);font-weight:500;'; dirLabel.textContent = dirData.name + '/';
+    dirName.appendChild(dirIcon); dirName.appendChild(dirLabel);
+    dirSection.appendChild(dirName);
+
+    const dirStats = document.createElement('div'); dirStats.style.cssText = 'display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;';
+    [{n: dirData.file_count, l: 'files'}, {n: dirData.total_lines.toLocaleString(), l: 'lines'}, {n: fmtSize(dirData.total_size_bytes), l: 'size'}].forEach(item => {
+      const stat = document.createElement('div'); stat.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;display:flex;flex-direction:column;align-items:center;min-width:60px;';
+      const nEl = document.createElement('div'); nEl.style.cssText = 'font-size:14px;font-weight:700;color:var(--accent2);font-family:var(--mono);line-height:1.2;'; nEl.textContent = item.n;
+      const lEl = document.createElement('div'); lEl.style.cssText = 'font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;font-weight:600;'; lEl.textContent = item.l;
+      stat.appendChild(nEl); stat.appendChild(lEl);
+      dirStats.appendChild(stat);
+    });
+    dirSection.appendChild(dirStats);
+
+    if (dirData.language_breakdown) {
+      try {
+        const langs = JSON.parse(dirData.language_breakdown);
+        if (langs.length) {
+          const langWrap = document.createElement('div'); langWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;';
+          langs.forEach(l => {
+            const badge = document.createElement('span');
+            badge.className = 'badge badge-pkg';
+            badge.style.cssText = 'border-left:3px solid ' + (langColors[l.lang] || langColors.unknown) + ';';
+            badge.textContent = l.lang + ' (' + l.count + ')';
+            langWrap.appendChild(badge);
+          });
+          dirSection.appendChild(langWrap);
+        }
+      } catch {}
+    }
+    el.appendChild(dirSection);
+  }
+
   if (d.exports.length) {
     const expSection = document.createElement('div'); expSection.className = 'detail-section';
     const expH = document.createElement('h3'); expH.textContent = 'Exports (' + d.exports.length + ')';
