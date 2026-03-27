@@ -123,8 +123,136 @@ export function SprintPlanningView() {
     );
   }
 
+  const createInputStyle: React.CSSProperties = {
+    background: 'var(--surface2)',
+    border: '1px solid var(--border2)',
+    borderRadius: 8,
+    color: 'var(--text)',
+    fontSize: 13,
+    padding: '8px 12px',
+    fontFamily: 'var(--font)',
+    width: '100%',
+    outline: 'none',
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Create Sprint button + form */}
+      <div>
+        {!showCreateSprint && (
+          <button
+            onClick={() => { setShowCreateSprint(true); setCreateError(null); }}
+            style={{
+              background: 'var(--accent)',
+              color: '#000',
+              border: 'none',
+              borderRadius: 8,
+              padding: '7px 16px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'var(--font)',
+            }}
+          >
+            + Create Sprint
+          </button>
+        )}
+        {showCreateSprint && (
+          <form
+            onSubmit={handleCreateSprint}
+            style={{
+              background: 'var(--surface2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 'var(--radius)',
+              padding: '16px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <input
+              style={createInputStyle}
+              placeholder="Sprint name *"
+              value={createForm.name}
+              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+              required
+              disabled={createBusy}
+            />
+            <textarea
+              style={{ ...createInputStyle, resize: 'vertical', minHeight: 60 }}
+              placeholder="Sprint goal (optional)"
+              value={createForm.goal}
+              onChange={(e) => setCreateForm((f) => ({ ...f, goal: e.target.value }))}
+              disabled={createBusy}
+            />
+            <select
+              style={createInputStyle}
+              value={createForm.milestone_id}
+              onChange={(e) => setCreateForm((f) => ({ ...f, milestone_id: e.target.value }))}
+              disabled={createBusy}
+            >
+              <option value="">No milestone</option>
+              {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="date"
+                style={{ ...createInputStyle, flex: 1 }}
+                value={createForm.startDate}
+                onChange={(e) => setCreateForm((f) => ({ ...f, startDate: e.target.value }))}
+                disabled={createBusy}
+                placeholder="Start date"
+              />
+              <input
+                type="date"
+                style={{ ...createInputStyle, flex: 1 }}
+                value={createForm.endDate}
+                onChange={(e) => setCreateForm((f) => ({ ...f, endDate: e.target.value }))}
+                disabled={createBusy}
+                placeholder="End date"
+              />
+            </div>
+            {createError && <div style={{ color: 'var(--red)', fontSize: 12 }}>{createError}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="submit"
+                disabled={createBusy}
+                style={{
+                  background: createBusy ? 'var(--surface3)' : 'var(--accent)',
+                  color: createBusy ? 'var(--text3)' : '#000',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 20px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: createBusy ? 'not-allowed' : 'pointer',
+                  fontFamily: 'var(--font)',
+                }}
+              >
+                {createBusy ? 'Creating...' : 'Create'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateSprint(false)}
+                disabled={createBusy}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border2)',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  color: 'var(--text2)',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font)',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
       {filteredGroups.map((group) => {
         const ms = group.milestone;
         const msLabel = ms ? ms.name : 'Unassigned';
