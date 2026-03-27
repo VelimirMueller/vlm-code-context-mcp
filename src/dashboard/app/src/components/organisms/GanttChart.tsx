@@ -7,10 +7,11 @@ import { useSprintStore } from '@/stores/sprintStore';
 
 // Improved color scheme with better contrast
 const statusStyle: Record<string, { bg: string; border: string; label: string }> = {
-  planning: { bg: '#636474', border: '#818498', label: 'Planning' },
-  active:   { bg: '#10b981', border: '#34d399', label: 'Active' },
-  review:   { bg: '#f59e0b', border: '#fbbf24', label: 'Review' },
-  closed:   { bg: '#3b82f6', border: '#60a5fa', label: 'Closed' },
+  planning:   { bg: '#636474', border: '#818498', label: 'Planning' },
+  refinement: { bg: '#d97706', border: '#f59e0b', label: 'Refinement' },
+  active:     { bg: '#10b981', border: '#34d399', label: 'Active' },
+  review:     { bg: '#f59e0b', border: '#fbbf24', label: 'Review' },
+  closed:     { bg: '#3b82f6', border: '#60a5fa', label: 'Closed' },
 };
 
 function getStatusStyle(status: string) {
@@ -349,7 +350,7 @@ export function GanttChart() {
   const sorted = useMemo(
     () =>
       [...ganttData]
-        .filter((s) => s.status === 'active' || s.status === 'planning')
+        .filter((s) => s.status === 'active' || s.status === 'planning' || s.status === 'refinement')
         .sort((a, b) =>
           (a.created_at || '').localeCompare(b.created_at || ''),
         ),
@@ -477,7 +478,7 @@ export function GanttChart() {
       </div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {(['planning', 'active', 'review', 'closed'] as const).map((status) => {
+        {(['planning', 'refinement', 'active', 'review', 'closed'] as const).map((status) => {
           const s = getStatusStyle(status);
           return (
             <div key={status} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

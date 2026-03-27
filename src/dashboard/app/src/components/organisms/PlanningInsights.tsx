@@ -70,7 +70,7 @@ export function PlanningInsights() {
   const milestones = usePlanningStore((s) => s.milestones);
 
   // Only show active + planning sprints in insights
-  const sprints = allSprints.filter((s) => s.status === 'active' || s.status === 'planning');
+  const sprints = allSprints.filter((s) => s.status === 'active' || s.status === 'planning' || s.status === 'refinement');
 
   const [allFindings, setAllFindings] = useState<RetroFinding[]>([]);
   const [retroLoading, setRetroLoading] = useState(false);
@@ -116,6 +116,7 @@ export function PlanningInsights() {
   // ── Sprint health ─────────────────────────────────────────────────────────
   const activeSprints = sprints.filter((s) => s.status === 'active').length;
   const planningSprints = sprints.filter((s) => s.status === 'planning').length;
+  const refinementSprints = sprints.filter((s) => s.status === 'refinement').length;
   const completionRates = closedSprints
     .filter((s) => s.ticket_count > 0)
     .map((s) => (s.done_count / s.ticket_count) * 100);
@@ -279,6 +280,7 @@ export function PlanningInsights() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <StatRow label="Active" value={activeSprints} mono color="var(--accent)" />
+            <StatRow label="Refinement" value={refinementSprints} mono color="#d97706" />
             <StatRow label="Planning" value={planningSprints} mono color="var(--purple)" />
             <StatRow label="Closed (historical)" value={closedSprints.length} mono color="var(--text3)" />
           </div>
