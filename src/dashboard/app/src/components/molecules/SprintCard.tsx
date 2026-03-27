@@ -29,10 +29,13 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
 
   const color = statusColor[sprint.status] ?? 'var(--text3)';
 
-  // Determine status badges
-  const hasRetroFindings = sprint.retro_count > 0;
-  const qaVerified = sprint.qa_count >= sprint.ticket_count * 0.9;
-  const qaPartial = sprint.qa_count >= sprint.ticket_count * 0.7 && !qaVerified;
+  // Determine status badges (defensive: qa_count/retro_count may be undefined from API)
+  const qaCount = sprint.qa_count ?? 0;
+  const ticketCount = sprint.ticket_count ?? 0;
+  const retroCount = sprint.retro_count ?? 0;
+  const hasRetroFindings = retroCount > 0;
+  const qaVerified = ticketCount > 0 && qaCount >= ticketCount * 0.9;
+  const qaPartial = ticketCount > 0 && qaCount >= ticketCount * 0.7 && !qaVerified;
   const velocityMet = velocityPct >= 100;
   const velocityLow = velocityPct < 70 && sprint.velocity_committed > 0;
 

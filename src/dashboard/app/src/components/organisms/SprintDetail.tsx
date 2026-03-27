@@ -6,9 +6,14 @@ import { KanbanBoard } from './KanbanBoard';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import type { RetroFinding } from '@/types';
 
-export function SprintDetail() {
+interface SprintDetailProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
   const sprintDetail = useSprintStore((s) => s.sprintDetail);
   const tickets = useSprintStore((s) => s.tickets);
+  const retroFindings = useSprintStore((s) => s.selectedRetroFindings);
   const loading = useSprintStore((s) => s.loading.detail);
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
 
@@ -299,7 +304,16 @@ export function SprintDetail() {
       </div>
 
       {/* Sprint Completion Panel */}
-      <SprintCompletionPanel sprint={sprintDetail} />
+      <SprintCompletionPanel
+        sprint={sprintDetail}
+        tickets={{
+          total: tickets.length,
+          done: tickets.filter(t => t.status === 'DONE').length,
+          qaVerified: tickets.filter(t => !!t.qa_verified).length,
+          items: tickets,
+        }}
+        retroFindings={{ count: retroFindings.length, hasFindings: retroFindings.length > 0 }}
+      />
 
       {/* Retro Findings */}
       <RetroInline />
@@ -318,35 +332,50 @@ function RetroInline() {
   const tryNext = findings.filter((f: RetroFinding) => f.category === 'try_next');
 
   const categories = [
-    { items: well, label: 'Went Well', color: 'var(--accent)', icon: '✓' },
-    { items: wrong, label: 'Went Wrong', color: 'var(--red)', icon: '✗' },
-    { items: tryNext, label: 'Try Next', color: 'var(--purple)', icon: '→' },
+    { items: well, label: 'Went Well', color: 'var(--accent)', dot: 'var(--accent)' },
+    { items: wrong, label: 'Went Wrong', color: 'var(--red)', dot: 'var(--red)' },
+    { items: tryNext, label: 'Try Next', color: 'var(--purple)', dot: 'var(--purple)' },
   ];
 
   return (
-    <div style={{ marginTop: 16, padding: '14px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+    <div style={{ marginTop: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-          display: 'flex', alignItems: 'center', gap: 8, width: '100%', fontFamily: 'var(--font)',
+          background: 'none', border: 'none', cursor: 'pointer', padding: '14px 16px',
+          display: 'flex', alignItems: 'center', gap: 10, width: '100%', fontFamily: 'var(--font)',
+          transition: 'background .15s',
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
       >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+          <path d="M5 2.5L9.5 7L5 11.5" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Retro Findings</span>
-        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{findings.length} findings</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>▶</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', background: 'var(--bg)', padding: '1px 8px', borderRadius: 10 }}>{findings.length}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {categories.map(({ items, dot, label }) => items.length > 0 && (
+            <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--text3)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+              {items.length}
+            </span>
+          ))}
+        </div>
       </button>
       {expanded && (
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
-          {categories.map(({ items, label, color, icon }) => items.length > 0 && (
+        <div style={{ padding: '0 16px 14px', display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+          {categories.map(({ items, label, color }) => items.length > 0 && (
             <div key={label}>
-              <div style={{ fontSize: 11, fontWeight: 600, color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span>{icon}</span> {label} ({items.length})
+              <div style={{ fontSize: 11, fontWeight: 600, color, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                {label}
+                <span style={{ fontFamily: 'var(--mono)', fontWeight: 400, color: 'var(--text3)' }}>({items.length})</span>
               </div>
               {items.map((f: RetroFinding, i: number) => (
-                <div key={f.id ?? i} style={{ padding: '6px 10px', background: 'var(--bg)', borderRadius: 6, fontSize: 12, color: 'var(--text2)', marginBottom: 4, borderLeft: `3px solid ${color}` }}>
+                <div key={f.id ?? i} style={{ padding: '8px 12px', background: 'var(--bg)', borderRadius: 6, fontSize: 12, color: 'var(--text2)', marginBottom: 4, borderLeft: `3px solid ${color}`, lineHeight: 1.5 }}>
                   {f.finding}
-                  {f.action_owner && <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 8 }}>— {f.action_owner}</span>}
+                  {f.action_owner && <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 8, fontFamily: 'var(--mono)' }}>— {f.action_owner}</span>}
                 </div>
               ))}
             </div>

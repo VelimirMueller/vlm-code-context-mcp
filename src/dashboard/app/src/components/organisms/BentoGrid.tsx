@@ -55,7 +55,7 @@ export function BentoGrid() {
       >
         {/* Recurring Topics — wide (spans 2 cols) */}
         <BentoCard
-          icon="🔄"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9a6 6 0 0110.2-4.3M15 9a6 6 0 01-10.2 4.3" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/><path d="M13.5 2.5v2.5H11M4.5 15.5v-2.5H7" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           title="Recurring Topics"
           subtitle="Patterns across all sprints"
           borderColor="var(--purple)"
@@ -102,7 +102,7 @@ export function BentoGrid() {
 
         {/* Recurring Good */}
         <BentoCard
-          icon="✅"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--accent)" strokeWidth="1.5"/><path d="M6 9l2 2 4-4" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           title="Recurring Good"
           subtitle="Consistently positive"
           borderColor="var(--accent)"
@@ -118,7 +118,7 @@ export function BentoGrid() {
 
         {/* Recurring Bad */}
         <BentoCard
-          icon="⚠️"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2L1.5 15.5h15L9 2z" stroke="var(--red)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 7v3.5" stroke="var(--red)" strokeWidth="1.5" strokeLinecap="round"/><circle cx="9" cy="13" r="0.75" fill="var(--red)"/></svg>}
           title="Recurring Bad"
           subtitle="Persistent pain points"
           borderColor="var(--red)"
@@ -134,7 +134,7 @@ export function BentoGrid() {
 
         {/* Best Moment */}
         <BentoCard
-          icon="🌟"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 1.5l2.3 4.7 5.2.8-3.8 3.7.9 5.1L9 13.5l-4.6 2.3.9-5.1L1.5 7l5.2-.8L9 1.5z" stroke="var(--blue)" strokeWidth="1.5" strokeLinejoin="round"/></svg>}
           title="Best Moment"
           subtitle="Highlight across all sprints"
           borderColor="var(--blue)"
@@ -147,7 +147,7 @@ export function BentoGrid() {
 
         {/* Worst Moment */}
         <BentoCard
-          icon="💥"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--orange)" strokeWidth="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
           title="Worst Moment"
           subtitle="Biggest setback"
           borderColor="var(--orange)"

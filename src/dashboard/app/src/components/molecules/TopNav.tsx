@@ -1,7 +1,7 @@
 'use client';
 
 interface TopNavProps {
-  activeTab: 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
+  activeTab: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
   onTabChange: (tab: string) => void;
   badgeCounts?: {
     myTickets?: number;
@@ -11,7 +11,7 @@ interface TopNavProps {
 }
 
 interface NavItem {
-  id: 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
+  id: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
   label: string;
   icon: string;
 }
@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
   { id: 'planning', label: 'Planning', icon: '🎯' },
   { id: 'team', label: 'Team', icon: '👥' },
   { id: 'retro', label: 'Retro', icon: '⚡' },
+  { id: 'marketing', label: 'Marketing', icon: '📣' },
 ];
 
 export function TopNav({ activeTab, onTabChange, badgeCounts }: TopNavProps) {

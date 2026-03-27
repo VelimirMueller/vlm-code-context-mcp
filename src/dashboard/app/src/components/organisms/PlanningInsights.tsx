@@ -171,7 +171,7 @@ export function PlanningInsights() {
       >
         {/* Card 1: Velocity Trend — wide (spans 2 cols) */}
         <BentoCard
-          icon="📈"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 14l4-5 3 3 5-7" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           title="Velocity Trend"
           subtitle={`${closedSprints.length} closed sprints`}
           borderColor="var(--blue)"
@@ -260,7 +260,7 @@ export function PlanningInsights() {
 
         {/* Card 2: Sprint Health */}
         <BentoCard
-          icon="🏥"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="3" y="3" width="12" height="12" rx="3" stroke="var(--accent)" strokeWidth="1.5"/><path d="M9 6v6M6 9h6" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
           title="Sprint Health"
           subtitle="Completion rates"
           borderColor="var(--accent)"
@@ -284,7 +284,7 @@ export function PlanningInsights() {
 
         {/* Card 3: Team Capacity */}
         <BentoCard
-          icon="👥"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="7" cy="6" r="2.5" stroke="var(--purple)" strokeWidth="1.5"/><path d="M2 15c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/><circle cx="13" cy="7" r="2" stroke="var(--purple)" strokeWidth="1.2"/><path d="M14 15c0-1.7-1-3.1-2.5-3.8" stroke="var(--purple)" strokeWidth="1.2" strokeLinecap="round"/></svg>}
           title="Team Capacity"
           subtitle="Agent performance"
           borderColor="var(--purple)"
@@ -330,7 +330,7 @@ export function PlanningInsights() {
 
         {/* Card 4: Delivery Stats */}
         <BentoCard
-          icon="🚀"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2c3 2 5 5 5 9H4c0-4 2-7 5-9z" stroke="var(--accent)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 16h4" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
           title="Delivery Stats"
           subtitle="Total output delivered"
           borderColor="var(--accent)"
@@ -358,7 +358,7 @@ export function PlanningInsights() {
 
         {/* Card 5: Milestone Progress — wide */}
         <BentoCard
-          icon="🏁"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 2v14" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round"/><path d="M3 3h10l-2 3 2 3H3" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/></svg>}
           title="Milestone Progress"
           subtitle={`${milestones.length} milestones`}
           borderColor="var(--orange)"
@@ -427,7 +427,7 @@ export function PlanningInsights() {
 
         {/* Card 6: Process Health */}
         <BentoCard
-          icon="🔍"
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5" stroke="var(--text3)" strokeWidth="1.5"/><path d="M12 12l3.5 3.5" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
           title="Process Health"
           subtitle="Retrospective analysis"
           borderColor="var(--text3)"

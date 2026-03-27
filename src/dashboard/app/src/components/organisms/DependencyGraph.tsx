@@ -53,11 +53,11 @@ export function DependencyGraph() {
       visibleNodeIds.add(selectedFileId);
       visibleNodeIds.add(String(selectedFileId));
       for (const e of graphData.edges) {
-        if (e.source === selectedFileId || e.source === String(selectedFileId)) {
+        if (String(e.source) === String(selectedFileId)) {
           visibleNodeIds.add(e.target);
           visibleNodeIds.add(String(e.target));
         }
-        if (e.target === selectedFileId || e.target === String(selectedFileId)) {
+        if (String(e.target) === String(selectedFileId)) {
           visibleNodeIds.add(e.source);
           visibleNodeIds.add(String(e.source));
         }
@@ -154,9 +154,9 @@ export function DependencyGraph() {
       const s = idMap[String(e.source)];
       const t = idMap[String(e.target)];
       const isFromSelected =
-        selectedFileId && (e.source === selectedFileId || e.source === String(selectedFileId));
+        selectedFileId && String(e.source) === String(selectedFileId);
       const isToSelected =
-        selectedFileId && (e.target === selectedFileId || e.target === String(selectedFileId));
+        selectedFileId && String(e.target) === String(selectedFileId);
       const edgeColor = isFromSelected
         ? 'rgba(16,185,129,.5)'
         : isToSelected

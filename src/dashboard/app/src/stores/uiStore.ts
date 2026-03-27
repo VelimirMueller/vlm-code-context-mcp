@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-export type PageType = 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
+export type PageType = 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
 export type QuickFilter = 'all' | 'mine' | 'blocked' | 'qa-pending';
 export type UserRole = 'developer' | 'tech-lead' | 'product-owner' | 'qa' | 'designer';
 
@@ -42,12 +42,13 @@ export interface UIStore {
 
 function defaultTabForPage(page: string): string {
   switch (page) {
-    case 'code':     return 'files';
-    case 'planning': return 'roadmap';
+    case 'code':      return 'files';
+    case 'planning':  return 'roadmap';
     case 'dashboard': return 'board';
-    case 'team':     return 'grid';
-    case 'retro':    return 'insights';
-    default:         return 'board';
+    case 'team':      return 'grid';
+    case 'retro':     return 'insights';
+    case 'marketing': return 'releases';
+    default:          return 'board';
   }
 }
 

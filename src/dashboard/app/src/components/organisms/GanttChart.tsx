@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import type { Sprint } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useSprintStore } from '@/stores/sprintStore';
 
 // Improved color scheme with better contrast
 const statusStyle: Record<string, { bg: string; border: string; label: string }> = {
@@ -483,6 +484,169 @@ export function GanttChart() {
             </div>
           );
         })}
+      </div>
+
+      {/* Member Allocation Discovery */}
+      <MemberAllocationView sprints={sorted} />
+    </div>
+  );
+}
+
+/* ─── Member Allocation View ─────────────────────────────────────────────────── */
+
+interface MemberAllocation {
+  member: string;
+  sprintAssignments: Map<number, number>; // sprintId -> ticket count
+}
+
+function MemberAllocationView({ sprints }: { sprints: Sprint[] }) {
+  const [allocations, setAllocations] = useState<MemberAllocation[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (sprints.length === 0) return;
+    setLoading(true);
+
+    // Fetch tickets for each sprint to build allocation map
+    Promise.all(
+      sprints.slice(-8).map((s) =>
+        fetch(`/api/sprint/${s.id}/tickets`)
+          .then((r) => r.json())
+          .then((tickets: any[]) => ({ sprintId: s.id, sprintName: s.name, tickets }))
+          .catch(() => ({ sprintId: s.id, sprintName: s.name, tickets: [] }))
+      )
+    ).then((results) => {
+      const memberMap = new Map<string, Map<number, number>>();
+
+      for (const { sprintId, tickets } of results) {
+        for (const t of tickets) {
+          const member = t.assigned_to || 'unassigned';
+          if (!memberMap.has(member)) memberMap.set(member, new Map());
+          const sprintMap = memberMap.get(member)!;
+          sprintMap.set(sprintId, (sprintMap.get(sprintId) || 0) + 1);
+        }
+      }
+
+      const allocs: MemberAllocation[] = Array.from(memberMap.entries())
+        .map(([member, sprintAssignments]) => ({ member, sprintAssignments }))
+        .sort((a, b) => b.sprintAssignments.size - a.sprintAssignments.size);
+
+      setAllocations(allocs);
+      setLoading(false);
+    });
+  }, [sprints.length]);
+
+  const recentSprints = sprints.slice(-8);
+
+  if (loading) {
+    return (
+      <div style={{ marginTop: 16, padding: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
+        Loading member allocation...
+      </div>
+    );
+  }
+
+  if (allocations.length === 0) return null;
+
+  // Identify overused (>6 sprints) and underused (1 sprint) members
+  const maxAssignments = Math.max(...allocations.map((a) => a.sprintAssignments.size));
+
+  return (
+    <div style={{ marginTop: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Member Allocation</div>
+        <div style={{ fontSize: 11, color: 'var(--text3)' }}>Last {recentSprints.length} sprints — ensure every member has at least 1 ticket</div>
+      </div>
+
+      {/* Header row: sprint names */}
+      <div style={{ display: 'grid', gridTemplateColumns: `140px repeat(${recentSprints.length}, 1fr)`, gap: 2, marginBottom: 4 }}>
+        <div />
+        {recentSprints.map((s) => (
+          <div key={s.id} style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {s.name.replace('sprint-', '').slice(0, 10)}
+          </div>
+        ))}
+      </div>
+
+      {/* Member rows */}
+      {allocations.map((alloc) => {
+        const totalTickets = Array.from(alloc.sprintAssignments.values()).reduce((a, b) => a + b, 0);
+        const sprintsActive = alloc.sprintAssignments.size;
+        const isOverused = sprintsActive >= recentSprints.length && totalTickets > recentSprints.length * 2;
+        const isUnderused = sprintsActive <= 1;
+        const isIdle = sprintsActive === 0;
+
+        return (
+          <div
+            key={alloc.member}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `140px repeat(${recentSprints.length}, 1fr)`,
+              gap: 2,
+              padding: '4px 0',
+              borderBottom: '1px solid var(--border)',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isOverused && <span title="Overused — risk of burnout" style={{ fontSize: 10 }}>&#128293;</span>}
+              {isUnderused && !isIdle && <span title="Underused — assign more" style={{ fontSize: 10 }}>&#9888;&#65039;</span>}
+              <span style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: isOverused ? 'var(--red)' : isUnderused ? 'var(--orange)' : 'var(--text)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {alloc.member}
+              </span>
+            </div>
+            {recentSprints.map((s) => {
+              const count = alloc.sprintAssignments.get(s.id) || 0;
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    height: 20,
+                    borderRadius: 3,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontFamily: 'var(--mono)',
+                    fontWeight: 600,
+                    background: count === 0
+                      ? 'var(--surface3)'
+                      : count >= 3
+                        ? 'rgba(239,68,68,.2)'
+                        : count >= 2
+                          ? 'rgba(16,185,129,.15)'
+                          : 'rgba(59,130,246,.15)',
+                    color: count === 0
+                      ? 'var(--text3)'
+                      : count >= 3
+                        ? 'var(--red)'
+                        : count >= 2
+                          ? 'var(--accent)'
+                          : 'var(--blue)',
+                  }}
+                >
+                  {count > 0 ? count : '·'}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 10, color: 'var(--text3)' }}>
+        <span>&#128293; Overused (burnout risk)</span>
+        <span>&#9888;&#65039; Underused (assign more)</span>
+        <span style={{ color: 'var(--red)' }}>3+ tickets = heavy load</span>
+        <span style={{ color: 'var(--accent)' }}>2 = balanced</span>
+        <span style={{ color: 'var(--blue)' }}>1 = minimum met</span>
       </div>
     </div>
   );

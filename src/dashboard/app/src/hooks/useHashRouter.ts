@@ -5,15 +5,27 @@ import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 
-// Page mapping: legacy pages -> new PageType
-const pageMapping: Record<string, PageType> = {
+// Legacy page name mapping (old -> new PageType)
+const legacyPageMapping: Record<string, PageType> = {
   explorer: 'code',
-  planning: 'planning',
   sprint: 'dashboard',
 };
 
+// All valid page types
+const validPages: PageType[] = ['dashboard', 'code', 'planning', 'team', 'retro', 'marketing'];
+
+// Default tabs per page
+const defaultTabs: Record<string, string> = {
+  dashboard: 'board',
+  code: 'files',
+  planning: 'roadmap',
+  team: 'grid',
+  retro: 'insights',
+  marketing: 'releases',
+};
+
 interface ParsedHash {
-  page: string;
+  page: PageType;
   tab: string;
   resourceId: number | null;
 }
@@ -22,20 +34,16 @@ function parseHash(hash: string): ParsedHash {
   const clean = hash.replace(/^#/, '');
   const parts = clean.split('/');
 
-  // Handle new page names: dashboard, code, planning, team, retro
-  const newPages = ['dashboard', 'code', 'planning', 'team', 'retro'];
-  const page = parts[0] || 'dashboard';
+  const rawPage = parts[0] || 'dashboard';
 
-  // If using new page names, map to legacy structure
-  let legacyPage = page;
-  if (page === 'dashboard') legacyPage = 'sprint';
-  else if (page === 'code') legacyPage = 'explorer';
+  // Map legacy names to new PageType, or use as-is if already valid
+  const page: PageType = legacyPageMapping[rawPage] || (validPages.includes(rawPage as PageType) ? rawPage as PageType : 'dashboard');
 
-  const tab = parts[1] || (legacyPage === 'explorer' ? 'files' : legacyPage === 'sprint' ? 'board' : 'roadmap');
+  const tab = parts[1] || defaultTabs[page] || 'board';
   const id = parts[2];
 
   return {
-    page: legacyPage,
+    page,
     tab,
     resourceId: id ? parseInt(id, 10) : null,
   };
@@ -60,21 +68,18 @@ export function useHashRouter() {
   const syncFromHash = useCallback(() => {
     const { page, tab, resourceId } = parseHash(window.location.hash);
 
-    // Map legacy page names to new PageType
-    const normalizedPage: PageType = pageMapping[page] || page as PageType;
-
-    if (normalizedPage !== useUIStore.getState().activePage) {
-      setPage(normalizedPage);
+    if (page !== useUIStore.getState().activePage) {
+      setPage(page);
     }
     if (tab !== useUIStore.getState().activeTab) {
       setTab(tab);
     }
 
     if (resourceId !== null) {
-      if (page === 'explorer' && resourceId !== useFileStore.getState().selectedFileId) {
+      if (page === 'code' && resourceId !== useFileStore.getState().selectedFileId) {
         selectFile(resourceId);
       }
-      if ((page === 'sprint' || normalizedPage === 'dashboard') && resourceId !== useSprintStore.getState().selectedSprintId) {
+      if (page === 'dashboard' && resourceId !== useSprintStore.getState().selectedSprintId) {
         selectSprint(resourceId);
       }
     }
@@ -89,8 +94,8 @@ export function useHashRouter() {
   // State -> hash: write hash when state changes
   useEffect(() => {
     let resourceId: number | null = null;
-    if (activePage === 'explorer') resourceId = selectedFileId;
-    if (activePage === 'sprint') resourceId = selectedSprintId;
+    if (activePage === 'code') resourceId = selectedFileId;
+    if (activePage === 'dashboard') resourceId = selectedSprintId;
 
     const newHash = buildHash(activePage, activeTab, resourceId);
     if (window.location.hash !== newHash) {
