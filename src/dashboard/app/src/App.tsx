@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
@@ -46,24 +46,7 @@ export function App() {
   // Map legacy page names to new PageType
   const normalizedPage: PageType = pageMapping[activePage as keyof typeof pageMapping] || activePage as PageType;
 
-  // Quick actions data
-  const tickets = useSprintStore((s) => s.tickets);
-  const quickFilter = useUIStore((s) => s.quickFilter);
-  const setQuickFilter = useUIStore((s) => s.setQuickFilter);
-
-  const quickActions = useMemo(() => {
-    const myTicketsCount = tickets.filter((t) => t.assigned_to === 'Me').length;
-
-    return [
-      {
-        id: 'my-tickets',
-        label: 'My Tickets',
-        icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 14c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
-        count: myTicketsCount,
-        onClick: () => setQuickFilter('mine'),
-      },
-      ];
-  }, [tickets, quickFilter, setQuickFilter]);
+  const quickActions: { id: string; label: string; icon: React.ReactNode; count: number; onClick: () => void }[] = [];
 
   const breadcrumb = useUIStore((s) => s.breadcrumbTrail);
 

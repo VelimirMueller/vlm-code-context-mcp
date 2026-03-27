@@ -10,7 +10,6 @@ import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SprintList } from '@/components/organisms/SprintList';
 import { SprintDetail } from '@/components/organisms/SprintDetail';
-import { QuickFilters } from '@/components/molecules/QuickFilters';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { Me } from '@/pages/Me';
 import { pageVariants, pageTransition } from '@/lib/motion';
@@ -66,21 +65,6 @@ export function Dashboard() {
 
       {activeTab === 'board' && (
         <>
-          {/* Quick Filters Bar */}
-          <div
-            style={{
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--bg)',
-              flexShrink: 0,
-            }}
-          >
-            <QuickFilters
-              onFilterChange={() => {}}
-              counts={{ all: 0, mine: 0, blocked: 0, qaPending: 0 }}
-              activeFilter="all"
-            />
-          </div>
-
           {/* Sprint Board */}
           <motion.div
             variants={pageVariants}
