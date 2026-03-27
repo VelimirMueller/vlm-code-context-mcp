@@ -17,6 +17,7 @@ const TABS = [
   { key: 'releases', label: 'Release Notes' },
   { key: 'positioning', label: 'Positioning' },
   { key: 'metrics', label: 'Growth Metrics' },
+  { key: 'roadmap', label: 'Roadmap' },
   { key: 'google-ads', label: 'Google Ads' },
 ];
 
@@ -107,6 +108,27 @@ export function Marketing() {
             </div>
           </motion.div>
         )}
+        {activeTab === 'roadmap' && (
+          <motion.div
+            key="roadmap"
+            variants={tabVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={tabTransition}
+            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          >
+            <HeroText>
+              {'v2.0.0 shipped — '}
+              <AnimatedNumber value={milestones.length} />
+              {' milestones complete'}
+            </HeroText>
+            <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
+              <Roadmap milestones={milestones} />
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === 'google-ads' && (
           <motion.div
             key="google-ads"
@@ -267,6 +289,72 @@ function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount
   );
 }
 
+/* ─── Roadmap ────────────────────────────────────────────────────────────────── */
+
+function Roadmap({ milestones }: { milestones: any[] }) {
+  const completed = milestones.filter((m: any) => m.status === 'completed');
+  const planned = milestones.filter((m: any) => m.status !== 'completed');
+
+  const future = [
+    { name: 'npm publish', description: 'Publish v2.0.0 to npm registry. One-command install for any project.', status: 'next' },
+    { name: 'Remotion Animations', description: 'Vision-driven animated video generation from project data via MCP.', status: 'planned' },
+    { name: 'Multi-project Support', description: 'Manage multiple codebases from a single dashboard instance.', status: 'planned' },
+    { name: 'GitHub/GitLab Sync', description: 'Two-way sync between MCP scrum board and GitHub Issues/GitLab.', status: 'planned' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>v2.0.0 — Current Release</div>
+        <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
+          43 MCP tools, 9-agent scrum team, React dashboard with Linear integration, code splitting,
+          interactive onboarding, ticket refinement lifecycle, security hardening. {completed.length} milestones delivered.
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>Completed Milestones</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          {completed.map((m: any) => (
+            <div key={m.id} style={{ padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>SHIPPED</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {planned.length > 0 && (
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--purple)', marginBottom: 12 }}>In Progress</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {planned.map((m: any) => (
+              <div key={m.id} style={{ padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: '3px solid var(--purple)', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--blue)', marginBottom: 12 }}>What's Next</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {future.map((f) => (
+            <div key={f.name} style={{ padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `3px solid ${f.status === 'next' ? 'var(--orange)' : 'var(--text3)'}`, borderRadius: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{f.name}</div>
+                <div style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, color: f.status === 'next' ? 'var(--orange)' : 'var(--text3)', textTransform: 'uppercase' }}>{f.status === 'next' ? 'UP NEXT' : 'PLANNED'}</div>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4, lineHeight: 1.5 }}>{f.description}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Growth Metrics ─────────────────────────────────────────────────────────── */
 
 function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount }: { sprints: any[]; totalTickets: number; totalPoints: number; agentCount: number }) {
@@ -286,7 +374,7 @@ function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount }: { spr
     { label: 'Peak Velocity', value: maxVelocity, color: 'var(--orange)' },
     { label: 'Completion Rate', value: avgCompletion, color: 'var(--accent)', suffix: '%' },
     { label: 'Team Size', value: agentCount, color: 'var(--purple)' },
-    { label: 'MCP Tools', value: 27, color: 'var(--text2)' },
+    { label: 'MCP Tools', value: 43, color: 'var(--text2)' },
   ];
 
   return (

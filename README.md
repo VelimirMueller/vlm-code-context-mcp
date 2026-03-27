@@ -5,7 +5,7 @@
 **AI-Powered Virtual IT Department via Model Context Protocol**
 
 Your codebase, indexed. Your sprints, managed. Your team, automated.
-One MCP server. 42 tools. Zero context waste.
+One MCP server. 43 tools. Zero context waste.
 
 [![CI](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/VelimirMueller/mcp-server/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/vlm-code-context-mcp)](https://www.npmjs.com/package/vlm-code-context-mcp)
@@ -20,7 +20,7 @@ One MCP server. 42 tools. Zero context waste.
 
 Most AI coding assistants burn through context windows reading raw source files just to understand what a codebase does. `vlm-code-context-mcp` eliminates that waste by pre-indexing your entire project into a SQLite database, then exposing structured metadata through the [Model Context Protocol](https://modelcontextprotocol.io). AI agents query files, exports, dependencies, and change history through MCP tools instead of reading source code directly — using 3x fewer tokens and 8x less data.
 
-But code intelligence is only the beginning. This package ships a complete virtual IT department: a 9-role AI scrum team that runs real sprint processes through MCP. Product Owner, Scrum Master, Architect, Backend and Frontend Developers, Lead Developer, QA Engineer, Manager, and Security Specialist — each with defined responsibilities, system prompts, and tool access. Sprints, tickets, retrospectives, blockers, bugs, milestones, and velocity tracking all persist in the same SQLite database and are managed through 32 dedicated MCP tools.
+But code intelligence is only the beginning. This package ships a complete virtual IT department: a 9-role AI scrum team that runs real sprint processes through MCP. Product Owner, Scrum Master, Architect, Backend and Frontend Developers, Lead Developer, QA Engineer, Manager, and Security Specialist — each with defined responsibilities, system prompts, and tool access. Sprints, tickets, retrospectives, blockers, bugs, milestones, and velocity tracking all persist in the same SQLite database and are managed through 33 dedicated MCP tools.
 
 The included React dashboard brings everything together in a single enterprise-grade interface. Built with Vite, React 19, Zustand, Tailwind CSS, and Framer Motion, it provides a code explorer with dependency graphs, a full sprint board with kanban and planning views, project management with Gantt charts and milestone timelines, and a team overview with agent health indicators. Dark theme, keyboard shortcuts, live reload — production-ready out of the box.
 
