@@ -86,6 +86,16 @@ export interface RetroFinding {
   action_applied: number;
 }
 
+export interface MilestoneSprint {
+  id: number;
+  name: string;
+  status: string;
+  velocity_committed: number;
+  velocity_completed: number;
+  ticket_count: number;
+  done_count: number;
+}
+
 export interface Milestone {
   id: number;
   name: string;
@@ -95,6 +105,7 @@ export interface Milestone {
   progress: number;
   ticket_count: number;
   done_count: number;
+  sprints?: MilestoneSprint[];
 }
 
 export interface MilestoneSprintGroup {

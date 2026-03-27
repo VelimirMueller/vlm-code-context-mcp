@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import type { Milestone, Sprint } from '@/types';
+import React, { useState, useMemo } from 'react';
+import type { Milestone, MilestoneSprint } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
-import { useSprintStore } from '@/stores/sprintStore';
-import { getMilestoneSprintIds } from '@/lib/utils';
 
 const statusColors: Record<string, { bg: string; color: string; border: string; label: string }> = {
   planned: {
@@ -57,7 +55,7 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
-function SprintPill({ sprint }: { sprint: Sprint }) {
+function SprintPill({ sprint }: { sprint: MilestoneSprint }) {
   const isDone = sprint.status === 'closed' || sprint.status === 'completed';
   const isActive = sprint.status === 'active';
   return (
@@ -80,7 +78,7 @@ function SprintPill({ sprint }: { sprint: Sprint }) {
 }
 
 interface MilestoneStats {
-  linkedSprints: Sprint[];
+  linkedSprints: MilestoneSprint[];
   totalTickets: number;
   doneTickets: number;
   totalPoints: number;
@@ -88,18 +86,15 @@ interface MilestoneStats {
   progress: number;
 }
 
-function computeMilestoneStats(milestone: Milestone, sprints: Sprint[]): MilestoneStats {
-  const linkedIds = new Set(getMilestoneSprintIds(milestone.name, sprints));
-  const linkedSprints = sprints.filter(s => linkedIds.has(s.id));
+function computeMilestoneStats(milestone: Milestone): MilestoneStats {
+  const linkedSprints = milestone.sprints ?? [];
 
-  let totalTickets = 0;
-  let doneTickets = 0;
+  let totalTickets = milestone.ticket_count || 0;
+  let doneTickets = milestone.done_count || 0;
   let totalPoints = 0;
   let donePoints = 0;
 
   for (const s of linkedSprints) {
-    totalTickets += s.ticket_count || 0;
-    doneTickets += s.done_count || 0;
     totalPoints += s.velocity_committed || 0;
     donePoints += s.velocity_completed || 0;
   }
@@ -272,20 +267,13 @@ export function MilestoneList() {
   const createMilestone = usePlanningStore((s) => s.createMilestone);
   const updateMilestone = usePlanningStore((s) => s.updateMilestone);
 
-  const sprints = useSprintStore((s) => s.sprints);
-  const fetchSprints = useSprintStore((s) => s.fetchSprints);
-
-  useEffect(() => {
-    if (sprints.length === 0) fetchSprints();
-  }, [sprints.length, fetchSprints]);
-
   const milestoneStats = useMemo(() => {
     const map = new Map<number, MilestoneStats>();
     for (const m of milestones) {
-      map.set(m.id, computeMilestoneStats(m, sprints));
+      map.set(m.id, computeMilestoneStats(m));
     }
     return map;
-  }, [milestones, sprints]);
+  }, [milestones]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(emptyForm);
