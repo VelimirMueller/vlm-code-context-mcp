@@ -17,13 +17,20 @@ export function SprintPlanningView() {
 
   useEffect(() => { fetchGrouped(); }, []);
 
-  // Filter to only active+planning sprints
+  // Filter to only active+planning sprints, sort active milestones first
+  const statusOrder: Record<string, number> = { in_progress: 0, active: 0, planned: 1, completed: 2 };
   const filteredGroups = milestoneGroups
     .map((g) => ({
       ...g,
       sprints: g.sprints.filter((s) => s.status === 'active' || s.status === 'planning'),
     }))
-    .filter((g) => g.sprints.length > 0);
+    .filter((g) => g.sprints.length > 0)
+    .sort((a, b) => {
+      const aOrder = statusOrder[a.milestone?.status ?? 'planned'] ?? 1;
+      const bOrder = statusOrder[b.milestone?.status ?? 'planned'] ?? 1;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return (a.milestone?.id ?? 999) - (b.milestone?.id ?? 999);
+    });
 
   const toggleSprint = async (sprintId: number) => {
     const next = new Set(expanded);
