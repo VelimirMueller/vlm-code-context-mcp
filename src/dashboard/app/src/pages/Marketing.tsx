@@ -153,25 +153,37 @@ export function Marketing() {
 /* ─── Release Notes ──────────────────────────────────────────────────────────── */
 
 function ReleaseNotes({ sprints }: { sprints: any[] }) {
-  // Group sprints into phases for marketing narrative
+  // Group sprints into phases by milestone era
   const phases = [
     {
-      title: 'Foundation & Architecture',
-      subtitle: 'Built the engine from scratch',
-      sprints: sprints.filter((s) => s.name.includes('180000') || s.name.includes('190000') || s.name.includes('200000')),
+      title: 'Foundation & Scale (M1-M2)',
+      subtitle: 'SQLite indexing, React rewrite, 9-agent scrum team',
+      sprints: sprints.filter((s) => s.name.includes('T14') || s.name.includes('T15') || s.name.includes('T16') || s.name.includes('T17') || s.name.includes('T18') || s.name.includes('T19') || s.name.includes('T20') || s.name.includes('T21') || s.name.includes('T22') || s.name.includes('sprint-9') || s.name.includes('sprint-10')),
       color: 'var(--blue)',
     },
     {
-      title: 'Enterprise Polish',
-      subtitle: 'World-class UX and animations',
-      sprints: sprints.filter((s) => s.name.includes('210000') || s.name.includes('220000') || s.name.includes('sprint-10') || s.name.includes('sprint-9')),
+      title: 'Platform & Quality (M3-M4)',
+      subtitle: 'MCP bootstrap, navigation, cleanup, marketing',
+      sprints: sprints.filter((s) => s.name.includes('sprint-11') || s.name.includes('sprint-12') || s.name.includes('sprint-13') || s.name.includes('sprint-14') || s.name.includes('sprint-15') || s.name.includes('sprint-16') || s.name.includes('sprint-17') || s.name.includes('sprint-18') || s.name.includes('sprint-19') || s.name.includes('sprint-20')),
       color: 'var(--purple)',
     },
     {
-      title: 'Platform Maturity',
-      subtitle: 'MCP bootstrap, branding, navigation',
-      sprints: sprints.filter((s) => s.name.includes('sprint-11') || s.name.includes('sprint-12') || s.name.includes('sprint-14') || s.name.includes('sprint-15')),
+      title: 'UX & Visual Polish (M5-M7)',
+      subtitle: 'SVG icons, milestone grouping, Gantt, breadcrumbs, DB verification',
+      sprints: sprints.filter((s) => s.name.includes('sprint-21') || s.name.includes('sprint-22') || s.name.includes('sprint-23') || s.name.includes('sprint-24') || s.name.includes('sprint-25') || s.name.includes('sprint-26') || s.name.includes('sprint-27')),
       color: 'var(--accent)',
+    },
+    {
+      title: 'Linear Integration & Hardening (M11)',
+      subtitle: 'Me tab, Linear sync, code splitting, API hardening',
+      sprints: sprints.filter((s) => s.name.includes('Sprint 34') || s.name.includes('Sprint 35') || s.name.includes('Sprint 36') || s.name.includes('Sprint 37')),
+      color: 'var(--orange)',
+    },
+    {
+      title: 'Publish Readiness & Remotion (M8-M10)',
+      subtitle: 'MCP audit, onboarding, refinement lifecycle, CHANGELOG, Remotion animations',
+      sprints: sprints.filter((s) => s.name.includes('Sprint 38') || s.name.includes('Sprint 39') || s.name.includes('sprint-30') || s.name.includes('Sprint 41')),
+      color: '#10b981',
     },
   ];
 
@@ -249,7 +261,7 @@ function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount
       icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v4l3 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="9" r="7" stroke="var(--purple)" strokeWidth="1.5"/><path d="M13 13l2 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/></svg>,
       title: 'MCP-First Architecture',
       description: 'Every action flows through Model Context Protocol. Claude, Cursor, or any MCP client becomes your entire IT department.',
-      stat: '27+ tools',
+      stat: '44 tools',
     },
     {
       icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l7 4v6l-7 4-7-4V6l7-4z" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 10v6M2 6l7 4 7-4" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
@@ -307,8 +319,8 @@ function Roadmap({ milestones }: { milestones: any[] }) {
       <div style={{ padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>v2.0.0 — Current Release</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
-          43 MCP tools, 9-agent scrum team, React dashboard with Linear integration, code splitting,
-          interactive onboarding, ticket refinement lifecycle, security hardening. {completed.length} milestones delivered.
+          44 MCP tools, 16-agent scrum team, React dashboard with Linear integration, code splitting,
+          interactive onboarding, ticket refinement lifecycle, Remotion vision animations, security hardening. {completed.length} milestones delivered.
         </div>
       </div>
 
