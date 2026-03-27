@@ -4,6 +4,8 @@ import type { LinearUser, LinearIssue, LinearCycle, LinearProject } from '@/type
 
 export interface MeStore {
   configured: boolean;
+  synced: boolean;
+  syncedAt: string | null;
   user: LinearUser | null;
   issues: LinearIssue[];
   cycles: LinearCycle[];
@@ -19,6 +21,8 @@ export interface MeStore {
 
 export const useMeStore = create<MeStore>((set) => ({
   configured: false,
+  synced: false,
+  syncedAt: null,
   user: null,
   issues: [],
   cycles: [],
@@ -29,10 +33,10 @@ export const useMeStore = create<MeStore>((set) => ({
 
   fetchConfigured: async () => {
     try {
-      const res = await get<{ configured: boolean }>('/api/me/configured');
-      set({ configured: res?.configured ?? false });
+      const res = await get<{ configured: boolean; synced: boolean; syncedAt: string | null }>('/api/me/configured');
+      set({ configured: res?.configured ?? false, synced: res?.synced ?? false, syncedAt: res?.syncedAt ?? null });
     } catch {
-      set({ configured: false });
+      set({ configured: false, synced: false, syncedAt: null });
     }
   },
 

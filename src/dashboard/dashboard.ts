@@ -9,7 +9,7 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
-import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects } from "./linear.js";
+import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema } from "./linear.js";
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -27,6 +27,7 @@ writeDb.pragma("foreign_keys = ON");
 // Ensure schemas exist
 initSchema(writeDb);
 initScrumSchema(writeDb);
+initLinearSchema(writeDb);
 
 // Import scrum data from .claude/
 const claudeDir = path.resolve(path.dirname(dbPath), ".claude");
@@ -537,23 +538,20 @@ const server = http.createServer(async (req, res) => {
       }
       // ── Linear / Me tab endpoints ──────────────────────────────────────
       else if (url.pathname === "/api/me/configured") {
-        data = { configured: await isLinearConfigured() };
+        const syncStatus = getLinearSyncStatus(writeDb);
+        data = { configured: isLinearConfigured(), ...syncStatus };
       } else if (url.pathname === "/api/me/user") {
-        const configured = await isLinearConfigured();
-        if (!configured) { data = { configured: false }; }
-        else { data = await getLinearUser(); }
+        data = getLinearUser(writeDb);
       } else if (url.pathname === "/api/me/issues") {
-        const configured = await isLinearConfigured();
-        if (!configured) { data = { configured: false }; }
-        else { data = await getLinearIssues(); }
+        data = getLinearIssues(writeDb);
       } else if (url.pathname === "/api/me/cycles") {
-        const configured = await isLinearConfigured();
-        if (!configured) { data = { configured: false }; }
-        else { data = await getLinearCycles(); }
+        data = getLinearCycles(writeDb);
       } else if (url.pathname === "/api/me/projects") {
-        const configured = await isLinearConfigured();
-        if (!configured) { data = { configured: false }; }
-        else { data = await getLinearProjects(); }
+        data = getLinearProjects(writeDb);
+      } else if (url.pathname === "/api/me/sync" && req.method === "POST") {
+        const body = await readBody(req);
+        data = syncLinearData(writeDb, body);
+        notifyClients();
       } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));
