@@ -1,20 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { useMeStore } from '@/stores/meStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
-import { CodeExplorer } from '@/pages/CodeExplorer';
-import { Dashboard } from '@/pages/Dashboard';
-import { Team } from '@/pages/Team';
-import { Retro } from '@/pages/Retro';
-import { ProjectManagement } from '@/pages/ProjectManagement';
-import { Marketing } from '@/pages/Marketing';
+
+const CodeExplorer = lazy(() => import('@/pages/CodeExplorer').then(m => ({ default: m.CodeExplorer })));
+const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Team = lazy(() => import('@/pages/Team').then(m => ({ default: m.Team })));
+const Retro = lazy(() => import('@/pages/Retro').then(m => ({ default: m.Retro })));
+const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
+const Marketing = lazy(() => import('@/pages/Marketing').then(m => ({ default: m.Marketing })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
@@ -70,6 +72,8 @@ export function App() {
   const refreshFiles = useFileStore((s) => s.refresh);
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
+  const fetchMe = useMeStore((s) => s.fetchAll);
+  const fetchMeConfigured = useMeStore((s) => s.fetchConfigured);
 
   useEventSource({
     onEvent: () => {
@@ -77,6 +81,8 @@ export function App() {
       refreshFiles();
       fetchSprints();
       fetchAgents();
+      fetchMeConfigured();
+      fetchMe();
     },
   });
 
@@ -127,6 +133,7 @@ export function App() {
         breadcrumbItems={breadcrumb}
       />
       <main className="page-content">
+        <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)', fontSize: 13 }}>Loading...</div>}>
         <AnimatePresence mode="wait">
           <motion.div
             key={normalizedPage}
@@ -156,6 +163,7 @@ export function App() {
             {normalizedPage === 'marketing' && <Marketing />}
           </motion.div>
         </AnimatePresence>
+        </Suspense>
       </main>
       <ToastContainer />
     </div>

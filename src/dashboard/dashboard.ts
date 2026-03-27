@@ -239,6 +239,18 @@ function apiSprintRetro(sprintId: number) {
   } catch { return []; }
 }
 
+function apiAllRetroFindings() {
+  try {
+    return writeDb.prepare(`
+      SELECT rf.id, rf.role, rf.category, rf.finding, rf.action_owner, rf.action_applied,
+        rf.sprint_id, s.name as sprint_name
+      FROM retro_findings rf
+      JOIN sprints s ON rf.sprint_id = s.id
+      ORDER BY s.created_at DESC, rf.category
+    `).all();
+  } catch { return []; }
+}
+
 function apiSprintsGroupedByMilestone() {
   try {
     const milestones = writeDb.prepare(`
@@ -495,6 +507,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         data = apiPlanSprint(body);
       }
+      else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();
       else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
       else if (url.pathname === "/api/sprints") data = apiSprints();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
