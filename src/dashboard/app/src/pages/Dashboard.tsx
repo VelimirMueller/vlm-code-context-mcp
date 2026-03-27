@@ -37,7 +37,7 @@ export function Dashboard() {
 
     // Auto-select first active sprint if none selected
     if (!selectedSprintId && sprints.length > 0) {
-      const activeSprint = sprints.find((s) => s.status === 'active');
+      const activeSprint = sprints.find((s) => s.status === 'active' || s.status === 'implementation' || s.status === 'planning');
       if (activeSprint) {
         selectSprint(activeSprint.id);
       }

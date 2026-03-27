@@ -197,6 +197,87 @@ function apiSkill(name: string) {
   catch { return null; }
 }
 
+// ─── Sprint Process Config API ──────────────────────────────────────────────
+interface SprintPhase {
+  name: string;
+  criteria: string[];
+  actions: string[];
+  duration: string;
+}
+
+const DEFAULT_SPRINT_PHASES: SprintPhase[] = [
+  { name: "Planning", criteria: ["Sprint goal defined", "Tickets assigned"], actions: ["Commit velocity"], duration: "1 day" },
+  { name: "Implementation", criteria: ["Sprint active"], actions: ["Start tickets"], duration: "3 days" },
+  { name: "QA", criteria: ["All tickets in review"], actions: ["Run test suite", "Security review"], duration: "0.5 day" },
+  { name: "Retro", criteria: ["QA passed"], actions: ["Collect findings", "Archive sprint"], duration: "0.5 day" },
+];
+
+function parseSprintPhasesMarkdown(md: string): SprintPhase[] {
+  const phases: SprintPhase[] = [];
+  const sections = md.split(/^## /m).filter(Boolean);
+  for (const section of sections) {
+    const lines = section.trim().split("\n");
+    const name = lines[0]?.trim() ?? "";
+    if (!name) continue;
+    let criteria: string[] = [];
+    let actions: string[] = [];
+    let duration = "";
+    for (const line of lines.slice(1)) {
+      const trimmed = line.trim();
+      const criteriaMatch = trimmed.match(/^\*\*Entry Criteria:\*\*\s*(.+)/);
+      if (criteriaMatch) {
+        criteria = criteriaMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+        continue;
+      }
+      const actionsMatch = trimmed.match(/^\*\*Auto Actions:\*\*\s*(.+)/);
+      if (actionsMatch) {
+        actions = actionsMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+        continue;
+      }
+      const durationMatch = trimmed.match(/^\*\*Duration:\*\*\s*(.+)/);
+      if (durationMatch) {
+        duration = durationMatch[1].trim();
+        continue;
+      }
+    }
+    phases.push({ name, criteria, actions, duration });
+  }
+  return phases;
+}
+
+function serializeSprintPhasesToMarkdown(phases: SprintPhase[]): string {
+  return phases.map((p) =>
+    `## ${p.name}\n**Entry Criteria:** ${p.criteria.join(", ")}\n**Auto Actions:** ${p.actions.join(", ")}\n**Duration:** ${p.duration}`
+  ).join("\n\n");
+}
+
+function apiGetSprintProcess(): { phases: SprintPhase[] } {
+  try {
+    const row = writeDb.prepare(`SELECT content FROM skills WHERE name = 'SPRINT_PHASES'`).get() as { content: string } | undefined;
+    if (row?.content) {
+      const phases = parseSprintPhasesMarkdown(row.content);
+      if (phases.length > 0) return { phases };
+    }
+  } catch {}
+  return { phases: DEFAULT_SPRINT_PHASES };
+}
+
+function apiPutSprintProcess(body: { phases: SprintPhase[] }): { ok: boolean } {
+  if (!body.phases || !Array.isArray(body.phases) || body.phases.length === 0) {
+    throw Object.assign(new Error("phases array is required"), { status: 400 });
+  }
+  for (const p of body.phases) {
+    if (!p.name || typeof p.name !== "string") throw Object.assign(new Error("Each phase requires a name"), { status: 400 });
+    if (!Array.isArray(p.criteria)) throw Object.assign(new Error("criteria must be an array"), { status: 400 });
+    if (!Array.isArray(p.actions)) throw Object.assign(new Error("actions must be an array"), { status: 400 });
+  }
+  const md = serializeSprintPhasesToMarkdown(body.phases);
+  writeDb.prepare(
+    `INSERT INTO skills (name, content, owner_role) VALUES ('SPRINT_PHASES', ?, 'scrum-master') ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`
+  ).run(md);
+  return { ok: true };
+}
+
 function apiAgentsHealth() {
   try {
     const agents = writeDb.prepare(`
@@ -816,6 +897,44 @@ const server = http.createServer(async (req, res) => {
         data = apiSkill(skillName);
         if (!data) { res.writeHead(404); res.end('{"error":"skill not found"}'); return; }
       }
+      else if (url.pathname === "/api/agents" && req.method === "POST") {
+        const body = await readBody(req);
+        if (!body.role || !body.name) { res.writeHead(400); res.end('{"error":"role and name are required"}'); return; }
+        if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
+        if (existing) { res.writeHead(409); res.end('{"error":"agent with this role already exists"}'); return; }
+        writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
+          body.role, body.name, body.description || null, body.model || 'claude-sonnet-4-6'
+        );
+        data = { role: body.role, name: body.name, description: body.description || null, model: body.model || 'claude-sonnet-4-6' };
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/agent\/[^/]+$/) && req.method === "PUT") {
+        const role = decodeURIComponent(url.pathname.split("/").slice(3).join("/"));
+        const body = await readBody(req);
+        if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
+        if (!existing) { res.writeHead(404); res.end('{"error":"agent not found"}'); return; }
+        const sets: string[] = []; const vals: any[] = [];
+        if (body.name !== undefined) { sets.push("name=?"); vals.push(body.name); }
+        if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
+        if (body.model !== undefined) { sets.push("model=?"); vals.push(body.model); }
+        if (sets.length === 0) { res.writeHead(400); res.end('{"error":"nothing to update"}'); return; }
+        sets.push("updated_at=datetime('now')");
+        vals.push(role);
+        writeDb.prepare(`UPDATE agents SET ${sets.join(",")} WHERE role=?`).run(...vals);
+        const updated = writeDb.prepare("SELECT role, name, description, model FROM agents WHERE role = ?").get(role);
+        data = updated;
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/agent\/[^/]+$/) && req.method === "DELETE") {
+        const role = decodeURIComponent(url.pathname.split("/").slice(3).join("/"));
+        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
+        if (!existing) { res.writeHead(404); res.end('{"error":"agent not found"}'); return; }
+        writeDb.prepare("DELETE FROM agents WHERE role = ?").run(role);
+        data = { ok: true };
+        notifyClients();
+      }
       else if (url.pathname === "/api/agents") data = apiAgentsHealth();
       else if (url.pathname === "/api/milestones" && req.method === "POST") {
         const body = await readBody(req);
@@ -990,6 +1109,11 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         data = syncLinearData(writeDb, body);
         notifyClients();
+      } else if (url.pathname === "/api/sprint-process" && req.method === "GET") {
+        data = apiGetSprintProcess();
+      } else if (url.pathname === "/api/sprint-process" && req.method === "PUT") {
+        const body = await readBody(req);
+        data = apiPutSprintProcess(body);
       } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));

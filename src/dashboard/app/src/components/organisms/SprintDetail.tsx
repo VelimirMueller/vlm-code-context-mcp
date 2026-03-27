@@ -86,14 +86,8 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
       ? tickets.filter((t) => t.status === 'DONE').length / tickets.length
       : 0;
 
-  const statusColorMap: Record<string, string> = {
-    planning: 'var(--purple)',
-    refinement: '#d97706',
-    active: 'var(--accent)',
-    review: '#f59e0b',
-    closed: '#6b7280',
-  };
-  const statusColor = statusColorMap[sprintDetail.status] ?? 'var(--blue)';
+  const phaseStyle = getPhaseStyle(sprintDetail.status);
+  const statusColor = phaseStyle.bg;
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
