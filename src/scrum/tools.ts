@@ -875,4 +875,83 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       return { content: [{ type: "text" as const, text: `# Onboarding Complete\n\n${steps.join("\n")}` }] };
     }
   );
+
+  server.tool(
+    "sync_linear_data",
+    "Sync Linear workspace data to the dashboard. Pass user, issues, cycles, and projects fetched from Linear MCP tools.",
+    {
+      user: z.object({
+        id: z.string(),
+        name: z.string(),
+        email: z.string(),
+        avatarUrl: z.string().nullable(),
+      }).optional().describe("Linear user profile from get_user"),
+      issues: z.array(z.object({
+        id: z.string(),
+        identifier: z.string(),
+        title: z.string(),
+        description: z.string().nullable(),
+        priority: z.number(),
+        priorityLabel: z.string(),
+        status: z.string(),
+        statusColor: z.string(),
+        labels: z.array(z.string()),
+        projectName: z.string().nullable(),
+        assigneeId: z.string(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+        url: z.string().nullable().optional(),
+      })).optional().describe("Linear issues from list_issues"),
+      cycles: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        startsAt: z.string(),
+        endsAt: z.string(),
+        completedIssueCount: z.number(),
+        totalIssueCount: z.number(),
+        status: z.string(),
+      })).optional().describe("Linear cycles from list_cycles"),
+      projects: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        status: z.string(),
+        progress: z.number(),
+        leadName: z.string().nullable(),
+        targetDate: z.string().nullable(),
+      })).optional().describe("Linear projects from list_projects"),
+      dashboardPort: z.number().optional().default(3333).describe("Dashboard server port (default 3333)"),
+    },
+    async (params) => {
+      try {
+        const port = params.dashboardPort ?? 3333;
+        const payload = {
+          user: params.user,
+          issues: params.issues,
+          cycles: params.cycles,
+          projects: params.projects,
+        };
+
+        const response = await fetch(`http://localhost:${port}/api/me/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Sync failed: ${response.status} ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        const synced = result.synced?.join(', ') || 'nothing';
+        return {
+          content: [{ type: "text" as const, text: `Linear data synced to dashboard: ${synced}` }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `Sync failed: ${err.message}. Is the dashboard running on port ${params.dashboardPort ?? 3333}?` }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

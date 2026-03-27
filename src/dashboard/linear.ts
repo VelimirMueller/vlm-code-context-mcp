@@ -14,6 +14,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import type Database from "better-sqlite3";
 
+function sanitize(str: string | null | undefined, maxLen = 500): string | null {
+  if (str == null) return null;
+  return str.replace(/[<>&"']/g, (c) => {
+    const map: Record<string, string> = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' };
+    return map[c] ?? c;
+  }).slice(0, maxLen);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -40,6 +48,7 @@ export interface LinearIssue {
   assigneeId: string;
   createdAt: string;
   updatedAt: string;
+  url: string | null;
 }
 
 export interface LinearCycle {
@@ -106,6 +115,36 @@ export function initLinearSchema(db: Database.Database): void {
 
 export function syncLinearData(db: Database.Database, payload: LinearSyncPayload): { ok: boolean; synced: string[] } {
   const synced: string[] = [];
+
+  // Sanitize string fields
+  if (payload.issues) {
+    payload.issues = payload.issues.map(i => ({
+      ...i,
+      title: sanitize(i.title, 300) ?? '',
+      description: sanitize(i.description, 2000),
+      identifier: sanitize(i.identifier, 50) ?? '',
+      status: sanitize(i.status, 50) ?? '',
+      priorityLabel: sanitize(i.priorityLabel, 50) ?? '',
+      projectName: sanitize(i.projectName, 200),
+      labels: i.labels.map(l => sanitize(l, 100) ?? '').filter(Boolean),
+    }));
+  }
+  if (payload.user) {
+    payload.user = {
+      ...payload.user,
+      name: sanitize(payload.user.name, 200) ?? '',
+      email: sanitize(payload.user.email, 200) ?? '',
+    };
+  }
+  if (payload.projects) {
+    payload.projects = payload.projects.map(p => ({
+      ...p,
+      name: sanitize(p.name, 200) ?? '',
+      status: sanitize(p.status, 50) ?? '',
+      leadName: sanitize(p.leadName, 200),
+    }));
+  }
+
   const upsert = db.prepare(`INSERT INTO linear_cache (key, value, synced_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=datetime('now')`);
 
   const tx = db.transaction(() => {

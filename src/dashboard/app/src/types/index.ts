@@ -144,6 +144,7 @@ export interface LinearIssue {
   assigneeId: string;
   createdAt: string;
   updatedAt: string;
+  url: string | null;
 }
 
 export interface LinearCycle {

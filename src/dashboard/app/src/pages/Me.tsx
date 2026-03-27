@@ -185,6 +185,14 @@ export function Me() {
         gap: 24,
       }}
     >
+      {/* Sync status header */}
+      {syncedAt && (
+        <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+          Synced {new Date(syncedAt + 'Z').toLocaleString()}
+        </div>
+      )}
+
       {/* Section 1: My Issues */}
       <MeSection
         title="My Issues"

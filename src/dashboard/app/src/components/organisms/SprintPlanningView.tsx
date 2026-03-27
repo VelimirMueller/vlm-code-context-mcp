@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
+import { get as apiGet } from '@/lib/api';
 import type { MilestoneSprintGroup, Ticket } from '@/types';
 
 interface SprintTickets {
@@ -41,8 +42,7 @@ export function SprintPlanningView() {
       // Fetch tickets if not already loaded
       if (!sprintTickets.has(sprintId)) {
         try {
-          const res = await fetch(`/api/sprint/${sprintId}/tickets`);
-          const tickets = await res.json();
+          const tickets = await apiGet<Ticket[]>(`/api/sprint/${sprintId}/tickets`);
           setSprintTickets((prev) => new Map(prev).set(sprintId, tickets));
         } catch {
           setSprintTickets((prev) => new Map(prev).set(sprintId, []));
