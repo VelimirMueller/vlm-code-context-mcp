@@ -75,12 +75,14 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
       ? tickets.filter((t) => t.status === 'DONE').length / tickets.length
       : 0;
 
-  const statusColor =
-    sprintDetail.status === 'active'
-      ? 'var(--accent)'
-      : sprintDetail.status === 'closed'
-        ? '#6b7280'
-        : 'var(--blue)';
+  const statusColorMap: Record<string, string> = {
+    planning: 'var(--purple)',
+    refinement: '#d97706',
+    active: 'var(--accent)',
+    review: '#f59e0b',
+    closed: '#6b7280',
+  };
+  const statusColor = statusColorMap[sprintDetail.status] ?? 'var(--blue)';
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>

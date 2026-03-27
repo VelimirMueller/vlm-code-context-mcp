@@ -11,7 +11,10 @@ interface SprintCardProps {
 }
 
 const statusColor: Record<string, string> = {
+  planning: 'var(--purple)',
+  refinement: '#d97706',
   active: 'var(--accent)',
+  review: '#f59e0b',
   closed: 'var(--text3)',
   planned: 'var(--blue)',
 };
