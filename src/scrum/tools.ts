@@ -954,4 +954,71 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       }
     }
   );
+
+  // ─── Remotion Vision Animation ──────────────────────────────────────────────
+  server.tool(
+    "generate_vision_animation",
+    "Generate project vision animation data (JSON) and provide the Remotion render command",
+    {
+      output_path: z.string().optional().describe("Output path for JSON data (default: ./vision-data.json)"),
+    },
+    async ({ output_path }) => {
+      try {
+        const filePath = output_path || "./vision-data.json";
+
+        // Gather data from database
+        const vision = db.prepare("SELECT content FROM skills WHERE name = 'PRODUCT_VISION' LIMIT 1").get() as { content: string } | undefined;
+        const milestoneRows = db.prepare("SELECT name, status FROM milestones ORDER BY id").all() as { name: string; status: string }[];
+        const sprintCount = (db.prepare("SELECT COUNT(*) as c FROM sprints WHERE status = 'closed'").get() as any).c;
+        const ticketCount = (db.prepare("SELECT COUNT(*) as c FROM tickets WHERE status = 'DONE'").get() as any).c;
+        const totalPoints = (db.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as p FROM sprints WHERE status = 'closed'").get() as any).p;
+        const agentCount = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+
+        const data = {
+          productName: "vlm-code-context-mcp",
+          vision: vision?.content || "AI-powered virtual IT department via MCP",
+          milestones: milestoneRows,
+          stats: {
+            sprints: sprintCount,
+            tickets: ticketCount,
+            points: totalPoints,
+            agents: agentCount,
+          },
+        };
+
+        const fs = await import("fs");
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+
+        const lines = [
+          `# Vision Animation Data Generated`,
+          ``,
+          `Output: ${filePath}`,
+          ``,
+          `## Data Summary`,
+          `- Product: ${data.productName}`,
+          `- Vision: ${data.vision.slice(0, 80)}...`,
+          `- Milestones: ${milestoneRows.length}`,
+          `- Sprints: ${sprintCount}`,
+          `- Tickets: ${ticketCount}`,
+          `- Story Points: ${totalPoints}`,
+          `- Agents: ${agentCount}`,
+          ``,
+          `## Render Commands`,
+          ``,
+          `Preview in browser:`,
+          `  npx remotion preview src/remotion/index.tsx`,
+          ``,
+          `Render MP4:`,
+          `  npx remotion render src/remotion/index.tsx VisionVideo --props=${filePath} --output=vision.mp4`,
+          ``,
+          `Render GIF:`,
+          `  npx remotion render src/remotion/index.tsx VisionVideo --props=${filePath} --codec=gif --output=vision.gif`,
+        ];
+
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
 }
