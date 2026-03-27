@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PHASE_COLORS, PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
 import { get, put } from '@/lib/api';
+import { useSprintStore } from '@/stores/sprintStore';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -25,15 +26,29 @@ interface ProcessConfig {
 
 const DEFAULT_PHASES: PhaseConfig[] = [
   {
+    name: 'preparation',
+    criteria: ['Backlog groomed', 'Capacity confirmed'],
+    actions: ['Prepare sprint backlog'],
+    duration: '0.5 day',
+  },
+  {
+    name: 'kickoff',
+    criteria: ['Preparation complete'],
+    actions: ['Align team on goals', 'Assign roles'],
+    ceremonies: ['Sprint Kickoff'],
+    duration: '0.5 day',
+  },
+  {
     name: 'planning',
     criteria: ['Sprint goal defined', 'Tickets assigned'],
     actions: ['Commit velocity'],
-    duration: '1 day',
+    ceremonies: ['Sprint Planning'],
+    duration: '0.5 day',
   },
   {
     name: 'implementation',
     criteria: ['Sprint active'],
-    actions: ['Start tickets'],
+    actions: ['Start tickets', 'Daily standups'],
     duration: '3 days',
   },
   {
@@ -41,18 +56,39 @@ const DEFAULT_PHASES: PhaseConfig[] = [
     criteria: ['All tickets DONE'],
     actions: ['Verify acceptance criteria', 'Run tests'],
     duration: '1 day',
+    mandatory: true,
+  },
+  {
+    name: 'refactoring',
+    criteria: ['QA passed'],
+    actions: ['Code cleanup', 'Tech debt reduction'],
+    duration: '0.5 day',
   },
   {
     name: 'retro',
-    criteria: ['QA complete'],
+    criteria: ['Refactoring complete'],
     actions: ['Auto-generate analysis', 'Collect findings'],
+    ceremonies: ['Retrospective'],
+    duration: '0.5 day',
+  },
+  {
+    name: 'review',
+    criteria: ['Retro complete'],
+    actions: ['Stakeholder demo', 'Approve deliverables'],
+    ceremonies: ['Sprint Review'],
     duration: '0.5 day',
   },
   {
     name: 'closed',
-    criteria: ['Retro complete'],
+    criteria: ['Review approved'],
     actions: ['Rebuild marketing stats', 'Archive sprint'],
     duration: '\u2014',
+  },
+  {
+    name: 'rest',
+    criteria: ['Sprint closed'],
+    actions: ['Team recovery', 'Knowledge sharing'],
+    duration: '1 day',
   },
 ];
 
@@ -79,6 +115,22 @@ function ensureKeyframes() {
       0%, 100% { border-left-color: rgba(16,185,129,.5); }
       50% { border-left-color: rgba(16,185,129,1); }
     }
+    @keyframes pf-walk {
+      0% { left: 0; }
+      100% { left: calc(100% - 8px); }
+    }
+    @keyframes pf-walk-vertical {
+      0% { top: 0; }
+      100% { top: calc(100% - 8px); }
+    }
+    @keyframes pf-dot-glow {
+      0%, 100% { box-shadow: 0 0 4px rgba(16,185,129,.4); }
+      50% { box-shadow: 0 0 10px rgba(16,185,129,.9); }
+    }
+    @keyframes pf-bug-pulse {
+      0%, 100% { opacity: .7; }
+      50% { opacity: 1; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -87,38 +139,120 @@ function ensureKeyframes() {
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-/** Animated connection line between two nodes */
-function Connector({ status }: { status: 'done' | 'current' | 'future' }) {
-  const color =
-    status === 'done' ? '#10b981' : status === 'current' ? '#10b981' : 'var(--border)';
+/** Animated horizontal connection line between two nodes */
+function Connector({ status, isBugReturn }: { status: 'done' | 'current' | 'future'; isBugReturn?: boolean }) {
+  const color = isBugReturn
+    ? '#ef4444'
+    : status === 'done'
+      ? '#10b981'
+      : status === 'current'
+        ? '#10b981'
+        : 'var(--border)';
 
   const lineStyle: React.CSSProperties = {
-    width: 48,
+    width: 36,
     height: 2,
     alignSelf: 'center',
     flexShrink: 0,
+    position: 'relative',
     backgroundImage: `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 12px)`,
     backgroundSize: '12px 2px',
-    ...(status === 'current'
-      ? { animation: 'pf-dash .8s linear infinite, pf-pulse 1.6s ease-in-out infinite' }
-      : {}),
+    ...(isBugReturn
+      ? { animation: 'pf-bug-pulse 1.2s ease-in-out infinite' }
+      : status === 'current'
+        ? { animation: 'pf-dash .8s linear infinite, pf-pulse 1.6s ease-in-out infinite' }
+        : {}),
   };
 
   const arrowStyle: React.CSSProperties = {
     width: 0,
     height: 0,
     alignSelf: 'center',
-    borderTop: '5px solid transparent',
-    borderBottom: '5px solid transparent',
-    borderLeft: `7px solid ${color}`,
+    borderTop: '4px solid transparent',
+    borderBottom: '4px solid transparent',
+    borderLeft: `6px solid ${color}`,
     flexShrink: 0,
-    ...(status === 'current' ? { animation: 'pf-arrow-pulse 1.6s ease-in-out infinite' } : {}),
+    ...(status === 'current' && !isBugReturn
+      ? { animation: 'pf-arrow-pulse 1.6s ease-in-out infinite' }
+      : {}),
   };
+
+  /* Walking dot on current connector */
+  const walkingDot: React.CSSProperties | null =
+    status === 'current' && !isBugReturn
+      ? {
+          position: 'absolute',
+          top: -3,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: '#10b981',
+          animation: 'pf-walk 1.2s ease-in-out infinite alternate, pf-dot-glow 1.2s ease-in-out infinite',
+        }
+      : null;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-      <div style={lineStyle} />
+      <div style={lineStyle}>
+        {walkingDot && <div style={walkingDot} />}
+      </div>
       <div style={arrowStyle} />
+    </div>
+  );
+}
+
+/** Vertical connector between row 1 and row 2 */
+function VerticalConnector({ status }: { status: 'done' | 'current' | 'future' }) {
+  const color =
+    status === 'done' ? '#10b981' : status === 'current' ? '#10b981' : 'var(--border)';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 40,
+        position: 'relative',
+      }}
+    >
+      <div
+        style={{
+          width: 2,
+          flex: 1,
+          position: 'relative',
+          backgroundImage: `repeating-linear-gradient(180deg, ${color} 0 6px, transparent 6px 12px)`,
+          backgroundSize: '2px 12px',
+          ...(status === 'current'
+            ? { animation: 'pf-pulse 1.6s ease-in-out infinite' }
+            : {}),
+        }}
+      >
+        {status === 'current' && (
+          <div
+            style={{
+              position: 'absolute',
+              left: -3,
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#10b981',
+              animation: 'pf-walk-vertical 1.2s ease-in-out infinite alternate, pf-dot-glow 1.2s ease-in-out infinite',
+            }}
+          />
+        )}
+      </div>
+      {/* Down arrow */}
+      <div
+        style={{
+          width: 0,
+          height: 0,
+          borderLeft: '4px solid transparent',
+          borderRight: '4px solid transparent',
+          borderTop: `6px solid ${color}`,
+        }}
+      />
     </div>
   );
 }
@@ -129,11 +263,13 @@ function PhaseNode({
   isExpanded,
   onToggle,
   onSave,
+  isQaBugState,
 }: {
   phase: PhaseConfig;
   isExpanded: boolean;
   onToggle: () => void;
   onSave: (updated: PhaseConfig) => void;
+  isQaBugState?: boolean;
 }) {
   const style = getPhaseStyle(phase.name);
   const colors = PHASE_COLORS[phase.name] ?? PHASE_COLORS.planning;
@@ -164,6 +300,8 @@ function PhaseNode({
     });
   };
 
+  const isQa = phase.name === 'qa';
+
   const labelStyle: React.CSSProperties = {
     fontSize: 10,
     fontWeight: 700,
@@ -178,7 +316,7 @@ function PhaseNode({
   const listStyle: React.CSSProperties = {
     margin: 0,
     padding: '0 0 0 14px',
-    fontSize: 12,
+    fontSize: 11,
     color: 'var(--text2)',
     fontFamily: 'var(--mono)',
     lineHeight: 1.6,
@@ -191,8 +329,8 @@ function PhaseNode({
     borderRadius: 'var(--radius)',
     color: 'var(--text)',
     fontFamily: 'var(--mono)',
-    fontSize: 11.5,
-    padding: '6px 8px',
+    fontSize: 11,
+    padding: '5px 7px',
     resize: 'vertical' as const,
     outline: 'none',
     boxSizing: 'border-box',
@@ -201,14 +339,15 @@ function PhaseNode({
   return (
     <div
       style={{
-        width: 210,
+        width: 180,
         flexShrink: 0,
         background: 'var(--surface)',
-        border: '1px solid var(--border)',
+        border: `1px solid ${isQa && isQaBugState ? '#ef4444' : 'var(--border)'}`,
         borderRadius: 'var(--radius)',
         overflow: 'hidden',
         cursor: 'pointer',
         transition: 'border-color .2s',
+        ...(isQa && isQaBugState ? { boxShadow: '0 0 8px rgba(239,68,68,.3)' } : {}),
       }}
       onClick={!isExpanded ? onToggle : undefined}
     >
@@ -216,7 +355,7 @@ function PhaseNode({
       <div
         style={{
           background: colors.bg,
-          padding: '8px 12px',
+          padding: '6px 10px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -227,7 +366,7 @@ function PhaseNode({
             color: '#fff',
             fontFamily: 'var(--font)',
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 12,
             letterSpacing: '-0.01em',
           }}
         >
@@ -237,15 +376,43 @@ function PhaseNode({
           style={{
             color: 'rgba(255,255,255,.65)',
             fontFamily: 'var(--mono)',
-            fontSize: 11,
+            fontSize: 10,
           }}
         >
           {phase.duration}
         </span>
       </div>
 
+      {/* QA unpassable badge */}
+      {isQa && (
+        <div
+          style={{
+            background: isQaBugState ? '#fef2f2' : '#fffbeb',
+            padding: '3px 10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            borderBottom: `1px solid ${isQaBugState ? '#fecaca' : '#fde68a'}`,
+          }}
+        >
+          <span style={{ fontSize: 10 }}>{isQaBugState ? '\u274c' : '\ud83d\udee1\ufe0f'}</span>
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: 'var(--mono)',
+              fontWeight: 700,
+              color: isQaBugState ? '#dc2626' : '#d97706',
+              textTransform: 'uppercase',
+              letterSpacing: '.04em',
+            }}
+          >
+            {isQaBugState ? 'Returns to Implementation' : 'Unpassable Gate'}
+          </span>
+        </div>
+      )}
+
       {/* Body */}
-      <div style={{ background: 'var(--surface2)', padding: '8px 12px 12px' }}>
+      <div style={{ background: 'var(--surface2)', padding: '6px 10px 10px' }}>
         {!isExpanded ? (
           /* ---- Collapsed view ---- */
           <>
@@ -315,8 +482,8 @@ function PhaseNode({
                   color: '#fff',
                   border: 'none',
                   borderRadius: 'var(--radius)',
-                  padding: '6px 0',
-                  fontSize: 12,
+                  padding: '5px 0',
+                  fontSize: 11,
                   fontWeight: 700,
                   cursor: 'pointer',
                   fontFamily: 'var(--font)',
@@ -335,8 +502,8 @@ function PhaseNode({
                   color: 'var(--text3)',
                   border: '1px solid var(--border)',
                   borderRadius: 'var(--radius)',
-                  padding: '6px 0',
-                  fontSize: 12,
+                  padding: '5px 0',
+                  fontSize: 11,
                   fontWeight: 600,
                   cursor: 'pointer',
                   fontFamily: 'var(--font)',
@@ -348,6 +515,48 @@ function PhaseNode({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Red dashed "bug return" arrow from QA back to Implementation */
+function BugReturnArrow() {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: -28,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 8,
+          fontFamily: 'var(--mono)',
+          color: '#ef4444',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '.04em',
+          whiteSpace: 'nowrap',
+          animation: 'pf-bug-pulse 1.2s ease-in-out infinite',
+        }}
+      >
+        if bugs \u2192 back to Implementation
+      </span>
+      <div
+        style={{
+          width: 0,
+          height: 0,
+          borderLeft: '4px solid transparent',
+          borderRight: '4px solid transparent',
+          borderBottom: '5px solid #ef4444',
+        }}
+      />
     </div>
   );
 }
@@ -383,9 +592,28 @@ export function ProcessFlow() {
       });
   }, []);
 
-  // Determine "current" phase index — for demo, treat index 1 (implementation) as current
-  // In a real scenario this would come from the active sprint status
-  const currentIdx = 1;
+  // Live sprint status — find the active (non-closed) sprint and map its status to phase index
+  const sprints = useSprintStore((s) => s.sprints);
+  const sprintDetail = useSprintStore((s) => s.sprintDetail);
+
+  const activeSprintStatus = (() => {
+    // Prefer the selected sprint detail, then fall back to first non-closed sprint
+    if (sprintDetail && sprintDetail.status !== 'closed' && sprintDetail.status !== 'rest') {
+      return sprintDetail.status;
+    }
+    const active = sprints.find((s) =>
+      s.status !== 'closed' && s.status !== 'rest'
+    );
+    return active?.status ?? null;
+  })();
+
+  const currentIdx = activeSprintStatus
+    ? phases.findIndex((p) => p.name === activeSprintStatus)
+    : -1;
+
+  // Row 1: phases 0-4, Row 2: phases 5-9
+  const row1 = phases.slice(0, 5);
+  const row2 = phases.slice(5, 10);
 
   const connectorStatus = (idx: number): 'done' | 'current' | 'future' => {
     if (idx < currentIdx) return 'done';
@@ -409,6 +637,34 @@ export function ProcessFlow() {
       }
     },
     [phases],
+  );
+
+  const renderRow = (rowPhases: PhaseConfig[], startIdx: number) => (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 0,
+      }}
+    >
+      {rowPhases.map((phase, i) => {
+        const globalIdx = startIdx + i;
+        return (
+          <React.Fragment key={phase.name}>
+            <PhaseNode
+              phase={phase}
+              isExpanded={expandedIdx === globalIdx}
+              onToggle={() => setExpandedIdx(expandedIdx === globalIdx ? null : globalIdx)}
+              onSave={(updated) => handleSave(globalIdx, updated)}
+              isQaBugState={phase.name === 'qa' && currentIdx === 4}
+            />
+            {i < rowPhases.length - 1 && (
+              <Connector status={connectorStatus(globalIdx)} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
   );
 
   return (
@@ -442,7 +698,7 @@ export function ProcessFlow() {
               color: 'var(--text3)',
             }}
           >
-            Click a phase to edit entry criteria, auto-actions, and duration.
+            10-phase sprint lifecycle. Click a phase to edit entry criteria, auto-actions, and duration.
           </p>
         </div>
         {saving && (
@@ -458,27 +714,74 @@ export function ProcessFlow() {
         )}
       </div>
 
-      {/* Flow pipeline */}
+      {/* Flow pipeline — 2 rows of 5 */}
       <div
         style={{
           display: 'flex',
-          alignItems: 'flex-start',
+          flexDirection: 'column',
+          gap: 0,
           overflowX: 'auto',
           padding: '8px 0 16px',
-          gap: 0,
         }}
       >
-        {phases.map((phase, idx) => (
-          <React.Fragment key={phase.name}>
-            <PhaseNode
-              phase={phase}
-              isExpanded={expandedIdx === idx}
-              onToggle={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-              onSave={(updated) => handleSave(idx, updated)}
-            />
-            {idx < phases.length - 1 && <Connector status={connectorStatus(idx)} />}
-          </React.Fragment>
-        ))}
+        {/* Row 1: Preparation -> Kickoff -> Planning -> Implementation -> QA */}
+        <div style={{ position: 'relative' }}>
+          {renderRow(row1, 0)}
+          {/* Bug return label positioned above the QA-Implementation connection area */}
+          <BugReturnArrow />
+        </div>
+
+        {/* Vertical connector from QA (end of row 1) down to Refactoring (start of row 2) */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingRight: 90 }}>
+          <VerticalConnector status={connectorStatus(4)} />
+        </div>
+
+        {/* Row 2: Refactoring -> Retro -> Review -> Closed -> Rest Day */}
+        {renderRow(row2, 5)}
+      </div>
+
+      {/* Legend */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          flexWrap: 'wrap',
+          padding: '8px 0',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+          <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+            Completed / Active
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--border)' }} />
+          <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+            Upcoming
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 16, height: 2, backgroundImage: 'repeating-linear-gradient(90deg, #ef4444 0 4px, transparent 4px 8px)', backgroundSize: '8px 2px' }} />
+          <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+            Bug return (QA \u2192 Implementation)
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#10b981',
+              boxShadow: '0 0 6px rgba(16,185,129,.7)',
+            }}
+          />
+          <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+            Walking arrow (active transition)
+          </span>
+        </div>
       </div>
     </div>
   );

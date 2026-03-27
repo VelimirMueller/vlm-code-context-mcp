@@ -5,6 +5,7 @@ import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { patch, put } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
+import { BurndownChart } from './BurndownChart';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
 import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
@@ -75,6 +76,8 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
 
   if (!sprintDetail) return null;
 
+  const doneCount = tickets.filter((t) => t.status === 'DONE').length;
+  const totalCount = tickets.length;
   const totalPts = tickets.reduce((s, t) => s + (t.story_points ?? 0), 0);
   const donePts = tickets
     .filter((t) => t.status === 'DONE')
@@ -101,8 +104,13 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           marginBottom: 14,
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
-          {sprintDetail.name}
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
+            {sprintDetail.name}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+            {doneCount}/{totalCount} shipped · {donePts}/{totalPts}pt · {velPct}% complete
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Milestone selector */}
@@ -159,7 +167,7 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
         <PhaseGateStepper
           currentPhase={sprintDetail.status}
           sprintId={sprintDetail.id}
-          onTransition={() => { if (selectedSprintId) selectSprint(selectedSprintId); }}
+          updatedAt={sprintDetail.updated_at}
         />
       </div>
 
@@ -269,52 +277,8 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
         })}
       </div>
 
-      {/* Burndown bar */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          alignItems: 'center',
-          marginBottom: 16,
-          padding: 10,
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--text3)',
-            fontWeight: 600,
-            width: 80,
-            flexShrink: 0,
-          }}
-        >
-          Burndown
-        </div>
-        <div
-          style={{
-            flex: 1,
-            height: 6,
-            background: 'var(--border)',
-            borderRadius: 3,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              height: '100%',
-              width: `${Math.round(doneRatio * 100)}%`,
-              background: 'var(--accent)',
-              transition: 'width .3s',
-            }}
-          />
-        </div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
-          {Math.round(doneRatio * 100)}%
-        </div>
-      </div>
+      {/* Burndown chart */}
+      <BurndownChart sprintId={sprintDetail.id} />
 
       {/* Kanban board */}
       <KanbanBoard tickets={tickets} />

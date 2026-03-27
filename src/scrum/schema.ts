@@ -24,7 +24,7 @@ export function initScrumSchema(db: Database.Database): void {
       goal TEXT,
       start_date TEXT,
       end_date TEXT,
-      status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning', 'implementation', 'qa', 'retro', 'closed')),
+      status TEXT NOT NULL DEFAULT 'preparation' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest')),
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -158,6 +158,71 @@ export function initScrumSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS sprint_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sprint_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      remaining_points INTEGER NOT NULL DEFAULT 0,
+      completed_points INTEGER NOT NULL DEFAULT 0,
+      added_points INTEGER NOT NULL DEFAULT 0,
+      removed_points INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+      UNIQUE(sprint_id, date)
+    );
+
+    CREATE TABLE IF NOT EXISTS ticket_dependencies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_ticket_id INTEGER NOT NULL,
+      target_ticket_id INTEGER NOT NULL,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'blocked_by', 'related')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (source_ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+      UNIQUE(source_ticket_id, target_ticket_id, dependency_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#6b7280',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ticket_tags (
+      ticket_id INTEGER NOT NULL,
+      tag_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (ticket_id, tag_id),
+      FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_mood_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      sprint_id INTEGER NOT NULL,
+      mood INTEGER NOT NULL CHECK (mood BETWEEN 1 AND 5),
+      workload_points INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+      UNIQUE(agent_id, sprint_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS event_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug')),
+      entity_id INTEGER NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed')),
+      field_name TEXT,
+      old_value TEXT,
+      new_value TEXT,
+      actor TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
     CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
     CREATE INDEX IF NOT EXISTS idx_epics_milestone ON epics(milestone_id);
@@ -169,6 +234,13 @@ export function initScrumSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_blockers_sprint_id ON blockers(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_bugs_sprint_id ON bugs(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
+    CREATE INDEX IF NOT EXISTS idx_sprint_metrics_sprint ON sprint_metrics(sprint_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_deps_source ON ticket_dependencies(source_ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_deps_target ON ticket_dependencies(target_ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_mood_history_agent ON agent_mood_history(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_mood_history_sprint ON agent_mood_history(sprint_id);
+    CREATE INDEX IF NOT EXISTS idx_event_log_entity ON event_log(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
   `);
 
   // Migrate existing databases: add milestone_id column if missing
@@ -210,6 +282,60 @@ export function runMigrations(db: Database.Database): void {
     { version: 2, name: 'add_milestone_id_to_sprints', sql: "SELECT 1" }, // already done
     { version: 3, name: 'add_decisions_table', sql: "SELECT 1" }, // already done
     { version: 4, name: 'sprint_phases_v2', sql: "SELECT 1" }, // already done
+    { version: 5, name: 'sprint_10_phases', sql: `
+      CREATE TABLE IF NOT EXISTS sprints_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        goal TEXT,
+        start_date TEXT,
+        end_date TEXT,
+        status TEXT NOT NULL DEFAULT 'preparation' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest')),
+        velocity_committed INTEGER DEFAULT 0,
+        velocity_completed INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        milestone_id INTEGER REFERENCES milestones(id)
+      );
+      INSERT OR IGNORE INTO sprints_new SELECT id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id FROM sprints;
+      DROP TABLE sprints;
+      ALTER TABLE sprints_new RENAME TO sprints;
+      CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
+    ` },
+    { version: 6, name: 'add_time_tracking_to_tickets', sql: `
+      ALTER TABLE tickets ADD COLUMN estimated_hours REAL;
+      ALTER TABLE tickets ADD COLUMN actual_hours REAL;
+    ` },
+    { version: 7, name: 'add_review_status_to_tickets', sql: `
+      SELECT 1
+    ` }, // review_status already exists from earlier migration
+    { version: 8, name: 'seed_default_tags', sql: `
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('tech-debt', '#ef4444');
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('security', '#f59e0b');
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('ux', '#8b5cf6');
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('bug', '#dc2626');
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('performance', '#10b981');
+      INSERT OR IGNORE INTO tags (name, color) VALUES ('documentation', '#6366f1');
+    ` },
+    { version: 9, name: 'create_velocity_trends_view', sql: `
+      CREATE VIEW IF NOT EXISTS velocity_trends AS
+      SELECT
+        s.id as sprint_id,
+        s.name as sprint_name,
+        s.status,
+        s.velocity_committed as committed,
+        s.velocity_completed as completed,
+        CASE WHEN s.velocity_committed > 0 THEN ROUND(CAST(s.velocity_completed AS REAL) / s.velocity_committed * 100, 1) ELSE 0 END as completion_rate,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as tickets_done,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as tickets_total,
+        (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id) as bugs_found,
+        (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id AND status = 'fixed') as bugs_fixed,
+        s.start_date,
+        s.end_date,
+        s.created_at
+      FROM sprints s
+      WHERE s.deleted_at IS NULL
+      ORDER BY s.created_at DESC;
+    ` },
   ];
   for (const m of migrations) {
     if (m.version > current) {

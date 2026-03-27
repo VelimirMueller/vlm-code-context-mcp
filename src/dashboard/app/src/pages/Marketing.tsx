@@ -15,11 +15,11 @@ import { GoogleAdsStrategy } from '@/components/organisms/GoogleAdsStrategy';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
 const TABS = [
-  { key: 'releases', label: 'Release Notes' },
+  { key: 'releases', label: 'Releases' },
   { key: 'positioning', label: 'Positioning' },
-  { key: 'metrics', label: 'Growth Metrics' },
   { key: 'roadmap', label: 'Roadmap' },
-  { key: 'google-ads', label: 'Google Ads' },
+  { key: 'metrics', label: 'Metrics' },
+  { key: 'google-ads', label: 'Campaigns' },
 ];
 
 interface ProjectStatus {
@@ -189,31 +189,31 @@ function ReleaseNotes({ sprints }: { sprints: any[] }) {
   // Group sprints into phases by milestone-era ranges
   const phases = [
     {
-      title: 'Foundation & Scale (M1-M2)',
+      title: 'Foundation',
       subtitle: 'SQLite indexing, React rewrite, 9-agent scrum team',
       sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'T', min: 14, max: 22 }, { prefix: 'S', min: 9, max: 10 }])),
       color: 'var(--blue)',
     },
     {
-      title: 'Platform & Quality (M3-M4)',
+      title: 'Platform',
       subtitle: 'MCP bootstrap, navigation, cleanup, marketing',
       sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 11, max: 20 }])),
       color: 'var(--purple)',
     },
     {
-      title: 'UX & Visual Polish (M5-M7)',
+      title: 'Polish',
       subtitle: 'SVG icons, milestone grouping, Gantt, breadcrumbs, DB verification',
       sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 21, max: 33 }])),
       color: 'var(--accent)',
     },
     {
-      title: 'Linear Integration & Hardening (M11)',
+      title: 'Integration',
       subtitle: 'Me tab, Linear sync, code splitting, API hardening',
       sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 34, max: 37 }])),
       color: 'var(--orange)',
     },
     {
-      title: 'Publish Readiness & Remotion (M8-M10)',
+      title: 'Launch Ready',
       subtitle: 'MCP audit, onboarding, refinement lifecycle, CHANGELOG, Remotion animations',
       sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 38, max: 999 }])),
       color: '#10b981',

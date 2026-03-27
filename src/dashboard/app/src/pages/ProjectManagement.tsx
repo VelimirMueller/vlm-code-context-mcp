@@ -18,15 +18,13 @@ import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'vision' | 'milestones' | 'epics' | 'planning' | 'gantt' | 'process' | 'insights';
+type Tab = 'vision' | 'roadmap' | 'planning' | 'timeline' | 'insights';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
-  { id: 'milestones', label: 'Milestones' },
-  { id: 'epics', label: 'Epics' },
+  { id: 'roadmap', label: 'Roadmap' },
   { id: 'planning', label: 'Planning' },
-  { id: 'gantt', label: 'Gantt' },
-  { id: 'process', label: 'Process' },
+  { id: 'timeline', label: 'Timeline' },
   { id: 'insights', label: 'Insights' },
 ];
 
@@ -36,6 +34,7 @@ export function ProjectManagement() {
   const storeSetTab = useUIStore((s) => s.setTab);
   const setActiveTab = (tab: Tab) => storeSetTab(tab);
   const [showPlanner, setShowPlanner] = useState(false);
+  const [roadmapView, setRoadmapView] = useState<'milestones' | 'epics'>('milestones');
 
   // Pre-fetch sprint and agent data for the Insights tab
   const sprints = useSprintStore((s) => s.sprints);
@@ -138,39 +137,54 @@ export function ProjectManagement() {
         }}
       >
         <AnimatePresence mode="wait">
-          {activeTab === 'milestones' && (
+          {activeTab === 'roadmap' && (
             <motion.div
-              key="milestones"
+              key="roadmap"
               variants={tabVariants}
               initial="initial"
               animate="animate"
               exit="exit"
               transition={tabTransition}
             >
-              {activeMilestone && (
-                <HeroText>
-                  {'Milestone '}
-                  <span style={{ fontFamily: 'var(--font)', color: 'var(--accent)', fontWeight: 700 }}>
-                    {activeMilestone.name}
-                  </span>
-                  {' — '}
-                  <AnimatedNumber value={activeMilestone.progress} />
-                  {'% complete'}
-                </HeroText>
+              <div style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
+                {(['milestones', 'epics'] as const).map((view) => (
+                  <button
+                    key={view}
+                    onClick={() => setRoadmapView(view)}
+                    style={{
+                      padding: '6px 16px',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: roadmapView === view ? '#000' : 'var(--text3)',
+                      background: roadmapView === view ? 'var(--accent)' : 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: view === 'milestones' ? '6px 0 0 6px' : '0 6px 6px 0',
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font)',
+                      transition: 'all .2s',
+                    }}
+                  >
+                    {view === 'milestones' ? 'Milestones' : 'Epics'}
+                  </button>
+                ))}
+              </div>
+              {roadmapView === 'milestones' && (
+                <>
+                  {activeMilestone && (
+                    <HeroText>
+                      {'Milestone '}
+                      <span style={{ fontFamily: 'var(--font)', color: 'var(--accent)', fontWeight: 700 }}>
+                        {activeMilestone.name}
+                      </span>
+                      {' — '}
+                      <AnimatedNumber value={activeMilestone.progress} />
+                      {'% complete'}
+                    </HeroText>
+                  )}
+                  <MilestoneList />
+                </>
               )}
-              <MilestoneList />
-            </motion.div>
-          )}
-          {activeTab === 'epics' && (
-            <motion.div
-              key="epics"
-              variants={tabVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={tabTransition}
-            >
-              <EpicList />
+              {roadmapView === 'epics' && <EpicList />}
             </motion.div>
           )}
           {activeTab === 'vision' && (
@@ -202,28 +216,21 @@ export function ProjectManagement() {
               <SprintPlanningView />
             </motion.div>
           )}
-          {activeTab === 'gantt' && (
+          {activeTab === 'timeline' && (
             <motion.div
-              key="gantt"
+              key="timeline"
               variants={tabVariants}
               initial="initial"
               animate="animate"
               exit="exit"
               transition={tabTransition}
             >
-              <GanttChart />
-            </motion.div>
-          )}
-          {activeTab === 'process' && (
-            <motion.div
-              key="process"
-              variants={tabVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={tabTransition}
-            >
-              <ProcessFlow />
+              <div style={{ marginBottom: 16 }}>
+                <ProcessFlow />
+              </div>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                <GanttChart />
+              </div>
             </motion.div>
           )}
           {activeTab === 'insights' && (
