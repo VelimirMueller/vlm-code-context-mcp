@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
-import { patch } from '@/lib/api';
+import { patch, put } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
+import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
 import type { RetroFinding } from '@/types';
 
 interface SprintDetailProps {

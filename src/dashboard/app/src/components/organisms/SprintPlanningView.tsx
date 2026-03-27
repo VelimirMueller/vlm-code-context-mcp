@@ -71,7 +71,7 @@ export function SprintPlanningView() {
   const filteredGroups = milestoneGroups
     .map((g) => ({
       ...g,
-      sprints: g.sprints.filter((s) => s.status === 'active' || s.status === 'planning' || s.status === 'refinement'),
+      sprints: g.sprints.filter((s) => s.status === 'implementation' || s.status === 'planning' || s.status === 'qa' || s.status === 'retro'),
     }))
     .filter((g) => g.sprints.length > 0)
     .sort((a, b) => {

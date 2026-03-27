@@ -194,4 +194,27 @@ export function initScrumSchema(db: Database.Database): void {
   if (!sprintCols.some((c) => c.name === "milestone_id")) {
     db.exec("ALTER TABLE sprints ADD COLUMN milestone_id INTEGER REFERENCES milestones(id)");
   }
+
+  // Schema version tracking table
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_versions (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+}
+
+export function runMigrations(db: Database.Database): void {
+  const current = (db.prepare("SELECT MAX(version) as v FROM schema_versions").get() as any)?.v ?? 0;
+  const migrations = [
+    { version: 1, name: 'add_epic_id_to_tickets', sql: "SELECT 1" }, // already done
+    { version: 2, name: 'add_milestone_id_to_sprints', sql: "SELECT 1" }, // already done
+    { version: 3, name: 'add_decisions_table', sql: "SELECT 1" }, // already done
+    { version: 4, name: 'sprint_phases_v2', sql: "SELECT 1" }, // already done
+  ];
+  for (const m of migrations) {
+    if (m.version > current) {
+      db.exec(m.sql);
+      db.prepare("INSERT INTO schema_versions (version, name) VALUES (?, ?)").run(m.version, m.name);
+    }
+  }
 }

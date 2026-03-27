@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
-import { initScrumSchema } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema } from "./linear.js";
 
@@ -39,7 +39,24 @@ writeDb.pragma("foreign_keys = ON");
 // Ensure schemas exist
 initSchema(writeDb);
 initScrumSchema(writeDb);
+runMigrations(writeDb);
 initLinearSchema(writeDb);
+
+// Soft-delete migration: add deleted_at columns if missing
+for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
+  const cols = writeDb.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'deleted_at')) {
+    writeDb.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+  }
+}
+
+// M13-038: add review_status column to tickets if missing
+{
+  const ticketCols = writeDb.pragma("table_info(tickets)") as Array<{ name: string }>;
+  if (!ticketCols.some((c) => c.name === 'review_status')) {
+    writeDb.exec("ALTER TABLE tickets ADD COLUMN review_status TEXT DEFAULT NULL CHECK(review_status IS NULL OR review_status IN ('pending','approved','rejected'))");
+  }
+}
 
 // Import scrum data from .claude/
 const claudeDir = path.resolve(path.dirname(dbPath), ".claude");
@@ -184,10 +201,10 @@ function apiAgentsHealth() {
   try {
     const agents = writeDb.prepare(`
       SELECT a.role, a.name, a.description, a.model,
-        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'DONE') as done_tickets,
-        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS')) as active_tickets,
-        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'BLOCKED') as blocked_tickets,
-        (SELECT COALESCE(SUM(story_points),0) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS')) as active_points
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'DONE' AND deleted_at IS NULL) as done_tickets,
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS') AND deleted_at IS NULL) as active_tickets,
+        (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'BLOCKED' AND deleted_at IS NULL) as blocked_tickets,
+        (SELECT COALESCE(SUM(story_points),0) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS') AND deleted_at IS NULL) as active_points
       FROM agents a ORDER BY a.role
     `).all() as any[];
     // Compute mood: 0-100 scale from tickets + retro sentiment
@@ -217,12 +234,12 @@ function apiSprints() {
   try {
     return writeDb.prepare(`
       SELECT s.*,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1 AND deleted_at IS NULL) as qa_count,
         (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
-      FROM sprints s ORDER BY s.created_at DESC
+      FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC
     `).all();
   } catch { return []; }
 }
@@ -239,13 +256,13 @@ function apiSprintTickets(sprintId: number) {
   try {
     return writeDb.prepare(`
       SELECT t.id, t.ticket_ref, t.title, t.description, t.priority, t.status, t.assigned_to,
-        t.story_points, t.milestone, t.milestone_id, t.epic_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes,
+        t.story_points, t.milestone, t.milestone_id, t.epic_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes, t.review_status,
         m.name as milestone_name,
         e.name as epic_name
       FROM tickets t
       LEFT JOIN milestones m ON t.milestone_id = m.id
       LEFT JOIN epics e ON t.epic_id = e.id
-      WHERE t.sprint_id = ? ORDER BY t.priority, t.status
+      WHERE t.sprint_id = ? AND t.deleted_at IS NULL ORDER BY t.priority, t.status
     `).all(sprintId);
   } catch { return []; }
 }
@@ -324,9 +341,9 @@ function apiMilestones() {
   try {
     const milestones = writeDb.prepare(`
       SELECT m.*,
-        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE') as done_count
-      FROM milestones m ORDER BY m.id ASC
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND deleted_at IS NULL) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE' AND deleted_at IS NULL) as done_count
+      FROM milestones m WHERE m.deleted_at IS NULL ORDER BY m.id ASC
     `).all() as any[];
 
     const sprintQuery = writeDb.prepare(`
@@ -379,8 +396,9 @@ function apiBacklog() {
         m.name as milestone_name
       FROM tickets t
       LEFT JOIN milestones m ON t.milestone_id = m.id
-      WHERE t.sprint_id IS NULL
-        OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed'))
+      WHERE t.deleted_at IS NULL
+        AND (t.sprint_id IS NULL
+          OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed')))
       ORDER BY t.priority, t.created_at
     `).all();
   } catch { return []; }
@@ -389,11 +407,11 @@ function apiBacklog() {
 function apiEpics(milestoneId?: number) {
   try {
     let sql = `SELECT e.*,
-      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id) as ticket_count,
-      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id AND status = 'DONE') as done_count
-    FROM epics e`;
+      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id AND deleted_at IS NULL) as ticket_count,
+      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id AND status = 'DONE' AND deleted_at IS NULL) as done_count
+    FROM epics e WHERE e.deleted_at IS NULL`;
     if (milestoneId) {
-      sql += ` WHERE e.milestone_id = ?`;
+      sql += ` AND e.milestone_id = ?`;
       return writeDb.prepare(sql + ' ORDER BY e.priority, e.name').all(milestoneId);
     }
     return writeDb.prepare(sql + ' ORDER BY e.priority, e.name').all();
@@ -447,10 +465,25 @@ function apiSprintUpdate(id: number, body: any) {
     // When transitioning to 'qa': check all tickets are DONE
     if (newStatus === 'qa') {
       const undone = (writeDb.prepare(
-        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE'`
+        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL`
       ).get(id) as any).c;
       if (undone > 0) {
         throw new Error(`Cannot transition to qa: ${undone} ticket(s) are not DONE`);
+      }
+
+      // M13-038: Review sign-off warning for senior role tickets
+      const unapproved = writeDb.prepare(
+        `SELECT ticket_ref, title, assigned_to, review_status FROM tickets
+         WHERE sprint_id = ? AND deleted_at IS NULL
+           AND status = 'DONE'
+           AND assigned_to IN ('architect','lead-developer','scrum-master')
+           AND (review_status IS NULL OR review_status != 'approved')`
+      ).all(id) as any[];
+      if (unapproved.length > 0) {
+        // Non-blocking warning — attach to response
+        (body as any)._review_warnings = unapproved.map((t: any) =>
+          `${t.ticket_ref} (${t.assigned_to}): review_status=${t.review_status ?? 'none'}`
+        );
       }
     }
 
@@ -517,7 +550,11 @@ function apiSprintUpdate(id: number, body: any) {
     rebuildMarketingStats();
   }
 
-  return { id, updated: true };
+  const result: any = { id, updated: true };
+  if (body._review_warnings) {
+    result.review_warnings = body._review_warnings;
+  }
+  return result;
 }
 
 // ─── Ticket CRUD API ────────────────────────────────────────────────────────
@@ -569,6 +606,10 @@ function apiUpdateTicket(id: number, body: any) {
   if (body.assigned_to !== undefined) { sets.push("assigned_to=?"); vals.push(body.assigned_to); }
   if (body.story_points !== undefined) { sets.push("story_points=?"); vals.push(body.story_points); }
   if (body.qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(body.qa_verified ? 1 : 0); }
+  if (body.review_status !== undefined) {
+    if (body.review_status !== null) validateEnum(body.review_status, ['pending', 'approved', 'rejected'], 'review_status');
+    sets.push("review_status=?"); vals.push(body.review_status);
+  }
   if (body.epic_id !== undefined) { sets.push("epic_id=?"); vals.push(body.epic_id); }
   if (body.milestone_id !== undefined) {
     sets.push("milestone_id=?"); vals.push(body.milestone_id);
@@ -811,10 +852,10 @@ const server = http.createServer(async (req, res) => {
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "DELETE") {
         const sid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ?").get(sid);
+        const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sid);
         if (!existing) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
-        writeDb.prepare("DELETE FROM tickets WHERE sprint_id = ?").run(sid);
-        writeDb.prepare("DELETE FROM sprints WHERE id = ?").run(sid);
+        writeDb.prepare("UPDATE tickets SET deleted_at = datetime('now') WHERE sprint_id = ?").run(sid);
+        writeDb.prepare("UPDATE sprints SET deleted_at = datetime('now') WHERE id = ?").run(sid);
         data = { ok: true };
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/)) {
@@ -893,22 +934,26 @@ const server = http.createServer(async (req, res) => {
       // ── DELETE endpoints ─────────────────────────────────────────────
       else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "DELETE") {
         const mid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM milestones WHERE id = ?").get(mid);
+        const existing = writeDb.prepare("SELECT id FROM milestones WHERE id = ? AND deleted_at IS NULL").get(mid);
         if (!existing) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
-        writeDb.prepare("UPDATE tickets SET milestone_id = NULL, milestone = NULL WHERE milestone_id = ?").run(mid);
-        writeDb.prepare("UPDATE sprints SET milestone_id = NULL WHERE milestone_id = ?").run(mid);
-        writeDb.prepare("DELETE FROM milestones WHERE id = ?").run(mid);
+        writeDb.prepare("UPDATE milestones SET deleted_at = datetime('now') WHERE id = ?").run(mid);
         data = { ok: true };
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/epic\/\d+$/) && req.method === "DELETE") {
         const eid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM epics WHERE id = ?").get(eid);
+        const existing = writeDb.prepare("SELECT id FROM epics WHERE id = ? AND deleted_at IS NULL").get(eid);
         if (!existing) { res.writeHead(404); res.end('{"error":"epic not found"}'); return; }
-        writeDb.prepare("UPDATE tickets SET epic_id = NULL WHERE epic_id = ?").run(eid);
-        writeDb.prepare("DELETE FROM epics WHERE id = ?").run(eid);
+        writeDb.prepare("UPDATE epics SET deleted_at = datetime('now') WHERE id = ?").run(eid);
         data = { ok: true };
         notifyClients();
+      }
+      else if (url.pathname === "/api/trash") {
+        const milestones = writeDb.prepare("SELECT * FROM milestones WHERE deleted_at IS NOT NULL").all();
+        const sprints = writeDb.prepare("SELECT * FROM sprints WHERE deleted_at IS NOT NULL").all();
+        const epics = writeDb.prepare("SELECT * FROM epics WHERE deleted_at IS NOT NULL").all();
+        const tickets = writeDb.prepare("SELECT * FROM tickets WHERE deleted_at IS NOT NULL").all();
+        data = { milestones, sprints, epics, tickets };
       }
       else if (url.pathname === "/api/dump") data = apiDump();
       else if (url.pathname === "/api/restore" && req.method === "POST") {

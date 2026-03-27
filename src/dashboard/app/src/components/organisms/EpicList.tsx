@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Epic, Milestone } from '@/types';
-import { get, post, put } from '@/lib/api';
+import { get, post, put, del } from '@/lib/api';
 import { usePlanningStore } from '@/stores/planningStore';
+import { AlertDialog } from '@/components/molecules/AlertDialog';
 
 const PRESET_COLORS = ['#3b82f6', '#10b981', '#a78bfa', '#f59e0b', '#ec4899', '#ef4444', '#06b6d4', '#84cc16'];
 
@@ -70,6 +71,7 @@ export function EpicList() {
   const [form, setForm] = useState<EpicFormData>({ ...emptyForm });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Epic | null>(null);
 
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
@@ -171,6 +173,17 @@ export function EpicList() {
     setForm({ ...emptyForm });
     setEditingId(null);
     setShowForm(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await del(`/api/epic/${deleteTarget.id}`);
+      setDeleteTarget(null);
+      await fetchEpics();
+    } catch {
+      setDeleteTarget(null);
+    }
   };
 
   if (loading) {
@@ -281,8 +294,17 @@ export function EpicList() {
                   cursor: 'pointer',
                   padding: 0,
                   outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
-              />
+              >
+                {form.color === c && (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
             ))}
           </div>
 
@@ -377,6 +399,17 @@ export function EpicList() {
         </div>
       )}
 
+      {/* Delete confirmation dialog */}
+      <AlertDialog
+        open={deleteTarget !== null}
+        title="Delete Epic"
+        message={deleteTarget ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.` : ''}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
       {grouped.map((group, gi) => (
         <div key={group.milestone?.id ?? 'none'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Group header */}
@@ -413,28 +446,59 @@ export function EpicList() {
                 <div style={{ width: 5, flexShrink: 0, background: epic.color }} />
 
                 {/* Content */}
-                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{epic.name}</span>
                       <StatusBadge status={epic.status} />
-                    </div>
-                    <button
-                      onClick={() => startEdit(epic)}
-                      style={{
-                        background: 'none',
+                      {/* Ticket count badge */}
+                      <span style={{
+                        background: 'var(--surface2)',
                         border: '1px solid var(--border)',
-                        borderRadius: 6,
-                        padding: '3px 10px',
+                        borderRadius: 10,
+                        padding: '1px 9px',
                         fontSize: 11,
                         fontWeight: 600,
+                        fontFamily: 'var(--mono)',
                         color: 'var(--text3)',
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font)',
-                      }}
-                    >
-                      Edit
-                    </button>
+                      }}>
+                        {epic.done_count}/{epic.ticket_count} tickets
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        onClick={() => startEdit(epic)}
+                        style={{
+                          background: 'none',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          padding: '3px 10px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: 'var(--text3)',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font)',
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(epic)}
+                        style={{
+                          background: 'none',
+                          border: '1px solid rgba(239,68,68,0.3)',
+                          borderRadius: 6,
+                          padding: '3px 10px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font)',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   {epic.description && (
@@ -443,22 +507,20 @@ export function EpicList() {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 2 }}>
+                  {/* Progress bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 2 }}>
                     {ms && (
-                      <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', flexShrink: 0 }}>
                         {ms.name}
                       </span>
                     )}
-
-                    {/* Progress bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div
                         style={{
                           flex: 1,
-                          maxWidth: 160,
-                          height: 5,
-                          borderRadius: 3,
-                          background: 'var(--border)',
+                          height: 8,
+                          borderRadius: 4,
+                          background: 'var(--surface3)',
                           overflow: 'hidden',
                         }}
                       >
@@ -466,14 +528,14 @@ export function EpicList() {
                           style={{
                             width: `${progress}%`,
                             height: '100%',
-                            borderRadius: 3,
+                            borderRadius: 4,
                             background: epic.color,
                             transition: 'width .3s ease',
                           }}
                         />
                       </div>
-                      <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {epic.done_count}/{epic.ticket_count}
+                      <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)', fontWeight: 600, flexShrink: 0 }}>
+                        {progress}%
                       </span>
                     </div>
                   </div>
