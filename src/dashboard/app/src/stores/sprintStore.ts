@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { get } from '@/lib/api';
 import type { Sprint, Ticket, RetroFinding } from '@/types';
 
+export type TicketFilter = 'all' | 'mine' | 'blocked' | 'qaPending' | 'unassigned';
+
 export interface SprintDetail extends Sprint {
   goal: string | null;
 }
@@ -12,13 +14,25 @@ export interface SprintStore {
   sprintDetail: SprintDetail | null;
   tickets: Ticket[];
   retroFindings: RetroFinding[];
+  selectedRetroFindings: RetroFinding[];
   loading: { sprints: boolean; detail: boolean };
   error: { sprints: string | null; detail: string | null };
+  ticketFilter: TicketFilter;
+  currentUserName: string;
 
   fetchSprints: () => Promise<void>;
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
   fetchRetro: (sprintId: number) => Promise<void>;
+  setTicketFilter: (filter: TicketFilter) => void;
+  setCurrentUserName: (name: string) => void;
+  getFilteredTickets: () => Ticket[];
+  getFilterCounts: () => {
+    all: number;
+    mine: number;
+    blocked: number;
+    qaPending: number;
+  };
 }
 
 export const useSprintStore = create<SprintStore>((set, getState) => ({
@@ -27,8 +41,11 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   sprintDetail: null,
   tickets: [],
   retroFindings: [],
+  selectedRetroFindings: [],
   loading: { sprints: false, detail: false },
   error: { sprints: null, detail: null },
+  ticketFilter: 'all',
+  currentUserName: 'Me',
 
   fetchSprints: async () => {
     set((s) => ({ loading: { ...s.loading, sprints: true }, error: { ...s.error, sprints: null } }));
@@ -51,14 +68,16 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   selectSprint: async (id: number) => {
     set((s) => ({ selectedSprintId: id, loading: { ...s.loading, detail: true }, error: { ...s.error, detail: null } }));
     try {
-      // Fetch sprint detail and tickets in parallel
-      const [detail, tickets] = await Promise.all([
+      // Fetch sprint detail, tickets, and retro in parallel
+      const [detail, tickets, retro] = await Promise.all([
         get<SprintDetail>(`/api/sprint/${id}`),
         get<Ticket[]>(`/api/sprint/${id}/tickets`),
+        get<RetroFinding[]>(`/api/sprint/${id}/retro`).catch(() => [] as RetroFinding[]),
       ]);
       set({
         sprintDetail: detail ?? null,
         tickets: Array.isArray(tickets) ? tickets : [],
+        selectedRetroFindings: Array.isArray(retro) ? retro : [],
       });
     } catch (e) {
       set((s) => ({ error: { ...s.error, detail: (e as Error).message } }));
@@ -83,5 +102,41 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
     } catch {
       // Silently fail
     }
+  },
+
+  setTicketFilter: (filter: TicketFilter) => {
+    set({ ticketFilter: filter });
+  },
+
+  setCurrentUserName: (name: string) => {
+    set({ currentUserName: name });
+  },
+
+  getFilteredTickets: () => {
+    const { tickets, ticketFilter, currentUserName } = getState();
+
+    switch (ticketFilter) {
+      case 'mine':
+        return tickets.filter(t => t.assigned_to === currentUserName);
+      case 'blocked':
+        return tickets.filter(t => t.status === 'BLOCKED');
+      case 'qaPending':
+        return tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO');
+      case 'unassigned':
+        return tickets.filter(t => !t.assigned_to);
+      default:
+        return tickets;
+    }
+  },
+
+  getFilterCounts: () => {
+    const { tickets, currentUserName } = getState();
+
+    return {
+      all: tickets.length,
+      mine: tickets.filter(t => t.assigned_to === currentUserName).length,
+      blocked: tickets.filter(t => t.status === 'BLOCKED').length,
+      qaPending: tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO').length,
+    };
   },
 }));

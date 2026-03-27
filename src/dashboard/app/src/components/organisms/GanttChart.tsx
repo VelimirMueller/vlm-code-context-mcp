@@ -1,12 +1,15 @@
-import React, { useMemo } from 'react';
+'use client';
+
+import React, { useMemo, useState } from 'react';
 import type { Sprint } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
 
+// Improved color scheme with better contrast
 const statusStyle: Record<string, { bg: string; border: string; label: string }> = {
-  planning: { bg: 'rgba(99,99,122,.25)', border: 'rgba(99,99,122,.4)', label: 'Planning' },
-  active:   { bg: 'rgba(16,185,129,.18)', border: 'rgba(16,185,129,.35)', label: 'Active' },
-  review:   { bg: 'rgba(251,191,36,.18)', border: 'rgba(251,191,36,.35)', label: 'Review' },
-  closed:   { bg: 'rgba(59,130,246,.18)', border: 'rgba(59,130,246,.35)', label: 'Closed' },
+  planning: { bg: '#636474', border: '#818498', label: 'Planning' },
+  active:   { bg: '#10b981', border: '#34d399', label: 'Active' },
+  review:   { bg: '#f59e0b', border: '#fbbf24', label: 'Review' },
+  closed:   { bg: '#3b82f6', border: '#60a5fa', label: 'Closed' },
 };
 
 function getStatusStyle(status: string) {
@@ -19,13 +22,19 @@ interface GanttBarProps {
   totalBars: number;
   leftPct: number;
   widthPct: number;
+  dateRange: { start: Date; end: Date };
+  onHover: (sprint: Sprint | null, x: number, y: number) => void;
+  onMouseLeave: () => void;
 }
 
-function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps) {
+function GanttBar({ sprint, index, totalBars, leftPct, widthPct, dateRange, onHover, onMouseLeave }: GanttBarProps) {
   const s = getStatusStyle(sprint.status);
   const done = sprint.velocity_completed ?? 0;
   const committed = sprint.velocity_committed ?? 0;
   const velocityPct = committed > 0 ? Math.min(100, Math.round((done / committed) * 100)) : 0;
+
+  const startDate = sprint.start_date ? new Date(sprint.start_date) : null;
+  const endDate = sprint.end_date ? new Date(sprint.end_date) : null;
 
   return (
     <div
@@ -47,15 +56,15 @@ function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps
           <span
             style={{
               background: s.bg,
-              border: `1px solid ${s.border}`,
+              border: 'none',
               borderRadius: 5,
               fontSize: 10,
               fontFamily: 'var(--mono)',
               fontWeight: 600,
               letterSpacing: '0.04em',
               textTransform: 'uppercase',
-              padding: '1px 7px',
-              color: 'var(--text2)',
+              padding: '2px 7px',
+              color: 'white',
             }}
           >
             {s.label}
@@ -66,8 +75,15 @@ function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps
         </div>
       </div>
 
-      {/* Bar */}
-      <div style={{ position: 'relative', height: 28 }}>
+      {/* Bar - Single color, no nested overlay */}
+      <div
+        style={{ position: 'relative', height: 28 }}
+        onMouseEnter={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          onHover(sprint, rect.left + rect.width / 2, rect.top);
+        }}
+        onMouseLeave={onMouseLeave}
+      >
         {/* Track background */}
         <div
           style={{
@@ -77,7 +93,7 @@ function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps
             borderRadius: 4,
           }}
         />
-        {/* Positioned bar representing timeline slot */}
+        {/* Positioned bar - single solid color */}
         <div
           style={{
             position: 'absolute',
@@ -87,59 +103,206 @@ function GanttBar({ sprint, index, totalBars, leftPct, widthPct }: GanttBarProps
             width: `${widthPct}%`,
             background: s.bg,
             borderRadius: 4,
-            boxShadow: `inset 0 0 0 1px ${s.border}`,
-            overflow: 'hidden',
-            transition: 'left .4s ease, width .4s ease',
+            border: `2px solid ${s.border}`,
+            cursor: 'pointer',
+            transition: 'left .4s ease, width .4s ease, transform .2s ease, box-shadow .2s ease',
           }}
-        >
-          {/* Velocity fill within the positioned bar */}
-          <div
-            style={{
-              width: `${velocityPct}%`,
-              height: '100%',
-              background: s.border,
-              opacity: 0.45,
-              borderRadius: 4,
-            }}
-          />
-        </div>
-        {/* Velocity label */}
-        <div
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-            fontSize: 11,
-            fontFamily: 'var(--mono)',
-            color: 'var(--text3)',
-            paddingRight: 2,
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'scaleY(1.1)';
+            e.currentTarget.style.boxShadow = `0 4px 12px ${s.bg}40`;
           }}
-        >
-          {velocityPct}%
-        </div>
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'scaleY(1)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        />
       </div>
     </div>
   );
 }
 
-function VelocityLegend({ sprints }: { sprints: Sprint[] }) {
-  const maxVelocity = Math.max(...sprints.map((s) => s.velocity_committed ?? 0), 1);
-  const ticks = [0, 25, 50, 75, 100].map((pct) => Math.round((pct / 100) * maxVelocity));
+// Date axis component showing month/week ticks
+interface DateAxisProps {
+  dateRange: { start: Date; end: Date };
+  barWidth: number;
+}
+
+function DateAxis({ dateRange, barWidth }: DateAxisProps) {
+  const weeks = useMemo(() => {
+    const weeks: Date[] = [];
+    const current = new Date(dateRange.start);
+    current.setDate(current.getDate() - current.getDay()); // Start of week
+
+    while (current <= dateRange.end) {
+      weeks.push(new Date(current));
+      current.setDate(current.getDate() + 7);
+    }
+    return weeks;
+  }, [dateRange]);
+
+  const totalDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 14, marginBottom: 8 }}>
-      <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500 }}>Sprint</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
-        {ticks.map((t) => <span key={t}>{t}pt</span>)}
+    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 14, marginBottom: 12 }}>
+      <div />
+      <div style={{ position: 'relative', height: 32 }}>
+        {weeks.map((week, i) => {
+          const dayOffset = (week.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24);
+          const leftPct = (dayOffset / totalDays) * 100;
+          const isMonthStart = week.getDate() <= 7;
+
+          return (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: `${leftPct}%`,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2,
+              }}
+            >
+              {isMonthStart && (
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: 'var(--text2)',
+                  textTransform: 'uppercase',
+                }}>
+                  {week.toLocaleDateString('en-US', { month: 'short' })}
+                </span>
+              )}
+              <div style={{
+                width: isMonthStart ? 2 : 1,
+                height: isMonthStart ? 8 : 6,
+                background: isMonthStart ? 'var(--text3)' : 'var(--border)',
+                borderRadius: 1,
+              }} />
+              {!isMonthStart && (
+                <span style={{
+                  fontSize: 9,
+                  color: 'var(--text3)',
+                  fontFamily: 'var(--mono)',
+                }}>
+                  {week.getDate()}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function computeBarLayout(sprints: Sprint[]): { leftPct: number; widthPct: number }[] {
+// Tooltip component
+interface GanttTooltipProps {
+  sprint: Sprint | null;
+  position: { x: number; y: number } | null;
+}
+
+function GanttTooltip({ sprint, position }: GanttTooltipProps) {
+  if (!sprint || !position) return null;
+
+  const startDate = sprint.start_date ? new Date(sprint.start_date) : null;
+  const endDate = sprint.end_date ? new Date(sprint.end_date) : null;
+  const done = sprint.velocity_completed ?? 0;
+  const committed = sprint.velocity_committed ?? 0;
+  const velocityPct = committed > 0 ? Math.round((done / committed) * 100) : 0;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        left: position.x,
+        top: position.y - 120,
+        transform: 'translateX(-50%)',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: '12px 16px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+        zIndex: 1000,
+        minWidth: 200,
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+        {sprint.name}
+      </div>
+      {startDate && endDate && (
+        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 6 }}>
+          {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        <div style={{
+          padding: '2px 8px',
+          borderRadius: 4,
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          background: getStatusStyle(sprint.status).bg,
+          color: 'white',
+        }}>
+          {sprint.status}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+          {done}/{committed}pt ({velocityPct}%)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Current week indicator
+interface CurrentWeekIndicatorProps {
+  dateRange: { start: Date; end: Date };
+}
+
+function CurrentWeekIndicator({ dateRange }: CurrentWeekIndicatorProps) {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+
+  const totalDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24);
+  const dayOffset = (startOfWeek.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24);
+  const leftPct = (dayOffset / totalDays) * 100;
+
+  if (leftPct < 0 || leftPct > 100) return null;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: `${leftPct}%`,
+        top: 0,
+        bottom: 0,
+        width: 2,
+        background: 'var(--red)',
+        opacity: 0.6,
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: -8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: 10,
+        fontWeight: 600,
+        color: 'var(--red)',
+        whiteSpace: 'nowrap',
+      }}>
+        ● This Week
+      </div>
+    </div>
+  );
+}
+
+function computeBarLayout(sprints: Sprint[]): { leftPct: number; widthPct: number; dateRange: { start: Date; end: Date } } {
   const hasDates = sprints.some((s) => s.start_date && s.end_date);
 
   if (hasDates) {
@@ -151,28 +314,36 @@ function computeBarLayout(sprints: Sprint[]): { leftPct: number; widthPct: numbe
     const maxTime = Math.max(...validEnds);
     const range = maxTime - minTime || 1;
 
-    return sprints.map((s, i) => {
-      const start = starts[i] ?? minTime;
-      const end = ends[i] ?? maxTime;
-      const leftPct = ((start - minTime) / range) * 100;
-      const widthPct = Math.max(4, ((end - start) / range) * 100);
-      return { leftPct, widthPct };
-    });
+    return {
+      leftPct: 0,
+      widthPct: 100,
+      dateRange: {
+        start: new Date(minTime),
+        end: new Date(maxTime),
+      },
+    };
   }
 
   // Fallback: equal-width bars in chronological order
   const count = sprints.length || 1;
   const barWidth = Math.min(90 / count, 30);
   const gap = count > 1 ? (100 - barWidth * count) / (count - 1) : 0;
-  return sprints.map((_, i) => ({
-    leftPct: i * (barWidth + gap),
-    widthPct: barWidth,
-  }));
+
+  return {
+    leftPct: 0,
+    widthPct: 100,
+    dateRange: {
+      start: new Date(),
+      end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+  };
 }
 
 export function GanttChart() {
   const ganttData = usePlanningStore((s) => s.ganttData);
   const loading = usePlanningStore((s) => s.loading.gantt);
+  const [hoveredSprint, setHoveredSprint] = useState<Sprint | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   const sorted = useMemo(
     () =>
@@ -182,7 +353,38 @@ export function GanttChart() {
     [ganttData],
   );
 
-  const barLayout = useMemo(() => computeBarLayout(sorted), [sorted]);
+  const layoutData = useMemo(() => computeBarLayout(sorted), [sorted]);
+
+  const barLayout = useMemo(() => {
+    const hasDates = sorted.some((s) => s.start_date && s.end_date);
+
+    if (hasDates) {
+      const starts = sorted.map((s) => (s.start_date ? new Date(s.start_date).getTime() : null));
+      const ends = sorted.map((s) => (s.end_date ? new Date(s.end_date).getTime() : null));
+      const validStarts = starts.filter((t): t is number => t !== null);
+      const validEnds = ends.filter((t): t is number => t !== null);
+      const minTime = Math.min(...validStarts);
+      const maxTime = Math.max(...validEnds);
+      const range = maxTime - minTime || 1;
+
+      return sorted.map((s, i) => {
+        const start = starts[i] ?? minTime;
+        const end = ends[i] ?? maxTime;
+        const leftPct = ((start - minTime) / range) * 100;
+        const widthPct = Math.max(4, ((end - start) / range) * 100);
+        return { leftPct, widthPct };
+      });
+    }
+
+    // Fallback: equal-width bars
+    const count = sorted.length || 1;
+    const barWidth = Math.min(90 / count, 30);
+    const gap = count > 1 ? (100 - barWidth * count) / (count - 1) : 0;
+    return sorted.map((_, i) => ({
+      leftPct: i * (barWidth + gap),
+      widthPct: barWidth,
+    }));
+  }, [sorted]);
 
   if (loading && ganttData.length === 0) {
     return (
@@ -207,6 +409,8 @@ export function GanttChart() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <GanttTooltip sprint={hoveredSprint} position={tooltipPos} />
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Sprint Timeline</h2>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -217,12 +421,13 @@ export function GanttChart() {
                 key={status}
                 style={{
                   background: s.bg,
-                  border: `1px solid ${s.border}`,
+                  border: 'none',
                   borderRadius: 6,
                   fontSize: 11,
                   fontFamily: 'var(--mono)',
-                  padding: '2px 9px',
-                  color: 'var(--text2)',
+                  fontWeight: 600,
+                  padding: '4px 10px',
+                  color: 'white',
                 }}
               >
                 {s.label}: {count}
@@ -238,10 +443,14 @@ export function GanttChart() {
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius)',
           padding: '16px 20px',
+          position: 'relative',
         }}
       >
-        <VelocityLegend sprints={sorted} />
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+        <DateAxis dateRange={layoutData.dateRange} barWidth={0} />
+
+        <div style={{ position: 'relative' }}>
+          <CurrentWeekIndicator dateRange={layoutData.dateRange} />
+
           {sorted.map((sprint, i) => (
             <GanttBar
               key={sprint.id}
@@ -250,6 +459,15 @@ export function GanttChart() {
               totalBars={sorted.length}
               leftPct={barLayout[i]?.leftPct ?? 0}
               widthPct={barLayout[i]?.widthPct ?? 100}
+              dateRange={layoutData.dateRange}
+              onHover={(sprint, x, y) => {
+                setHoveredSprint(sprint);
+                setTooltipPos({ x, y });
+              }}
+              onMouseLeave={() => {
+                setHoveredSprint(null);
+                setTooltipPos(null);
+              }}
             />
           ))}
         </div>
@@ -260,8 +478,8 @@ export function GanttChart() {
           const s = getStatusStyle(status);
           return (
             <div key={status} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: s.bg, border: `1px solid ${s.border}` }} />
-              <span style={{ fontSize: 12, color: 'var(--text3)' }}>{s.label}</span>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}` }} />
+              <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500 }}>{s.label}</span>
             </div>
           );
         })}

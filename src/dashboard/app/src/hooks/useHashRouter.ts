@@ -1,7 +1,16 @@
+'use client';
+
 import { useEffect, useCallback } from 'react';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
+
+// Page mapping: legacy pages -> new PageType
+const pageMapping: Record<string, PageType> = {
+  explorer: 'code',
+  planning: 'planning',
+  sprint: 'dashboard',
+};
 
 interface ParsedHash {
   page: string;
@@ -11,9 +20,22 @@ interface ParsedHash {
 
 function parseHash(hash: string): ParsedHash {
   const clean = hash.replace(/^#/, '');
-  const [page = 'explorer', tab = 'files', id] = clean.split('/');
+  const parts = clean.split('/');
+
+  // Handle new page names: dashboard, code, planning, team, retro
+  const newPages = ['dashboard', 'code', 'planning', 'team', 'retro'];
+  const page = parts[0] || 'dashboard';
+
+  // If using new page names, map to legacy structure
+  let legacyPage = page;
+  if (page === 'dashboard') legacyPage = 'sprint';
+  else if (page === 'code') legacyPage = 'explorer';
+
+  const tab = parts[1] || (legacyPage === 'explorer' ? 'files' : legacyPage === 'sprint' ? 'board' : 'roadmap');
+  const id = parts[2];
+
   return {
-    page,
+    page: legacyPage,
     tab,
     resourceId: id ? parseInt(id, 10) : null,
   };
@@ -38,14 +60,21 @@ export function useHashRouter() {
   const syncFromHash = useCallback(() => {
     const { page, tab, resourceId } = parseHash(window.location.hash);
 
-    if (page !== useUIStore.getState().activePage) setPage(page);
-    if (tab !== useUIStore.getState().activeTab) setTab(tab);
+    // Map legacy page names to new PageType
+    const normalizedPage: PageType = pageMapping[page] || page as PageType;
+
+    if (normalizedPage !== useUIStore.getState().activePage) {
+      setPage(normalizedPage);
+    }
+    if (tab !== useUIStore.getState().activeTab) {
+      setTab(tab);
+    }
 
     if (resourceId !== null) {
       if (page === 'explorer' && resourceId !== useFileStore.getState().selectedFileId) {
         selectFile(resourceId);
       }
-      if (page === 'sprint' && resourceId !== useSprintStore.getState().selectedSprintId) {
+      if ((page === 'sprint' || normalizedPage === 'dashboard') && resourceId !== useSprintStore.getState().selectedSprintId) {
         selectSprint(resourceId);
       }
     }

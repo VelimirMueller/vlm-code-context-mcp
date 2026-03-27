@@ -1,5 +1,11 @@
+import { useState, useEffect, useMemo } from 'react';
 import type { Ticket } from '@/types';
 import { TicketCard } from '@/components/molecules/TicketCard';
+import { TicketDetailModal } from './TicketDetailModal';
+import { QuickFilters, type TicketFilter } from '@/components/molecules/QuickFilters';
+import { usePlanningStore } from '@/stores/planningStore';
+import { useSprintStore } from '@/stores/sprintStore';
+import { patch } from '@/lib/api';
 
 interface KanbanBoardProps {
   tickets: Ticket[];
@@ -18,87 +24,155 @@ const COLUMNS: Record<string, ColConfig> = {
 };
 
 export function KanbanBoard({ tickets }: KanbanBoardProps) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: 12,
-        padding: '12px 0',
-      }}
-    >
-      {Object.entries(COLUMNS).map(([status, cfg]) => {
-        const colTickets = tickets.filter((t) => t.status === status);
-        const pts = colTickets.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const milestones = usePlanningStore((s) => s.milestones);
+  const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
 
-        return (
-          <div
-            key={status}
-            style={{
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: 200,
-            }}
-          >
-            {/* Column header */}
+  // Sprint store for filtering
+  const ticketFilter = useSprintStore((s) => s.ticketFilter);
+  const setTicketFilter = useSprintStore((s) => s.setTicketFilter);
+  const currentUserName = useSprintStore((s) => s.currentUserName);
+  const getFilterCounts = useSprintStore((s) => s.getFilterCounts);
+
+  // Calculate filter counts from tickets
+  const filterCounts = useMemo(() => {
+    return {
+      all: tickets.length,
+      mine: tickets.filter(t => t.assigned_to === currentUserName).length,
+      blocked: tickets.filter(t => t.status === 'BLOCKED').length,
+      qaPending: tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO').length,
+    };
+  }, [tickets, currentUserName]);
+
+  // Filter tickets based on current filter
+  const filteredTickets = useMemo(() => {
+    switch (ticketFilter) {
+      case 'mine':
+        return tickets.filter(t => t.assigned_to === currentUserName);
+      case 'blocked':
+        return tickets.filter(t => t.status === 'BLOCKED');
+      case 'qaPending':
+        return tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO');
+      case 'unassigned':
+        return tickets.filter(t => !t.assigned_to);
+      default:
+        return tickets;
+    }
+  }, [tickets, ticketFilter, currentUserName]);
+
+  useEffect(() => {
+    if (milestones.length === 0) fetchMilestones();
+  }, [milestones.length, fetchMilestones]);
+
+  const handleMilestoneChange = async (ticketId: number, milestoneId: number | null) => {
+    try {
+      await patch(`/api/ticket/${ticketId}/milestone`, { milestone_id: milestoneId });
+      if (selectedTicket && selectedTicket.id === ticketId) {
+        const milestone = milestones.find(m => m.id === milestoneId);
+        setSelectedTicket({ ...selectedTicket, milestone: milestone?.name ?? null });
+      }
+    } catch (e) {
+      console.error('Failed to link milestone:', e);
+    }
+  };
+
+  return (
+    <>
+      {/* Quick Filters */}
+      <QuickFilters
+        onFilterChange={setTicketFilter}
+        counts={filterCounts}
+        activeFilter={ticketFilter}
+        currentUserName={currentUserName}
+      />
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 12,
+          padding: '12px 0',
+        }}
+      >
+        {Object.entries(COLUMNS).map(([status, cfg]) => {
+          const colTickets = filteredTickets.filter((t) => t.status === status);
+          const pts = colTickets.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
+
+          return (
             <div
+              key={status}
               style={{
-                padding: '10px 12px',
-                borderBottom: '1px solid var(--border)',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexShrink: 0,
+                flexDirection: 'column',
+                minHeight: 200,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: cfg.color,
-                  }}
-                />
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                  {cfg.label}
-                </span>
-              </div>
-              <span
+              {/* Column header */}
+              <div
                 style={{
-                  fontSize: 10,
-                  color: 'var(--text3)',
-                  fontFamily: 'var(--mono)',
+                  padding: '10px 12px',
+                  borderBottom: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexShrink: 0,
                 }}
               >
-                {colTickets.length} · {pts}sp
-              </span>
-            </div>
-
-            {/* Cards */}
-            <div style={{ padding: 8, overflowY: 'auto', flex: 1 }}>
-              {colTickets.map((ticket) => (
-                <TicketCard key={ticket.id} ticket={ticket} />
-              ))}
-              {colTickets.length === 0 && (
-                <div
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: cfg.color,
+                    }}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                    {cfg.label}
+                  </span>
+                </div>
+                <span
                   style={{
-                    padding: '20px 8px',
-                    textAlign: 'center',
-                    fontSize: 11,
+                    fontSize: 10,
                     color: 'var(--text3)',
+                    fontFamily: 'var(--mono)',
                   }}
                 >
-                  Empty
-                </div>
-              )}
+                  {colTickets.length} · {pts}sp
+                </span>
+              </div>
+
+              {/* Cards */}
+              <div style={{ padding: 8, overflowY: 'auto', flex: 1 }}>
+                {colTickets.map((ticket) => (
+                  <TicketCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                ))}
+                {colTickets.length === 0 && (
+                  <div
+                    style={{
+                      padding: '20px 8px',
+                      textAlign: 'center',
+                      fontSize: 11,
+                      color: 'var(--text3)',
+                    }}
+                  >
+                    Empty
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      <TicketDetailModal
+        ticket={selectedTicket}
+        milestones={milestones}
+        onClose={() => setSelectedTicket(null)}
+        onMilestoneChange={handleMilestoneChange}
+      />
+    </>
   );
 }

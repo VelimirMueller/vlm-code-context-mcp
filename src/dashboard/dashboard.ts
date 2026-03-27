@@ -289,16 +289,21 @@ function apiBacklog() {
 }
 
 function apiPlanSprint(body: any) {
-  const { name, goal, ticket_ids, velocity_committed } = body;
+  const name = body.name;
+  const goal = body.goal;
+  const ticketIds = body.ticketIds ?? body.ticket_ids;
+  const velocity = body.targetVelocity ?? body.velocity_committed ?? 0;
+  const startDate = body.startDate ?? body.start_date ?? null;
+  const endDate = body.endDate ?? body.end_date ?? null;
   if (!name) throw new Error("name is required");
-  if (!ticket_ids || !Array.isArray(ticket_ids)) throw new Error("ticket_ids array is required");
-  const result = writeDb.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed) VALUES (?, ?, 'planning', ?)`).run(name, goal || null, velocity_committed || 0);
+  if (!ticketIds || !Array.isArray(ticketIds)) throw new Error("ticket_ids array is required");
+  const result = writeDb.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date) VALUES (?, ?, 'planning', ?, ?, ?)`).run(name, goal || null, velocity, startDate, endDate);
   const sprintId = result.lastInsertRowid;
   const updateStmt = writeDb.prepare(`UPDATE tickets SET sprint_id=?, updated_at=datetime('now') WHERE id=?`);
-  for (const tid of ticket_ids) {
+  for (const tid of ticketIds) {
     updateStmt.run(sprintId, tid);
   }
-  return { id: sprintId, name, tickets_assigned: ticket_ids.length };
+  return { id: sprintId, name, tickets_assigned: ticketIds.length };
 }
 
 // ─── Dump / Restore / Project Status API ────────────────────────────────────
@@ -438,6 +443,19 @@ const server = http.createServer(async (req, res) => {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintDetail(sid);
         if (!data) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
+      }
+      else if (url.pathname.match(/^\/api\/ticket\/\d+\/milestone$/) && req.method === "PATCH") {
+        const tid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const milestoneId = body.milestone_id;
+        if (milestoneId === null || milestoneId === undefined) {
+          writeDb.prepare("UPDATE tickets SET milestone = NULL WHERE id = ?").run(tid);
+        } else {
+          const milestone = writeDb.prepare("SELECT name FROM milestones WHERE id = ?").get(milestoneId) as any;
+          if (!milestone) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
+          writeDb.prepare("UPDATE tickets SET milestone = ? WHERE id = ?").run(milestone.name, tid);
+        }
+        data = { ok: true };
       }
       else if (url.pathname === "/api/dump") data = apiDump();
       else if (url.pathname === "/api/restore" && req.method === "POST") {

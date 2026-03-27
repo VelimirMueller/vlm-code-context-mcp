@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSprints } from '@/hooks/useSprints';
@@ -19,8 +21,12 @@ const TABS = [
   { key: 'insights', label: 'Retro Insights' },
 ];
 
-export function Sprint() {
-  const [activeTab, setActiveTab] = useState('board');
+interface SprintProps {
+  defaultTab?: 'board' | 'team' | 'insights';
+}
+
+export function Sprint({ defaultTab }: SprintProps = {}) {
+  const [activeTab, setActiveTab] = useState(defaultTab || 'board');
 
   // Kick off data fetching
   useSprints();

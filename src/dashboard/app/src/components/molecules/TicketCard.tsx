@@ -4,6 +4,7 @@ import type { Ticket } from '@/types';
 
 interface TicketCardProps {
   ticket: Ticket;
+  onClick?: () => void;
 }
 
 const priorityColor: Record<string, string> = {
@@ -13,19 +14,21 @@ const priorityColor: Record<string, string> = {
   P3: '#6b7280',
 };
 
-export function TicketCard({ ticket }: TicketCardProps) {
+export function TicketCard({ ticket, onClick }: TicketCardProps) {
   const pColor = priorityColor[ticket.priority] ?? '#6b7280';
 
   return (
     <motion.div
       whileHover={cardHover}
       layout
+      onClick={onClick}
       style={{
         padding: '10px 12px',
         background: 'var(--surface)',
         border: '1px solid var(--border)',
         borderRadius: 10,
         marginBottom: 6,
+        cursor: onClick ? 'pointer' : 'default',
       }}
     >
       <div

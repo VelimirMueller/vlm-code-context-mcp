@@ -1,14 +1,28 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+export type PageType = 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
+export type QuickFilter = 'all' | 'mine' | 'blocked' | 'qa-pending';
+export type UserRole = 'developer' | 'tech-lead' | 'product-owner' | 'qa' | 'designer';
+
+export interface BreadcrumbItem {
+  label: string;
+  path?: string;
+}
+
 export interface UIStore {
-  activePage: 'explorer' | 'planning' | 'sprint';
+  activePage: PageType;
   activeTab: string;
   activeSubTab: string | null;
   sidebarCollapsed: boolean;
   expandedFolders: Set<string>;
   searchQuery: string;
   searchFocused: boolean;
+
+  // New navigation state
+  quickFilter: QuickFilter;
+  breadcrumbTrail: BreadcrumbItem[];
+  userRole: UserRole;
 
   setPage: (page: string) => void;
   setTab: (tab: string) => void;
@@ -18,14 +32,33 @@ export interface UIStore {
   expandFolderPath: (filePath: string) => void;
   setSearch: (query: string) => void;
   setSearchFocused: (focused: boolean) => void;
+
+  // New navigation actions
+  setQuickFilter: (filter: QuickFilter) => void;
+  setBreadcrumbTrail: (trail: BreadcrumbItem[]) => void;
+  setUserRole: (role: UserRole) => void;
+  getDefaultPageForRole: (role: UserRole) => PageType;
 }
 
 function defaultTabForPage(page: string): string {
   switch (page) {
-    case 'explorer': return 'files';
-    case 'planning': return 'milestones';
-    case 'sprint':   return 'board';
-    default:         return 'files';
+    case 'code':     return 'files';
+    case 'planning': return 'roadmap';
+    case 'dashboard': return 'board';
+    case 'team':     return 'grid';
+    case 'retro':    return 'insights';
+    default:         return 'board';
+  }
+}
+
+function getDefaultPageForRole(role: UserRole): PageType {
+  switch (role) {
+    case 'developer':      return 'dashboard';
+    case 'tech-lead':      return 'planning';
+    case 'product-owner':  return 'planning';
+    case 'qa':             return 'dashboard';
+    case 'designer':       return 'team';
+    default:               return 'dashboard';
   }
 }
 
@@ -39,14 +72,22 @@ const setReviver = (_: string, v: unknown) =>
 
 export const useUIStore = create<UIStore>()(
   persist(
-    (set) => ({
-      activePage: 'explorer',
-      activeTab: 'files',
+    (set, get) => ({
+      activePage: 'dashboard',
+      activeTab: 'board',
       activeSubTab: null,
       sidebarCollapsed: false,
       expandedFolders: new Set<string>(),
       searchQuery: '',
       searchFocused: false,
+
+      // New navigation state
+      quickFilter: 'all',
+      breadcrumbTrail: [
+        { label: 'Dashboard' },
+        { label: 'Sprint Board (Active)' },
+      ],
+      userRole: 'developer',
 
       setPage: (page) =>
         set({
@@ -80,6 +121,15 @@ export const useUIStore = create<UIStore>()(
       setSearch: (query) => set({ searchQuery: query }),
 
       setSearchFocused: (focused) => set({ searchFocused: focused }),
+
+      // New navigation actions
+      setQuickFilter: (filter) => set({ quickFilter: filter }),
+
+      setBreadcrumbTrail: (trail) => set({ breadcrumbTrail: trail }),
+
+      setUserRole: (role) => set({ userRole: role }),
+
+      getDefaultPageForRole: (role) => getDefaultPageForRole(role),
     }),
     {
       name: 'mcp-ui-store',
@@ -91,6 +141,8 @@ export const useUIStore = create<UIStore>()(
         activePage: s.activePage,
         sidebarCollapsed: s.sidebarCollapsed,
         expandedFolders: s.expandedFolders,
+        quickFilter: s.quickFilter,
+        userRole: s.userRole,
       }),
     },
   ),
