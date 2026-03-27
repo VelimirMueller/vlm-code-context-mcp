@@ -4,3 +4,4 @@ export { KanbanBoard } from './KanbanBoard';
 export { TeamGrid } from './TeamGrid';
 export { BentoGrid } from './BentoGrid';
 export { LandingAnimation } from './LandingAnimation';
+export { LinearIssueGroup } from './LinearIssueGroup';

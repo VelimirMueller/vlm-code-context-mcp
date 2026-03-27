@@ -9,6 +9,7 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
+import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects } from "./linear.js";
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -533,6 +534,26 @@ const server = http.createServer(async (req, res) => {
         const id = Number(url.pathname.split("/")[3]);
         data = apiFileContext(id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
+      }
+      // ── Linear / Me tab endpoints ──────────────────────────────────────
+      else if (url.pathname === "/api/me/configured") {
+        data = { configured: await isLinearConfigured() };
+      } else if (url.pathname === "/api/me/user") {
+        const configured = await isLinearConfigured();
+        if (!configured) { data = { configured: false }; }
+        else { data = await getLinearUser(); }
+      } else if (url.pathname === "/api/me/issues") {
+        const configured = await isLinearConfigured();
+        if (!configured) { data = { configured: false }; }
+        else { data = await getLinearIssues(); }
+      } else if (url.pathname === "/api/me/cycles") {
+        const configured = await isLinearConfigured();
+        if (!configured) { data = { configured: false }; }
+        else { data = await getLinearCycles(); }
+      } else if (url.pathname === "/api/me/projects") {
+        const configured = await isLinearConfigured();
+        if (!configured) { data = { configured: false }; }
+        else { data = await getLinearProjects(); }
       } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));

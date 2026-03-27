@@ -122,3 +122,45 @@ export interface Stats {
   languages: Array<{ language: string; c: number }>;
   extensions: Array<{ extension: string; c: number }>;
 }
+
+export interface LinearUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
+export interface LinearIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  priority: number;
+  priorityLabel: string;
+  status: string;
+  statusColor: string;
+  labels: string[];
+  projectName: string | null;
+  assigneeId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LinearCycle {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  completedIssueCount: number;
+  totalIssueCount: number;
+  status: string;
+}
+
+export interface LinearProject {
+  id: string;
+  name: string;
+  status: string;
+  progress: number;
+  leadName: string | null;
+  targetDate: string | null;
+}
