@@ -1,29 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { BentoCard } from '@/components/molecules/BentoCard';
+import { get } from '@/lib/api';
 import type { RetroFinding } from '@/types';
 
 export function BentoGrid() {
   const sprints = useSprintStore((s) => s.sprints);
-  const fetchRetro = useSprintStore((s) => s.fetchRetro);
   const [allFindings, setAllFindings] = useState<RetroFinding[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (sprints.length === 0) return;
-
     setLoading(true);
-    Promise.all(
-      sprints.map((s) =>
-        fetch(`/api/sprint/${s.id}/retro`)
-          .then((r) => r.json())
-          .catch(() => [] as RetroFinding[])
-      )
-    )
-      .then((results) => {
-        const flat = (results as RetroFinding[][]).flat();
-        setAllFindings(flat);
-      })
+    get<RetroFinding[]>('/api/retro/all')
+      .then((findings) => setAllFindings(Array.isArray(findings) ? findings : []))
+      .catch(() => setAllFindings([]))
       .finally(() => setLoading(false));
   }, [sprints.length]);
 
