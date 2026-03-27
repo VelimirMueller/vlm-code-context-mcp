@@ -1,10 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import type { Ticket } from '@/types';
 import { TicketCard } from '@/components/molecules/TicketCard';
 import { TicketDetailModal } from './TicketDetailModal';
-import { QuickFilters, type TicketFilter } from '@/components/molecules/QuickFilters';
 import { usePlanningStore } from '@/stores/planningStore';
-import { useSprintStore } from '@/stores/sprintStore';
 import { patch } from '@/lib/api';
 
 interface KanbanBoardProps {
@@ -28,38 +26,6 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
 
-  // Sprint store for filtering
-  const ticketFilter = useSprintStore((s) => s.ticketFilter);
-  const setTicketFilter = useSprintStore((s) => s.setTicketFilter);
-  const currentUserName = useSprintStore((s) => s.currentUserName);
-  const getFilterCounts = useSprintStore((s) => s.getFilterCounts);
-
-  // Calculate filter counts from tickets
-  const filterCounts = useMemo(() => {
-    return {
-      all: tickets.length,
-      mine: tickets.filter(t => t.assigned_to === currentUserName).length,
-      blocked: tickets.filter(t => t.status === 'BLOCKED').length,
-      qaPending: tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO').length,
-    };
-  }, [tickets, currentUserName]);
-
-  // Filter tickets based on current filter
-  const filteredTickets = useMemo(() => {
-    switch (ticketFilter) {
-      case 'mine':
-        return tickets.filter(t => t.assigned_to === currentUserName);
-      case 'blocked':
-        return tickets.filter(t => t.status === 'BLOCKED');
-      case 'qaPending':
-        return tickets.filter(t => t.qa_verified === 0 && t.status !== 'TODO');
-      case 'unassigned':
-        return tickets.filter(t => !t.assigned_to);
-      default:
-        return tickets;
-    }
-  }, [tickets, ticketFilter, currentUserName]);
-
   useEffect(() => {
     if (milestones.length === 0) fetchMilestones();
   }, [milestones.length, fetchMilestones]);
@@ -78,14 +44,6 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
 
   return (
     <>
-      {/* Quick Filters */}
-      <QuickFilters
-        onFilterChange={setTicketFilter}
-        counts={filterCounts}
-        activeFilter={ticketFilter}
-        currentUserName={currentUserName}
-      />
-
       <div
         style={{
           display: 'grid',
@@ -95,7 +53,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
         }}
       >
         {Object.entries(COLUMNS).map(([status, cfg]) => {
-          const colTickets = filteredTickets.filter((t) => t.status === status);
+          const colTickets = tickets.filter((t) => t.status === status);
           const pts = colTickets.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
 
           return (
