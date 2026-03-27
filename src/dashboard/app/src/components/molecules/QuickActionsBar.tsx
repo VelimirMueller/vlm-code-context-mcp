@@ -1,11 +1,12 @@
 'use client';
 
+import React from 'react';
 import { Breadcrumb } from './Breadcrumb';
 
 interface QuickAction {
   id: string;
   label: string;
-  icon: string;
+  icon: React.ReactNode;
   count?: number;
   highlight?: boolean;
   onClick: () => void;

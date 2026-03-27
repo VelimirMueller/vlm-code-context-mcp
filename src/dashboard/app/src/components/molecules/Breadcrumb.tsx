@@ -11,7 +11,7 @@ interface BreadcrumbProps {
 
 export function Breadcrumb({ items }: BreadcrumbProps) {
   return (
-    <nav className="breadcrumb" aria-label="Breadcrumb navigation">
+    <nav className="breadcrumb" aria-label="Breadcrumb navigation" style={{ paddingLeft: 16, paddingRight: 16 }}>
       {items.map((item, index) => (
         <div key={index} className="breadcrumb-item">
           {index > 0 && (

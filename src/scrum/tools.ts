@@ -720,7 +720,9 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 - **architect** — System design, infrastructure, CI/CD, technical standards
 - **lead-developer** — Technical decisions, code quality, conflict resolution
 - **backend-developer** — APIs, database, business logic, integrations
-- **frontend-developer** — UI components, styling, responsive design, UX
+- **frontend-developer** — UI components, styling, responsive design, UX (lead frontend)
+- **frontend-developer-2** — React component architecture, Zustand stores, Framer Motion, data visualization
+- **frontend-developer-3** — Design systems, accessibility, SVG icons, CSS architecture, visual polish
 - **qa** — Test plans, acceptance verification, bug tickets, set qa_verified
 - **security-specialist** — Vulnerability audits, CVE monitoring, input sanitization
 - **manager** — Cost efficiency, prevent over-engineering, business alignment

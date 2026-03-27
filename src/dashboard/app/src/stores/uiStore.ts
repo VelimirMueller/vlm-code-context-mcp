@@ -43,12 +43,24 @@ export interface UIStore {
 function defaultTabForPage(page: string): string {
   switch (page) {
     case 'code':      return 'files';
-    case 'planning':  return 'roadmap';
+    case 'planning':  return 'vision';
     case 'dashboard': return 'board';
     case 'team':      return 'grid';
     case 'retro':     return 'insights';
     case 'marketing': return 'releases';
     default:          return 'board';
+  }
+}
+
+function breadcrumbForPage(page: string): BreadcrumbItem[] {
+  switch (page) {
+    case 'dashboard': return [{ label: 'Dashboard' }, { label: 'Sprint Board' }];
+    case 'code':      return [{ label: 'Code' }, { label: 'Explorer' }];
+    case 'planning':  return [{ label: 'Planning' }, { label: 'Vision' }];
+    case 'team':      return [{ label: 'Team' }, { label: 'Overview' }];
+    case 'retro':     return [{ label: 'Retro' }, { label: 'Insights' }];
+    case 'marketing': return [{ label: 'Marketing' }, { label: 'Overview' }];
+    default:          return [{ label: 'Dashboard' }];
   }
 }
 
@@ -95,9 +107,19 @@ export const useUIStore = create<UIStore>()(
           activePage: page as UIStore['activePage'],
           activeTab: defaultTabForPage(page),
           activeSubTab: null,
+          breadcrumbTrail: breadcrumbForPage(page),
         }),
 
-      setTab: (tab) => set({ activeTab: tab, activeSubTab: null }),
+      setTab: (tab) => set((s) => {
+        const trail = [...s.breadcrumbTrail];
+        const tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
+        if (trail.length >= 2) {
+          trail[1] = { label: tabLabel };
+        } else {
+          trail.push({ label: tabLabel });
+        }
+        return { activeTab: tab, activeSubTab: null, breadcrumbTrail: trail };
+      }),
 
       setSubTab: (subTab) => set({ activeSubTab: subTab }),
 

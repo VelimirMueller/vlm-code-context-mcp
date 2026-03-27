@@ -29,8 +29,6 @@ export function QuickFilters({
   const filters: FilterButton[] = [
     { id: 'all', label: 'All Tickets', count: counts.all },
     { id: 'mine', label: currentUserName, count: counts.mine },
-    { id: 'blocked', label: 'Blocked', count: counts.blocked },
-    { id: 'qaPending', label: 'QA Pending', count: counts.qaPending },
   ];
 
   return (
@@ -38,7 +36,7 @@ export function QuickFilters({
       style={{
         display: 'flex',
         gap: 8,
-        padding: '12px 0',
+        padding: '12px 16px',
         borderBottom: '1px solid var(--border)',
         marginBottom: 12,
       }}

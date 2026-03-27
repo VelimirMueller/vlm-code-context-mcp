@@ -348,9 +348,11 @@ export function GanttChart() {
 
   const sorted = useMemo(
     () =>
-      [...ganttData].sort((a, b) =>
-        (a.created_at || '').localeCompare(b.created_at || ''),
-      ),
+      [...ganttData]
+        .filter((s) => s.status === 'active' || s.status === 'planning')
+        .sort((a, b) =>
+          (a.created_at || '').localeCompare(b.created_at || ''),
+        ),
     [ganttData],
   );
 
@@ -589,8 +591,8 @@ function MemberAllocationView({ sprints }: { sprints: Sprint[] }) {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {isOverused && <span title="Overused — risk of burnout" style={{ fontSize: 10 }}>&#128293;</span>}
-              {isUnderused && !isIdle && <span title="Underused — assign more" style={{ fontSize: 10 }}>&#9888;&#65039;</span>}
+              {isOverused && <span title="Overused — risk of burnout" style={{ display: 'inline-flex', color: 'var(--red)' }}><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1c-1 3-4 4-4 8a4 4 0 0 0 8 0c0-4-3-5-4-8z" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity=".15" strokeLinejoin="round"/></svg></span>}
+              {isUnderused && !isIdle && <span title="Underused — assign more" style={{ display: 'inline-flex', color: 'var(--orange)' }}><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l6.5 11.5H1.5L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M8 7v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="11.5" r=".75" fill="currentColor"/></svg></span>}
               <span style={{
                 fontSize: 11,
                 fontWeight: 600,
@@ -641,9 +643,9 @@ function MemberAllocationView({ sprints }: { sprints: Sprint[] }) {
       })}
 
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 10, color: 'var(--text3)' }}>
-        <span>&#128293; Overused (burnout risk)</span>
-        <span>&#9888;&#65039; Underused (assign more)</span>
+      <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 10, color: 'var(--text3)', alignItems: 'center' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 1c-1 3-4 4-4 8a4 4 0 0 0 8 0c0-4-3-5-4-8z" stroke="var(--red)" strokeWidth="1.5" fill="var(--red)" fillOpacity=".15" strokeLinejoin="round"/></svg> Overused (burnout risk)</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l6.5 11.5H1.5L8 1.5z" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M8 7v2.5" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="11.5" r=".75" fill="var(--orange)"/></svg> Underused (assign more)</span>
         <span style={{ color: 'var(--red)' }}>3+ tickets = heavy load</span>
         <span style={{ color: 'var(--accent)' }}>2 = balanced</span>
         <span style={{ color: 'var(--blue)' }}>1 = minimum met</span>

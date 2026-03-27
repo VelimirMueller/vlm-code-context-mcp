@@ -1,24 +1,28 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useUIStore } from '@/stores/uiStore';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { BentoCard } from '@/components/molecules/BentoCard';
+import { GoogleAdsStrategy } from '@/components/organisms/GoogleAdsStrategy';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
 const TABS = [
   { key: 'releases', label: 'Release Notes' },
   { key: 'positioning', label: 'Positioning' },
   { key: 'metrics', label: 'Growth Metrics' },
+  { key: 'google-ads', label: 'Google Ads' },
 ];
 
 export function Marketing() {
-  const [activeTab, setActiveTab] = useState<string>('releases');
+  const activeTab = useUIStore((s) => s.activeTab);
+  const setActiveTab = useUIStore((s) => s.setTab);
   const sprints = useSprintStore((s) => s.sprints);
   const agents = useAgentStore((s) => s.agents);
   const milestones = usePlanningStore((s) => s.milestones);
@@ -101,6 +105,22 @@ export function Marketing() {
                 agentCount={agents.length}
               />
             </div>
+          </motion.div>
+        )}
+        {activeTab === 'google-ads' && (
+          <motion.div
+            key="google-ads"
+            variants={tabVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={tabTransition}
+            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          >
+            <HeroText>
+              {'Google Ads AI — cheap strategies for npm packages'}
+            </HeroText>
+            <GoogleAdsStrategy />
           </motion.div>
         )}
       </AnimatePresence>

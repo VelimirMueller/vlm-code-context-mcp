@@ -237,6 +237,54 @@ function apiSprintRetro(sprintId: number) {
   } catch { return []; }
 }
 
+function apiSprintsGroupedByMilestone() {
+  try {
+    const milestones = writeDb.prepare(`
+      SELECT m.*,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE') as done_count
+      FROM milestones m
+      ORDER BY CASE m.status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END, m.created_at DESC
+    `).all() as any[];
+
+    const sprintQuery = writeDb.prepare(`
+      SELECT DISTINCT s.*,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
+        (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
+      FROM sprints s
+      INNER JOIN tickets t ON t.sprint_id = s.id AND t.milestone_id = ?
+      ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
+    `);
+
+    const unassignedQuery = writeDb.prepare(`
+      SELECT s.*,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
+        (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
+      FROM sprints s
+      WHERE NOT EXISTS (SELECT 1 FROM tickets t WHERE t.sprint_id = s.id AND t.milestone_id IS NOT NULL)
+      ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
+    `);
+
+    const groups = milestones.map((m: any) => ({
+      milestone: m,
+      sprints: sprintQuery.all(m.id),
+    }));
+
+    const unassigned = unassignedQuery.all();
+    if (unassigned.length > 0) {
+      groups.push({ milestone: null, sprints: unassigned });
+    }
+
+    return groups;
+  } catch { return []; }
+}
+
 // ─── Milestones, Vision, Backlog, Sprint Planning API ────────────────────────
 function apiMilestones() {
   try {
@@ -432,6 +480,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         data = apiPlanSprint(body);
       }
+      else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
       else if (url.pathname === "/api/sprints") data = apiSprints();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);

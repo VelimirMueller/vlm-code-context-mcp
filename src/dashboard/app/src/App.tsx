@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
@@ -53,31 +53,14 @@ export function App() {
 
   const quickActions = useMemo(() => {
     const myTicketsCount = tickets.filter((t) => t.assigned_to === 'Me').length;
-    const blockedCount = tickets.filter((t) => t.status === 'BLOCKED').length;
-    const qaPendingCount = tickets.filter((t) => t.qa_verified === 0 && t.status !== 'TODO').length;
 
     return [
       {
         id: 'my-tickets',
         label: 'My Tickets',
-        icon: '🎯',
+        icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 14c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
         count: myTicketsCount,
         onClick: () => setQuickFilter('mine'),
-      },
-      {
-        id: 'blockers',
-        label: 'Blockers',
-        icon: '🚫',
-        count: blockedCount,
-        highlight: blockedCount > 0,
-        onClick: () => setQuickFilter('blocked'),
-      },
-      {
-        id: 'qa-pending',
-        label: 'QA Pending',
-        icon: '⚠',
-        count: qaPendingCount,
-        onClick: () => setQuickFilter('qa-pending'),
       },
       ];
   }, [tickets, quickFilter, setQuickFilter]);
@@ -158,6 +141,7 @@ export function App() {
         actions={quickActions}
         searchQuery={useUIStore((s) => s.searchQuery)}
         onSearchChange={useUIStore((s) => s.setSearch)}
+        breadcrumbItems={breadcrumb}
       />
       <main className="page-content">
         <AnimatePresence mode="wait">

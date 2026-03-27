@@ -97,6 +97,11 @@ export interface Milestone {
   done_count: number;
 }
 
+export interface MilestoneSprintGroup {
+  milestone: Milestone | null;
+  sprints: Sprint[];
+}
+
 export interface Stats {
   files: number;
   exports: number;

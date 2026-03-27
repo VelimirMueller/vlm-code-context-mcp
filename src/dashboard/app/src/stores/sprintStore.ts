@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { get } from '@/lib/api';
-import type { Sprint, Ticket, RetroFinding } from '@/types';
+import type { Sprint, Ticket, RetroFinding, MilestoneSprintGroup } from '@/types';
 
 export type TicketFilter = 'all' | 'mine' | 'blocked' | 'qaPending' | 'unassigned';
 
@@ -10,17 +10,19 @@ export interface SprintDetail extends Sprint {
 
 export interface SprintStore {
   sprints: Sprint[];
+  milestoneGroups: MilestoneSprintGroup[];
   selectedSprintId: number | null;
   sprintDetail: SprintDetail | null;
   tickets: Ticket[];
   retroFindings: RetroFinding[];
   selectedRetroFindings: RetroFinding[];
-  loading: { sprints: boolean; detail: boolean };
+  loading: { sprints: boolean; detail: boolean; grouped: boolean };
   error: { sprints: string | null; detail: string | null };
   ticketFilter: TicketFilter;
   currentUserName: string;
 
   fetchSprints: () => Promise<void>;
+  fetchGroupedSprints: () => Promise<void>;
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
   fetchRetro: (sprintId: number) => Promise<void>;
@@ -37,15 +39,28 @@ export interface SprintStore {
 
 export const useSprintStore = create<SprintStore>((set, getState) => ({
   sprints: [],
+  milestoneGroups: [],
   selectedSprintId: null,
   sprintDetail: null,
   tickets: [],
   retroFindings: [],
   selectedRetroFindings: [],
-  loading: { sprints: false, detail: false },
+  loading: { sprints: false, detail: false, grouped: false },
   error: { sprints: null, detail: null },
   ticketFilter: 'all',
   currentUserName: 'Me',
+
+  fetchGroupedSprints: async () => {
+    set((s) => ({ loading: { ...s.loading, grouped: true } }));
+    try {
+      const groups = await get<MilestoneSprintGroup[]>('/api/sprints/grouped');
+      set({ milestoneGroups: groups ?? [] });
+    } catch {
+      set({ milestoneGroups: [] });
+    } finally {
+      set((s) => ({ loading: { ...s.loading, grouped: false } }));
+    }
+  },
 
   fetchSprints: async () => {
     set((s) => ({ loading: { ...s.loading, sprints: true }, error: { ...s.error, sprints: null } }));

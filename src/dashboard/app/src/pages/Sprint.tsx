@@ -6,6 +6,7 @@ import { useSprints } from '@/hooks/useSprints';
 import { useAgents } from '@/hooks/useAgents';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { useUIStore } from '@/stores/uiStore';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
@@ -30,7 +31,8 @@ interface SprintProps {
 }
 
 export function Sprint({ defaultTab }: SprintProps = {}) {
-  const [activeTab, setActiveTab] = useState<string>(defaultTab || 'board');
+  const activeTab = useUIStore((s) => s.activeTab) || defaultTab || 'board';
+  const setActiveTab = useUIStore((s) => s.setTab);
 
   // Kick off data fetching
   useSprints();
