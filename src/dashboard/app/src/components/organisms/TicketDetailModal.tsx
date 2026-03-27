@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { Ticket, Milestone } from '@/types';
+import type { Ticket, Milestone, Epic } from '@/types';
+import { get } from '@/lib/api';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
   milestones: Milestone[];
   onClose: () => void;
   onMilestoneChange: (ticketId: number, milestoneId: number | null) => Promise<void>;
+  onEpicChange: (ticketId: number, epicId: number | null) => Promise<void>;
 }
 
 const priorityColor: Record<string, string> = {
@@ -26,10 +28,25 @@ function MetaField({ label, value, mono, color }: { label: string; value: string
   );
 }
 
-export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChange }: TicketDetailModalProps) {
+export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChange, onEpicChange }: TicketDetailModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(false);
+
+  const [epics, setEpics] = useState<Epic[]>([]);
+  const [epicSaving, setEpicSaving] = useState(false);
+  const [epicSaved, setEpicSaved] = useState(false);
+  const [epicError, setEpicError] = useState(false);
+
+  useEffect(() => {
+    if (ticket) {
+      get<Epic[]>('/api/epics').then(setEpics).catch(() => setEpics([]));
+    }
+  }, [ticket?.id]);
+
+  const filteredEpics = ticket?.milestone_id
+    ? epics.filter((e) => e.milestone_id === ticket.milestone_id || e.milestone_id === null)
+    : epics;
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (!ticket) return;
@@ -46,6 +63,24 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
       setTimeout(() => setError(false), 3000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleEpicChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!ticket) return;
+    const val = e.target.value ? Number(e.target.value) : null;
+    setEpicSaving(true);
+    setEpicSaved(false);
+    setEpicError(false);
+    try {
+      await onEpicChange(ticket.id, val);
+      setEpicSaved(true);
+      setTimeout(() => setEpicSaved(false), 2000);
+    } catch {
+      setEpicError(true);
+      setTimeout(() => setEpicError(false), 3000);
+    } finally {
+      setEpicSaving(false);
     }
   };
 
@@ -151,6 +186,49 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                 >
                   <option value="">None</option>
                   {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Epic selector */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const }}>Epic</div>
+                {epicSaving && (
+                  <div style={{ fontSize: 10, color: 'var(--orange)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Saving...
+                  </div>
+                )}
+                {epicSaved && (
+                  <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Saved
+                  </div>
+                )}
+                {epicError && (
+                  <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Failed to save
+                  </div>
+                )}
+              </div>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={ticket.epic_id ?? ''}
+                  onChange={handleEpicChange}
+                  disabled={epicSaving}
+                  style={{
+                    width: '100%', background: 'var(--bg)',
+                    border: `1px solid ${epicSaving ? 'var(--orange)' : epicSaved ? 'var(--accent)' : epicError ? 'var(--red)' : 'var(--border)'}`,
+                    borderRadius: 8, color: epicSaving ? 'var(--text3)' : 'var(--text)', fontSize: 13, padding: '8px 12px',
+                    fontFamily: 'var(--font)', cursor: epicSaving ? 'wait' : 'pointer', outline: 'none',
+                    opacity: epicSaving ? 0.6 : 1, transition: 'all .2s',
+                  }}
+                >
+                  <option value="">None</option>
+                  {filteredEpics.map(ep => (
+                    <option key={ep.id} value={ep.id}>
+                      {ep.color ? `${ep.color} ` : ''}{ep.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

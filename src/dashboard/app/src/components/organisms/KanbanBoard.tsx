@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { Ticket } from '@/types';
 import { TicketCard } from '@/components/molecules/TicketCard';
 import { TicketDetailModal } from './TicketDetailModal';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useSprintStore } from '@/stores/sprintStore';
-import { patch } from '@/lib/api';
+import { get, patch } from '@/lib/api';
+import type { Epic } from '@/types';
 
 interface KanbanBoardProps {
   tickets: Ticket[];
@@ -24,6 +25,8 @@ const COLUMNS: Record<string, ColConfig> = {
 
 export function KanbanBoard({ tickets }: KanbanBoardProps) {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [groupByEpic, setGroupByEpic] = useState(false);
+  const [epics, setEpics] = useState<Epic[]>([]);
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
@@ -33,6 +36,37 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
   useEffect(() => {
     if (milestones.length === 0) fetchMilestones();
   }, [milestones.length, fetchMilestones]);
+
+  useEffect(() => {
+    if (groupByEpic && epics.length === 0) {
+      get<Epic[]>('/api/epics').then((data) => {
+        if (Array.isArray(data)) setEpics(data);
+      }).catch(() => {});
+    }
+  }, [groupByEpic, epics.length]);
+
+  const epicColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    epics.forEach((e) => map.set(e.name, e.color));
+    return map;
+  }, [epics]);
+
+  const epicGroups = useMemo(() => {
+    if (!groupByEpic) return null;
+    const groups = new Map<string, Ticket[]>();
+    for (const t of tickets) {
+      const key = t.epic_name ?? 'No Epic';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(t);
+    }
+    // Sort: named epics first, "No Epic" last
+    const sorted = [...groups.entries()].sort((a, b) => {
+      if (a[0] === 'No Epic') return 1;
+      if (b[0] === 'No Epic') return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    return sorted;
+  }, [groupByEpic, tickets]);
 
   const handleMilestoneChange = async (ticketId: number, milestoneId: number | null) => {
     await patch(`/api/ticket/${ticketId}/milestone`, { milestone_id: milestoneId });
@@ -49,94 +83,165 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
     fetchGrouped();
   };
 
-  return (
-    <>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 12,
-          padding: '12px 0',
-        }}
-      >
-        {Object.entries(COLUMNS).map(([status, cfg]) => {
-          const colTickets = tickets.filter((t) => t.status === status);
-          const pts = colTickets.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
+  const handleEpicChange = async (ticketId: number, epicId: number | null) => {
+    await patch(`/api/ticket/${ticketId}/epic`, { epic_id: epicId });
+    if (selectedTicket && selectedTicket.id === ticketId) {
+      setSelectedTicket({
+        ...selectedTicket,
+        epic_id: epicId ?? undefined,
+      });
+    }
+    // Re-fetch sprint tickets so the board updates
+    if (selectedSprintId) fetchTickets(selectedSprintId);
+  };
 
-          return (
+  const renderColumns = (columnTickets: Ticket[]) => (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: 12,
+        padding: '12px 0',
+      }}
+    >
+      {Object.entries(COLUMNS).map(([status, cfg]) => {
+        const colTickets = columnTickets.filter((t) => t.status === status);
+        const pts = colTickets.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
+
+        return (
+          <div
+            key={status}
+            style={{
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 200,
+            }}
+          >
+            {/* Column header */}
             <div
-              key={status}
               style={{
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
+                padding: '10px 12px',
+                borderBottom: '1px solid var(--border)',
                 display: 'flex',
-                flexDirection: 'column',
-                minHeight: 200,
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexShrink: 0,
               }}
             >
-              {/* Column header */}
-              <div
-                style={{
-                  padding: '10px 12px',
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: cfg.color,
-                    }}
-                  />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    {cfg.label}
-                  </span>
-                </div>
-                <span
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
                   style={{
-                    fontSize: 10,
-                    color: 'var(--text3)',
-                    fontFamily: 'var(--mono)',
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: cfg.color,
                   }}
-                >
-                  {colTickets.length} · {pts}sp
+                />
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                  {cfg.label}
                 </span>
               </div>
-
-              {/* Cards */}
-              <div style={{ padding: 8, overflowY: 'auto', flex: 1 }}>
-                {colTickets.map((ticket) => (
-                  <TicketCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
-                ))}
-                {colTickets.length === 0 && (
-                  <div
-                    style={{
-                      padding: '20px 8px',
-                      textAlign: 'center',
-                      fontSize: 11,
-                      color: 'var(--text3)',
-                    }}
-                  >
-                    Empty
-                  </div>
-                )}
-              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: 'var(--text3)',
+                  fontFamily: 'var(--mono)',
+                }}
+              >
+                {colTickets.length} · {pts}sp
+              </span>
             </div>
-          );
-        })}
+
+            {/* Cards */}
+            <div style={{ padding: 8, overflowY: 'auto', flex: 1 }}>
+              {colTickets.map((ticket) => (
+                <TicketCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+              ))}
+              {colTickets.length === 0 && (
+                <div
+                  style={{
+                    padding: '20px 8px',
+                    textAlign: 'center',
+                    fontSize: 11,
+                    color: 'var(--text3)',
+                  }}
+                >
+                  Empty
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <>
+      {/* Group by Epic toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0 0' }}>
+        <button
+          onClick={() => setGroupByEpic((v) => !v)}
+          style={{
+            background: groupByEpic ? 'var(--accent)' : 'var(--surface)',
+            color: groupByEpic ? '#000' : 'var(--text3)',
+            border: `1px solid ${groupByEpic ? 'var(--accent)' : 'var(--border)'}`,
+            borderRadius: 7,
+            padding: '5px 12px',
+            fontSize: 11.5,
+            fontWeight: 650,
+            cursor: 'pointer',
+            fontFamily: 'var(--font)',
+            transition: 'all .2s',
+          }}
+        >
+          Group by Epic
+        </button>
       </div>
+
+      {groupByEpic && epicGroups ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {epicGroups.map(([epicName, groupTickets]) => {
+            const color = epicColorMap.get(epicName) ?? 'var(--border)';
+            return (
+              <div key={epicName}>
+                {/* Epic section header */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 0 2px',
+                    borderLeft: `4px solid ${color}`,
+                    paddingLeft: 12,
+                    marginTop: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                    {epicName}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                    {groupTickets.length} ticket{groupTickets.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {renderColumns(groupTickets)}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        renderColumns(tickets)
+      )}
+
       <TicketDetailModal
         ticket={selectedTicket}
         milestones={milestones}
         onClose={() => setSelectedTicket(null)}
         onMilestoneChange={handleMilestoneChange}
+        onEpicChange={handleEpicChange}
       />
     </>
   );

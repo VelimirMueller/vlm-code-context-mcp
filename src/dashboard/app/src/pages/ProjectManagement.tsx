@@ -12,15 +12,17 @@ import { GanttChart } from '@/components/organisms/GanttChart';
 import { PlanningInsights } from '@/components/organisms/PlanningInsights';
 import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
+import { EpicList } from '@/components/organisms/EpicList';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'vision' | 'milestones' | 'planning' | 'gantt' | 'insights';
+type Tab = 'vision' | 'milestones' | 'epics' | 'planning' | 'gantt' | 'insights';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
   { id: 'milestones', label: 'Milestones' },
+  { id: 'epics', label: 'Epics' },
   { id: 'planning', label: 'Planning' },
   { id: 'gantt', label: 'Gantt' },
   { id: 'insights', label: 'Insights' },
@@ -155,6 +157,18 @@ export function ProjectManagement() {
                 </HeroText>
               )}
               <MilestoneList />
+            </motion.div>
+          )}
+          {activeTab === 'epics' && (
+            <motion.div
+              key="epics"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <EpicList />
             </motion.div>
           )}
           {activeTab === 'vision' && (

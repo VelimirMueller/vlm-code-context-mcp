@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useUIStore } from '@/stores/uiStore';
+import { get } from '@/lib/api';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
@@ -21,6 +22,13 @@ const TABS = [
   { key: 'google-ads', label: 'Google Ads' },
 ];
 
+interface ProjectStatus {
+  toolCount: number;
+  version: string;
+  agents: number;
+  milestones: number;
+}
+
 export function Marketing() {
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setTab);
@@ -28,10 +36,19 @@ export function Marketing() {
   const agents = useAgentStore((s) => s.agents);
   const milestones = usePlanningStore((s) => s.milestones);
 
+  const [projectStatus, setProjectStatus] = useState<ProjectStatus>({ toolCount: 0, version: '', agents: 0, milestones: 0 });
+  useEffect(() => {
+    get<ProjectStatus>('/api/project/status').then((s) => {
+      if (s) setProjectStatus(s);
+    }).catch(() => {});
+  }, []);
+
+  const toolCount = projectStatus.toolCount || 48;
+  const version = projectStatus.version || '2.0.0';
+
   const closedSprints = sprints.filter((s) => s.status === 'closed');
   const totalTickets = closedSprints.reduce((a, s) => a + s.done_count, 0);
   const totalPoints = closedSprints.reduce((a, s) => a + s.velocity_completed, 0);
-  const marketingAgents = agents.filter((a) => a.role.startsWith('marketing'));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -78,7 +95,7 @@ export function Marketing() {
               {' milestones'}
             </HeroText>
             <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <ProductPositioning totalTickets={totalTickets} totalPoints={totalPoints} sprintCount={closedSprints.length} agentCount={agents.length} />
+              <ProductPositioning totalTickets={totalTickets} totalPoints={totalPoints} sprintCount={closedSprints.length} agentCount={agents.length} toolCount={toolCount} />
             </div>
           </motion.div>
         )}
@@ -104,6 +121,7 @@ export function Marketing() {
                 totalTickets={totalTickets}
                 totalPoints={totalPoints}
                 agentCount={agents.length}
+                toolCount={toolCount}
               />
             </div>
           </motion.div>
@@ -119,12 +137,12 @@ export function Marketing() {
             style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
           >
             <HeroText>
-              {'v2.0.0 shipped — '}
+              {`v${version} shipped — `}
               <AnimatedNumber value={milestones.length} />
               {' milestones complete'}
             </HeroText>
             <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <Roadmap milestones={milestones} />
+              <Roadmap milestones={milestones} toolCount={toolCount} agentCount={agents.length} version={version} />
             </div>
           </motion.div>
         )}
@@ -153,36 +171,51 @@ export function Marketing() {
 /* ─── Release Notes ──────────────────────────────────────────────────────────── */
 
 function ReleaseNotes({ sprints }: { sprints: any[] }) {
-  // Group sprints into phases by milestone era
+  // Extract a numeric identifier from sprint name for grouping.
+  // Handles "T14", "sprint-9", "Sprint 34" etc.
+  function sprintNumber(name: string): { prefix: string; num: number } {
+    const tMatch = name.match(/^T(\d+)$/i);
+    if (tMatch) return { prefix: 'T', num: parseInt(tMatch[1], 10) };
+    const sMatch = name.match(/sprint[- ]?(\d+)/i);
+    if (sMatch) return { prefix: 'S', num: parseInt(sMatch[1], 10) };
+    return { prefix: '?', num: 0 };
+  }
+
+  function matchesPhase(s: any, criteria: Array<{ prefix: string; min: number; max: number }>): boolean {
+    const sn = sprintNumber(s.name);
+    return criteria.some((c) => sn.prefix === c.prefix && sn.num >= c.min && sn.num <= c.max);
+  }
+
+  // Group sprints into phases by milestone-era ranges
   const phases = [
     {
       title: 'Foundation & Scale (M1-M2)',
       subtitle: 'SQLite indexing, React rewrite, 9-agent scrum team',
-      sprints: sprints.filter((s) => s.name.includes('T14') || s.name.includes('T15') || s.name.includes('T16') || s.name.includes('T17') || s.name.includes('T18') || s.name.includes('T19') || s.name.includes('T20') || s.name.includes('T21') || s.name.includes('T22') || s.name.includes('sprint-9') || s.name.includes('sprint-10')),
+      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'T', min: 14, max: 22 }, { prefix: 'S', min: 9, max: 10 }])),
       color: 'var(--blue)',
     },
     {
       title: 'Platform & Quality (M3-M4)',
       subtitle: 'MCP bootstrap, navigation, cleanup, marketing',
-      sprints: sprints.filter((s) => s.name.includes('sprint-11') || s.name.includes('sprint-12') || s.name.includes('sprint-13') || s.name.includes('sprint-14') || s.name.includes('sprint-15') || s.name.includes('sprint-16') || s.name.includes('sprint-17') || s.name.includes('sprint-18') || s.name.includes('sprint-19') || s.name.includes('sprint-20')),
+      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 11, max: 20 }])),
       color: 'var(--purple)',
     },
     {
       title: 'UX & Visual Polish (M5-M7)',
       subtitle: 'SVG icons, milestone grouping, Gantt, breadcrumbs, DB verification',
-      sprints: sprints.filter((s) => s.name.includes('sprint-21') || s.name.includes('sprint-22') || s.name.includes('sprint-23') || s.name.includes('sprint-24') || s.name.includes('sprint-25') || s.name.includes('sprint-26') || s.name.includes('sprint-27')),
+      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 21, max: 33 }])),
       color: 'var(--accent)',
     },
     {
       title: 'Linear Integration & Hardening (M11)',
       subtitle: 'Me tab, Linear sync, code splitting, API hardening',
-      sprints: sprints.filter((s) => s.name.includes('Sprint 34') || s.name.includes('Sprint 35') || s.name.includes('Sprint 36') || s.name.includes('Sprint 37')),
+      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 34, max: 37 }])),
       color: 'var(--orange)',
     },
     {
       title: 'Publish Readiness & Remotion (M8-M10)',
       subtitle: 'MCP audit, onboarding, refinement lifecycle, CHANGELOG, Remotion animations',
-      sprints: sprints.filter((s) => s.name.includes('Sprint 38') || s.name.includes('Sprint 39') || s.name.includes('sprint-30') || s.name.includes('Sprint 41')),
+      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 38, max: 999 }])),
       color: '#10b981',
     },
   ];
@@ -243,7 +276,7 @@ function ReleaseNotes({ sprints }: { sprints: any[] }) {
 
 /* ─── Product Positioning ────────────────────────────────────────────────────── */
 
-function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount }: { totalTickets: number; totalPoints: number; sprintCount: number; agentCount: number }) {
+function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount, toolCount }: { totalTickets: number; totalPoints: number; sprintCount: number; agentCount: number; toolCount: number }) {
   const valueProps = [
     {
       icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" stroke="var(--accent)" strokeWidth="1.5"/><path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/><path d="M13 4l2-2M13 4l2 2" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round"/></svg>,
@@ -261,7 +294,7 @@ function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount
       icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v4l3 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="9" r="7" stroke="var(--purple)" strokeWidth="1.5"/><path d="M13 13l2 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/></svg>,
       title: 'MCP-First Architecture',
       description: 'Every action flows through Model Context Protocol. Claude, Cursor, or any MCP client becomes your entire IT department.',
-      stat: '44 tools',
+      stat: `${toolCount} tools`,
     },
     {
       icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l7 4v6l-7 4-7-4V6l7-4z" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 10v6M2 6l7 4 7-4" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
@@ -303,12 +336,12 @@ function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount
 
 /* ─── Roadmap ────────────────────────────────────────────────────────────────── */
 
-function Roadmap({ milestones }: { milestones: any[] }) {
+function Roadmap({ milestones, toolCount, agentCount, version }: { milestones: any[]; toolCount: number; agentCount: number; version: string }) {
   const completed = milestones.filter((m: any) => m.status === 'completed');
   const planned = milestones.filter((m: any) => m.status !== 'completed');
 
   const future = [
-    { name: 'npm publish', description: 'Publish v2.0.0 to npm registry. One-command install for any project.', status: 'next' },
+    { name: 'npm publish', description: `Publish v${version} to npm registry. One-command install for any project.`, status: 'next' },
     { name: 'Multi-project Support', description: 'Manage multiple codebases from a single dashboard instance.', status: 'planned' },
     { name: 'GitHub/GitLab Sync', description: 'Two-way sync between MCP scrum board and GitHub Issues/GitLab.', status: 'planned' },
   ];
@@ -316,9 +349,9 @@ function Roadmap({ milestones }: { milestones: any[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>v2.0.0 — Current Release</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>v{version} — Current Release</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
-          44 MCP tools, 16-agent scrum team, React dashboard with Linear integration, code splitting,
+          {toolCount} MCP tools, {agentCount}-agent scrum team, React dashboard with Linear integration, code splitting,
           interactive onboarding, ticket refinement lifecycle, Remotion vision animations, security hardening. {completed.length} milestones delivered.
         </div>
       </div>
@@ -368,7 +401,7 @@ function Roadmap({ milestones }: { milestones: any[] }) {
 
 /* ─── Growth Metrics ─────────────────────────────────────────────────────────── */
 
-function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount }: { sprints: any[]; totalTickets: number; totalPoints: number; agentCount: number }) {
+function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount, toolCount }: { sprints: any[]; totalTickets: number; totalPoints: number; agentCount: number; toolCount: number }) {
   const velocities = sprints.map((s) => s.velocity_completed);
   const avgVelocity = velocities.length > 0 ? Math.round(velocities.reduce((a: number, b: number) => a + b, 0) / velocities.length) : 0;
   const maxVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
@@ -385,7 +418,7 @@ function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount }: { spr
     { label: 'Peak Velocity', value: maxVelocity, color: 'var(--orange)' },
     { label: 'Completion Rate', value: avgCompletion, color: 'var(--accent)', suffix: '%' },
     { label: 'Team Size', value: agentCount, color: 'var(--purple)' },
-    { label: 'MCP Tools', value: 43, color: 'var(--text2)' },
+    { label: 'MCP Tools', value: toolCount, color: 'var(--text2)' },
   ];
 
   return (

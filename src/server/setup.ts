@@ -25,6 +25,7 @@ Usage:
 Options:
   --force                              Re-initialize even if context.db exists
   --name <name>                        Project name (default: directory name)
+  --defaults                           Skip prompts, auto-create vision & milestone
 
 Examples:
   code-context-mcp .                   Index current directory
@@ -42,6 +43,7 @@ MCP Tools (44 total):
 }
 
 const FORCE = args.includes("--force");
+const USE_DEFAULTS = args.includes("--defaults");
 
 const nameIdx = args.indexOf("--name");
 const nonFlagArgs = args.filter(a => !a.startsWith("--") && !a.startsWith("-"));
@@ -139,6 +141,54 @@ if (existingScrumDefaults.length === 0) {
 // Import scrum data
 const scrumImport = importScrumData(db, claudeDir);
 console.log(`  Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.skills} skills\n`);
+
+// ─── First-startup wizard: auto-create PRODUCT_VISION and first milestone ────
+{
+  const visionRow = db.prepare(`SELECT id FROM skills WHERE name = 'PRODUCT_VISION'`).get() as { id: number } | undefined;
+  if (!visionRow) {
+    const defaultVision = [
+      `# Product Vision — ${PROJECT_NAME}`,
+      "",
+      "## Mission",
+      `Build and ship ${PROJECT_NAME} as a high-quality, well-documented project.`,
+      "",
+      "## Target Users",
+      "Developers and teams who need a structured, AI-assisted development workflow.",
+      "",
+      "## Success Metrics",
+      "- All milestones completed on schedule",
+      "- Test coverage above 80%",
+      "- Comprehensive documentation",
+      "",
+      "> Update this vision at any time with the `update_vision` MCP tool or via the dashboard.",
+    ].join("\n");
+
+    db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?)`)
+      .run("PRODUCT_VISION", defaultVision, "product-owner");
+    console.log("  Created default PRODUCT_VISION skill (update via MCP tools or dashboard).");
+  } else {
+    console.log("  PRODUCT_VISION skill already exists, skipping.");
+  }
+
+  const milestoneCount = (db.prepare(`SELECT COUNT(*) as cnt FROM milestones`).get() as { cnt: number }).cnt;
+  if (milestoneCount === 0) {
+    db.prepare(
+      `INSERT INTO milestones (name, description, status) VALUES (?, ?, ?)`
+    ).run(
+      "M1 — Getting Started",
+      "Initial project setup: indexing, schema, first sprint, and onboarding.",
+      "active"
+    );
+    console.log("  Created first milestone: M1 — Getting Started (status: active).");
+  } else {
+    console.log(`  ${milestoneCount} milestone(s) already exist, skipping.`);
+  }
+
+  if (!USE_DEFAULTS) {
+    console.log("\n  Tip: Run with --defaults to suppress this output on re-runs.");
+  }
+  console.log("");
+}
 
 db.close();
 

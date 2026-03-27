@@ -79,6 +79,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
+          alignItems: 'center',
           fontSize: 11,
           color: 'var(--text3)',
         }}
@@ -88,6 +89,22 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           {ticket.story_points ?? 0}sp
         </span>
       </div>
+
+      {ticket.epic_name && (
+        <span
+          style={{
+            display: 'inline-block',
+            marginTop: 4,
+            fontSize: 10,
+            padding: '1px 6px',
+            borderRadius: 4,
+            background: 'rgba(168, 85, 247, 0.15)',
+            color: 'rgb(168, 85, 247)',
+          }}
+        >
+          {ticket.epic_name}
+        </span>
+      )}
     </motion.div>
   );
 }

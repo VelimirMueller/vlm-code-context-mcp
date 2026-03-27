@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 
 /**
  * Initialize the SQLite schema for the Scrum system.
- * Tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones
+ * Tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones, decisions
  */
 export function initScrumSchema(db: Database.Database): void {
   db.exec(`
@@ -24,7 +24,7 @@ export function initScrumSchema(db: Database.Database): void {
       goal TEXT,
       start_date TEXT,
       end_date TEXT,
-      status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning', 'active', 'review', 'closed')),
+      status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning', 'implementation', 'qa', 'retro', 'closed')),
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -70,7 +70,7 @@ export function initScrumSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       sprint_id INTEGER NOT NULL,
       role TEXT,
-      category TEXT NOT NULL CHECK (category IN ('went_well', 'went_wrong', 'try_next')),
+      category TEXT NOT NULL CHECK (category IN ('went_well', 'went_wrong', 'try_next', 'auto_analysis')),
       finding TEXT NOT NULL,
       action_owner TEXT,
       action_applied INTEGER NOT NULL DEFAULT 0,
@@ -136,7 +136,31 @@ export function initScrumSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      rationale TEXT,
+      alternatives TEXT,
+      outcome TEXT,
+      category TEXT DEFAULT 'technical',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS epics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'active', 'completed')),
+      milestone_id INTEGER REFERENCES milestones(id),
+      color TEXT DEFAULT '#3b82f6',
+      priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
+    CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
+    CREATE INDEX IF NOT EXISTS idx_epics_milestone ON epics(milestone_id);
     CREATE INDEX IF NOT EXISTS idx_tickets_sprint_id ON tickets(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
     CREATE INDEX IF NOT EXISTS idx_tickets_assigned_to ON tickets(assigned_to);
@@ -158,4 +182,16 @@ export function initScrumSchema(db: Database.Database): void {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_tickets_milestone_id ON tickets(milestone_id);",
   );
+
+  // Migrate: add epic_id to tickets if missing
+  if (!cols.some((c) => c.name === "epic_id")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN epic_id INTEGER REFERENCES epics(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tickets_epic_id ON tickets(epic_id);");
+
+  // Migrate: add milestone_id to sprints if missing
+  const sprintCols = db.pragma("table_info(sprints)") as Array<{ name: string }>;
+  if (!sprintCols.some((c) => c.name === "milestone_id")) {
+    db.exec("ALTER TABLE sprints ADD COLUMN milestone_id INTEGER REFERENCES milestones(id)");
+  }
 }
