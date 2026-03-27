@@ -10,7 +10,7 @@ Generate animated videos showcasing your project's vision, milestones, and achie
 ## Quick Start
 1. Run the MCP tool: `generate_vision_animation`
 2. This outputs `vision-data.json` with your project's stats
-3. Render the video: `npx remotion render src/remotion/index.ts VisionVideo --props=./vision-data.json --output=vision.mp4`
+3. Render the video: `npx remotion render src/remotion/index.tsx VisionVideo --props=./vision-data.json --output=vision.mp4`
 
 ## What Gets Animated
 - **Scene 1 (0-3s)**: Product name and vision text with typewriter effect
@@ -21,7 +21,7 @@ Generate animated videos showcasing your project's vision, milestones, and achie
 ## Customization
 - Edit compositions in `src/remotion/VisionVideo.tsx`
 - Change colors, timing, or add new scenes
-- Preview in browser: `npx remotion preview src/remotion/index.ts`
+- Preview in browser: `npx remotion preview src/remotion/index.tsx`
 
 ## Output Formats
 - MP4 (default): `--codec h264`
