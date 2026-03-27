@@ -15,7 +15,6 @@ import { Team } from '@/pages/Team';
 import { Retro } from '@/pages/Retro';
 import { ProjectManagement } from '@/pages/ProjectManagement';
 import { Marketing } from '@/pages/Marketing';
-import { Me } from '@/pages/Me';
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
@@ -37,7 +36,6 @@ const legacyUrlMap: Record<string, string> = {
   '#sprint/insights': '#retro',
   '#explorer': '#code',
   '#explorer/files': '#code/files',
-  '#me': '#me',
 };
 
 export function App() {
@@ -156,9 +154,6 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            {/* Me page - Linear integration */}
-            {normalizedPage === 'me' && <Me />}
-
             {/* Dashboard page - shows Sprint board with quick actions */}
             {normalizedPage === 'dashboard' && <Dashboard />}
 
