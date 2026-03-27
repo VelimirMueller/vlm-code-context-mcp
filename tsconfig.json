@@ -9,5 +9,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/dashboard/app"]
+  "exclude": ["src/dashboard/app", "src/remotion"]
 }
