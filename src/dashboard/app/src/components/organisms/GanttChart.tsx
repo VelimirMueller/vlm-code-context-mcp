@@ -4,16 +4,9 @@ import React, { useMemo, useState, useEffect } from 'react';
 import type { Sprint, Ticket } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
 import { get as apiGet } from '@/lib/api';
+import { PHASE_COLORS, PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
 
 /* ─── Status Styles ────────────────────────────────────────────────────────── */
-
-const statusStyle: Record<string, { bg: string; border: string; label: string }> = {
-  planning:   { bg: '#636474', border: '#818498', label: 'Planning' },
-  refinement: { bg: '#d97706', border: '#f59e0b', label: 'Refinement' },
-  active:     { bg: '#10b981', border: '#34d399', label: 'Active' },
-  review:     { bg: '#f59e0b', border: '#fbbf24', label: 'Review' },
-  closed:     { bg: '#3b82f6', border: '#60a5fa', label: 'Closed' },
-};
 
 const ticketStatusColor: Record<string, string> = {
   TODO: '#636474',
@@ -21,10 +14,6 @@ const ticketStatusColor: Record<string, string> = {
   DONE: '#10b981',
   BLOCKED: '#ef4444',
 };
-
-function getStatusStyle(status: string) {
-  return statusStyle[status] ?? statusStyle.planning;
-}
 
 /* ─── Sprint Bar ───────────────────────────────────────────────────────────── */
 
@@ -39,7 +28,7 @@ interface SprintRowProps {
 }
 
 function SprintRow({ sprint, leftPct, widthPct, isLast, tickets, expanded, onToggle }: SprintRowProps) {
-  const s = getStatusStyle(sprint.status);
+  const s = getPhaseStyle(sprint.status);
   const done = sprint.velocity_completed ?? 0;
   const committed = sprint.velocity_committed ?? 0;
 
@@ -274,7 +263,7 @@ function SprintSection({ title, sprints, defaultExpanded }: { title: string; spr
         <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{title}</h3>
         <div style={{ display: 'flex', gap: 6 }}>
           {Object.entries(statCounts).map(([status, count]) => {
-            const s = getStatusStyle(status);
+            const s = getPhaseStyle(status);
             return (
               <span key={status} style={{ background: s.bg, borderRadius: 6, fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, padding: '3px 8px', color: 'white' }}>
                 {s.label}: {count}
@@ -315,7 +304,7 @@ export function GanttChart() {
 
   const currentSprints = useMemo(
     () => [...ganttData]
-      .filter(s => s.status === 'active' || s.status === 'planning' || s.status === 'refinement' || s.status === 'review')
+      .filter(s => s.status === 'implementation' || s.status === 'planning' || s.status === 'qa' || s.status === 'retro')
       .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
     [ganttData],
   );
@@ -345,8 +334,8 @@ export function GanttChart() {
 
       {/* Legend */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {(['planning', 'active', 'review', 'closed'] as const).map(status => {
-          const s = getStatusStyle(status);
+        {PHASE_ORDER.map(status => {
+          const s = getPhaseStyle(status);
           return (
             <div key={status} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 12, height: 12, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}` }} />

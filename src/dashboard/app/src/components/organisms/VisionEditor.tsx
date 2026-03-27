@@ -46,7 +46,7 @@ export function VisionEditor() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 760 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Product Vision</h2>
         {!editing && (
@@ -71,26 +71,53 @@ export function VisionEditor() {
 
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            disabled={busy}
-            placeholder="Write your product vision in Markdown…"
-            style={{
-              background: 'var(--surface2)',
-              border: '1px solid var(--border2)',
-              borderRadius: 10,
-              color: 'var(--text)',
-              fontSize: 13,
-              padding: '12px 14px',
-              fontFamily: 'var(--mono)',
-              resize: 'vertical',
-              minHeight: 320,
-              lineHeight: 1.7,
-              outline: 'none',
-              width: '100%',
-            }}
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {/* Left: textarea */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                disabled={busy}
+                placeholder="Write your product vision in Markdown…"
+                style={{
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border2)',
+                  borderRadius: 10,
+                  color: 'var(--text)',
+                  fontSize: 13,
+                  padding: '12px 14px',
+                  fontFamily: 'var(--mono)',
+                  resize: 'vertical',
+                  minHeight: 320,
+                  lineHeight: 1.7,
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textAlign: 'right' }}>
+                {draft.length} characters
+              </div>
+            </div>
+            {/* Right: live preview */}
+            <div
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                padding: '12px 14px',
+                minHeight: 320,
+                overflowY: 'auto',
+              }}
+            >
+              {draft ? (
+                <MarkdownRenderer content={draft} />
+              ) : (
+                <div style={{ color: 'var(--text3)', fontSize: 13, fontStyle: 'italic' }}>
+                  Preview will appear here...
+                </div>
+              )}
+            </div>
+          </div>
           {error && <div style={{ color: 'var(--red)', fontSize: 12 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button
