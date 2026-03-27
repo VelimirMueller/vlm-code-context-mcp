@@ -14,6 +14,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Team } from '@/pages/Team';
 import { Retro } from '@/pages/Retro';
 import { ProjectManagement } from '@/pages/ProjectManagement';
+import { Marketing } from '@/pages/Marketing';
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
@@ -21,30 +22,18 @@ import { TopNav } from '@/components/molecules/TopNav';
 import { QuickActionsBar } from '@/components/molecules/QuickActionsBar';
 import { Breadcrumb } from '@/components/molecules/Breadcrumb';
 
-// Page mapping: old pages -> new PageType
+// Legacy page name mapping (old -> new PageType)
 const pageMapping: Record<string, PageType> = {
   explorer: 'code',
-  planning: 'planning',
   sprint: 'dashboard',
-};
-
-// Reverse mapping for URL hash compatibility
-const reversePageMapping: Record<PageType, string> = {
-  dashboard: 'sprint',
-  code: 'explorer',
-  planning: 'planning',
-  team: 'sprint',
-  retro: 'sprint',
 };
 
 // Legacy URL redirect map: old hash -> new hash
 const legacyUrlMap: Record<string, string> = {
-  // Old sprint URLs redirect to dashboard
   '#sprint': '#dashboard',
   '#sprint/board': '#dashboard/board',
   '#sprint/team': '#team',
   '#sprint/insights': '#retro',
-  // Old explorer URLs redirect to code
   '#explorer': '#code',
   '#explorer/files': '#code/files',
 };
@@ -160,9 +149,7 @@ export function App() {
       <TopNav
         activeTab={normalizedPage}
         onTabChange={(tab) => {
-          // Map new PageType back to legacy page name for internal routing
-          const legacyPage = reversePageMapping[tab as PageType];
-          setPage(legacyPage);
+          setPage(tab);
         }}
       />
 
@@ -197,6 +184,9 @@ export function App() {
 
             {/* Retro page - shows Retro insights */}
             {normalizedPage === 'retro' && <Retro />}
+
+            {/* Marketing page - release notes, positioning, growth */}
+            {normalizedPage === 'marketing' && <Marketing />}
           </motion.div>
         </AnimatePresence>
       </main>

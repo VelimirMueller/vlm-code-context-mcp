@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import type { Sprint } from '@/types';
+import React, { useState } from 'react';
+import type { Sprint, Ticket } from '@/types';
 
 interface ChecklistItem {
   id: string;
@@ -13,33 +13,55 @@ interface ChecklistItem {
 
 interface SprintCompletionPanelProps {
   sprint: Sprint;
-  tickets: { total: number; done: number };
+  tickets: { total: number; done: number; qaVerified: number; items?: Ticket[] };
   retroFindings: { count: number; hasFindings: boolean };
   onComplete?: () => void;
-  onRetroClick?: () => void;
-  onQaClick?: () => void;
 }
 
 function getCompletionStatus(
   complete: boolean,
   threshold?: number,
   value?: string
-): { icon: string; color: string } {
+): { type: 'done' | 'partial' | 'pending'; color: string } {
   if (complete) {
-    return { icon: '✓', color: 'var(--accent)' };
+    return { type: 'done', color: 'var(--accent)' };
   }
   if (threshold !== undefined && value) {
-    // Parse value like "8/10" to get percentage
     const match = value.match(/(\d+)\s*\/\s*(\d+)/);
     if (match) {
       const current = parseInt(match[1], 10);
       const pct = (current / parseInt(match[2], 10)) * 100;
       if (pct >= (threshold * 100)) {
-        return { icon: '⚠', color: 'var(--orange)' };
+        return { type: 'partial', color: 'var(--orange)' };
       }
     }
   }
-  return { icon: '✗', color: 'var(--red)' };
+  return { type: 'pending', color: 'var(--red)' };
+}
+
+function StatusIcon({ type, color }: { type: 'done' | 'partial' | 'pending'; color: string }) {
+  if (type === 'done') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="7" fill={color} />
+        <path d="M5 8L7 10L11 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    );
+  }
+  if (type === 'partial') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="7" fill={color} />
+        <path d="M8 5V8.5" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="8" cy="11" r="0.75" fill="white"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="7" stroke={color} strokeWidth="1.5" fill="none" />
+    </svg>
+  );
 }
 
 export function SprintCompletionPanel({
@@ -47,9 +69,8 @@ export function SprintCompletionPanel({
   tickets,
   retroFindings,
   onComplete,
-  onRetroClick,
-  onQaClick,
 }: SprintCompletionPanelProps) {
+  const [showQaReport, setShowQaReport] = useState(false);
   const done = sprint.velocity_completed ?? 0;
   const committed = sprint.velocity_committed ?? 0;
   const velocityPct = committed > 0 ? Math.round((done / committed) * 100) : 0;
@@ -57,10 +78,10 @@ export function SprintCompletionPanel({
   // All tickets are DONE or NOT_DONE (partial completion)
   const ticketsComplete = tickets.done >= tickets.total && tickets.total > 0;
 
-  // QA verified: 90%+ of non-TODO tickets verified
-  const qaVerified = sprint.qa_count ?? 0;
-  const qaThreshold = Math.round(tickets.total * 0.9);
-  const qaComplete = qaVerified >= qaThreshold;
+  // QA verified: 90%+ of tickets verified (use tickets.qaVerified directly, not sprint.qa_count)
+  const qaVerified = tickets.qaVerified;
+  const qaThreshold = tickets.total > 0 ? Math.round(tickets.total * 0.9) : 0;
+  const qaComplete = tickets.total > 0 && qaVerified >= qaThreshold;
 
   // Retro findings recorded
   const retroComplete = retroFindings.hasFindings;
@@ -123,7 +144,7 @@ export function SprintCompletionPanel({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {checklistItems.map((item) => {
           const status = getCompletionStatus(item.complete, item.threshold, item.value);
-          const isPartial = !item.complete && status.icon === '⚠';
+          const isPartial = !item.complete && status.type === 'partial';
 
           return (
             <div
@@ -139,22 +160,8 @@ export function SprintCompletionPanel({
               }}
             >
               {/* Status Icon */}
-              <span
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  background: status.color,
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  flexShrink: 0,
-                }}
-              >
-                {status.icon}
+              <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                <StatusIcon type={status.type} color={status.color} />
               </span>
 
               {/* Label */}
@@ -238,55 +245,73 @@ export function SprintCompletionPanel({
         </button>
 
         <button
-          onClick={onRetroClick}
+          onClick={() => setShowQaReport(!showQaReport)}
           style={{
             padding: '8px 16px',
             borderRadius: 'var(--radius)',
             fontSize: 12,
             fontWeight: 500,
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            color: 'var(--text)',
+            border: `1px solid ${showQaReport ? 'var(--accent)' : 'var(--border)'}`,
+            background: showQaReport ? 'rgba(16,185,129,.08)' : 'var(--bg)',
+            color: showQaReport ? 'var(--accent)' : 'var(--text)',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--surface2)';
-            e.currentTarget.style.borderColor = 'var(--text3)';
+            if (!showQaReport) {
+              e.currentTarget.style.background = 'var(--surface2)';
+              e.currentTarget.style.borderColor = 'var(--text3)';
+            }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--bg)';
-            e.currentTarget.style.borderColor = 'var(--border)';
+            if (!showQaReport) {
+              e.currentTarget.style.background = 'var(--bg)';
+              e.currentTarget.style.borderColor = 'var(--border)';
+            }
           }}
         >
-          View Retro
-        </button>
-
-        <button
-          onClick={onQaClick}
-          style={{
-            padding: '8px 16px',
-            borderRadius: 'var(--radius)',
-            fontSize: 12,
-            fontWeight: 500,
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            color: 'var(--text)',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--surface2)';
-            e.currentTarget.style.borderColor = 'var(--text3)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--bg)';
-            e.currentTarget.style.borderColor = 'var(--border)';
-          }}
-        >
-          QA Report
+          {showQaReport ? 'Hide' : 'Show'} QA Report
         </button>
       </div>
+
+      {/* Inline QA Report */}
+      {showQaReport && tickets.items && (
+        <div style={{ marginTop: 12, padding: '12px', borderRadius: 'var(--radius)', background: 'var(--bg)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>QA Verification Report</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: qaComplete ? 'var(--accent)' : 'var(--red)', background: qaComplete ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', padding: '1px 8px', borderRadius: 10 }}>
+              {qaVerified}/{tickets.total} verified
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {tickets.items.map((t) => (
+              <div
+                key={t.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '5px 8px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  background: t.qa_verified ? 'rgba(16,185,129,.05)' : 'transparent',
+                }}
+              >
+                <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  {t.qa_verified ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="var(--accent)"/><path d="M4.5 7L6 8.5L9.5 5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="var(--red)" strokeWidth="1.5" fill="none"/></svg>
+                  )}
+                </span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', width: 42, flexShrink: 0 }}>{t.ticket_ref ?? `#${t.id}`}</span>
+                <span style={{ color: 'var(--text2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                {t.verified_by && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{t.verified_by}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Progress Summary */}
       <div

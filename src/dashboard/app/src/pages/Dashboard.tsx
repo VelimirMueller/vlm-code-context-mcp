@@ -61,7 +61,11 @@ export function Dashboard() {
           flexShrink: 0,
         }}
       >
-        <QuickFilters />
+        <QuickFilters
+          onFilterChange={() => {}}
+          counts={{ all: 0, mine: 0, blocked: 0, qaPending: 0 }}
+          activeFilter="all"
+        />
       </div>
 
       {/* Sprint Board */}

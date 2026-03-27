@@ -47,7 +47,7 @@ export const listItemVariants: Variants = {
 export const cardHover = {
   scale: 1.01,
   y: -2,
-  transition: { type: 'spring', stiffness: 400, damping: 25 },
+  transition: { type: 'spring' as const, stiffness: 400, damping: 25 },
 };
 
 // Respect reduced motion preference

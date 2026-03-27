@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { cardHover } from '@/lib/motion';
 
 interface BentoCardProps {
-  icon: string;
+  icon: React.ReactNode;
   title: string;
   subtitle: string;
   items?: string[];

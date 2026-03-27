@@ -431,7 +431,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       try {
         const milestone = db.prepare(`SELECT id, name FROM milestones WHERE id=?`).get(milestone_id) as any;
         if (!milestone) return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} not found.` }], isError: true };
-        db.prepare(`UPDATE tickets SET milestone_id=?, updated_at=datetime('now') WHERE id=?`).run(milestone_id, ticket_id);
+        db.prepare(`UPDATE tickets SET milestone_id=?, milestone=?, updated_at=datetime('now') WHERE id=?`).run(milestone_id, milestone.name, ticket_id);
         return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} linked to milestone "${milestone.name}" (id: ${milestone_id}).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -697,7 +697,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 2. **Query Before Update** — ALWAYS use \`list_tickets\` to get IDs before \`update_ticket\`. Internal DB IDs are NOT sequential.
 3. **QA Gate** — \`qa_verified\` must be true before status → DONE.
 4. **Acceptance Criteria** — Must be defined during sprint planning.
-5. **Point Cap** — No single dev should exceed 8 story points.`,
+5. **Point Cap** — No single dev should exceed 8 story points.
+6. **Minimum Ticket Rule** — Every team member must be assigned at least 1 ticket per sprint. Be creative with assignments: security specialist can audit a feature, QA can write test plans, architect can document decisions, manager can review metrics, marketing can draft release notes. No one sits idle.
+7. **Burnout Protection** — It is FORBIDDEN to assign tickets to team members who are burned out (mood ≤ 2). If a dev is burned out, reduce sprint scope instead of overloading the team. Check agent mood via \`list_agents\` before sprint planning. Sustainable pace > velocity targets.`,
 
     retro: `## Retrospective Process
 Retros are **MANDATORY** — never skip, even when sprint is green.
@@ -721,7 +723,9 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 - **frontend-developer** — UI components, styling, responsive design, UX
 - **qa** — Test plans, acceptance verification, bug tickets, set qa_verified
 - **security-specialist** — Vulnerability audits, CVE monitoring, input sanitization
-- **manager** — Cost efficiency, prevent over-engineering, business alignment`,
+- **manager** — Cost efficiency, prevent over-engineering, business alignment
+- **marketing-senior-1** — Release communications, feature announcements, changelog narratives, product positioning
+- **marketing-senior-2** — Market research, competitive analysis, user-facing documentation, growth metrics`,
 
     checklist: `## Sprint Close Checklist
 - [ ] All tickets DONE or explicitly NOT_DONE with reason
@@ -737,6 +741,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 - **Assuming Ticket IDs** — "T-042 is probably ID 42" → Wrong: always query with list_tickets
 - **DONE Without QA** — "Works on my machine" → Wrong: qa_verified must be true
 - **Overloading Devs** — "Alice can do 15pts" → Wrong: max 8pts per dev
+- **Burning Out Devs** — "They can push through" → Wrong: burned-out devs (mood ≤ 2) CANNOT be assigned tickets. Reduce scope.
 - **Closing Early** — "All tickets done" → Wrong: must add retro findings first`,
   };
 
