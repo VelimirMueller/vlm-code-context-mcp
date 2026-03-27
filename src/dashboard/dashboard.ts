@@ -19,7 +19,7 @@ function validateColor(hex: string) {
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw Object.assign(new Error('Invalid hex color'), { status: 400 });
 }
 function validateSprintTransition(current: string, next: string) {
-  const allowed: Record<string, string[]> = { planning: ['implementation'], implementation: ['qa'], qa: ['retro'], retro: ['closed'], closed: [] };
+  const allowed: Record<string, string[]> = { preparation: ['kickoff'], kickoff: ['planning'], planning: ['implementation'], implementation: ['qa'], qa: ['refactoring', 'implementation'], refactoring: ['retro'], retro: ['review'], review: ['closed'], closed: ['rest'], rest: ['preparation'] };
   if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
 }
 
@@ -79,6 +79,25 @@ function notifyClients() {
   for (const res of sseClients) {
     res.write(`data: updated\n\n`);
   }
+}
+
+// Watch for external DB changes (e.g. MCP tool writes)
+// SQLite WAL mode writes to .db-wal — watch it for external mutations
+let dbWalDebounce: ReturnType<typeof setTimeout> | null = null;
+const walPath = dbPath + "-wal";
+try {
+  const fs = require("fs");
+  let lastWalSize = 0;
+  try { lastWalSize = fs.statSync(walPath)?.size || 0; } catch {}
+  fs.watchFile(walPath, { interval: 500 }, (curr: any) => {
+    if (curr.size !== lastWalSize) {
+      lastWalSize = curr.size;
+      if (dbWalDebounce) clearTimeout(dbWalDebounce);
+      dbWalDebounce = setTimeout(() => notifyClients(), 300);
+    }
+  });
+} catch {
+  // WAL watch not available — SSE still works for dashboard-internal changes
 }
 
 // ─── File watcher ───────────────────────────────────────────────────────────
@@ -340,6 +359,26 @@ function apiSprintDetail(id: number) {
     if (!sprint) return null;
     return sprint;
   } catch { return null; }
+}
+
+function apiBurndown(sprintId: number) {
+  try {
+    const sprint = writeDb.prepare(`SELECT name, velocity_committed, start_date, end_date FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprintId) as any;
+    if (!sprint) return null;
+    const metrics = writeDb.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprintId) as any[];
+    // Also compute live snapshot from current tickets if no metrics recorded yet
+    const tickets = writeDb.prepare(`SELECT status, story_points FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprintId) as any[];
+    const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+    const donePts = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+    return {
+      sprint_name: sprint.name,
+      committed: sprint.velocity_committed || totalPts,
+      start_date: sprint.start_date,
+      end_date: sprint.end_date,
+      current: { remaining: totalPts - donePts, completed: donePts, total: totalPts },
+      metrics,
+    };
+  } catch { return { metrics: [] }; }
 }
 
 function apiSprintTickets(sprintId: number) {
@@ -1018,7 +1057,24 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();
       else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
       else if (url.pathname === "/api/sprints") data = apiSprints();
-      else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/stuck$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const sprint = writeDb.prepare(`SELECT name, status FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sid) as any;
+        if (!sprint) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
+        // Create a blocker entry so Claude/MCP can pick it up
+        writeDb.prepare(`INSERT INTO blockers (sprint_id, description, reported_by, status) VALUES (?, ?, ?, 'open')`).run(
+          sid,
+          `Sprint stuck in ${body.phase || sprint.status} phase for 10+ minutes. Requires intervention.`,
+          'dashboard-ui'
+        );
+        notifyClients();
+        data = { ok: true, message: `Blocker created: sprint ${sprint.name} stuck in ${sprint.status}` };
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/burndown$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiBurndown(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintTickets(sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {

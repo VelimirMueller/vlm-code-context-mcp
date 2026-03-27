@@ -99,8 +99,11 @@ export function EpicList() {
     return map;
   }, [milestones]);
 
-  const grouped = useMemo(() => {
-    const groups: { milestone: Milestone | null; epics: Epic[] }[] = [];
+  const [showArchive, setShowArchive] = useState(false);
+
+  const { activeGroups, archivedGroups } = useMemo(() => {
+    const active: { milestone: Milestone | null; epics: Epic[] }[] = [];
+    const archived: { milestone: Milestone | null; epics: Epic[] }[] = [];
     const byMilestone = new Map<number | null, Epic[]>();
 
     for (const epic of epics) {
@@ -109,25 +112,34 @@ export function EpicList() {
       byMilestone.get(key)!.push(epic);
     }
 
-    // Active milestones first
-    const activeMilestones = milestones.filter((m) => m.status === 'in_progress');
-    const otherMilestones = milestones.filter((m) => m.status !== 'in_progress');
+    const activeMilestones = milestones.filter((m) => m.status !== 'completed');
+    const completedMilestones = milestones.filter((m) => m.status === 'completed');
 
-    for (const m of [...activeMilestones, ...otherMilestones]) {
+    for (const m of activeMilestones) {
       const epicGroup = byMilestone.get(m.id);
       if (epicGroup) {
-        groups.push({ milestone: m, epics: epicGroup });
+        active.push({ milestone: m, epics: epicGroup });
         byMilestone.delete(m.id);
       }
     }
 
-    // Epics with no milestone
-    const noMilestone = byMilestone.get(null);
-    if (noMilestone) {
-      groups.push({ milestone: null, epics: noMilestone });
+    for (const m of completedMilestones) {
+      const epicGroup = byMilestone.get(m.id);
+      if (epicGroup) {
+        archived.push({ milestone: m, epics: epicGroup });
+        byMilestone.delete(m.id);
+      }
     }
 
-    return groups;
+    const noMilestone = byMilestone.get(null);
+    if (noMilestone) {
+      const hasActive = noMilestone.some((e) => e.status !== 'completed');
+      if (hasActive) active.push({ milestone: null, epics: noMilestone.filter((e) => e.status !== 'completed') });
+      const completedOrphans = noMilestone.filter((e) => e.status === 'completed');
+      if (completedOrphans.length) archived.push({ milestone: null, epics: completedOrphans });
+    }
+
+    return { activeGroups: active, archivedGroups: archived };
   }, [epics, milestones]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -201,7 +213,7 @@ export function EpicList() {
         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
           Epics
           <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text3)', marginLeft: 8 }}>
-            {epics.length} total
+            {epics.filter(e => e.status !== 'completed').length} active
           </span>
         </h2>
         {!showForm && (
@@ -392,10 +404,10 @@ export function EpicList() {
         </form>
       )}
 
-      {/* Epics grouped by milestone */}
-      {grouped.length === 0 && !loading && (
+      {/* Active epics */}
+      {activeGroups.length === 0 && !loading && (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-          No epics yet. Create one to get started.
+          No active epics. Create one or check the archive.
         </div>
       )}
 
@@ -410,7 +422,7 @@ export function EpicList() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      {grouped.map((group, gi) => (
+      {activeGroups.map((group, gi) => (
         <div key={group.milestone?.id ?? 'none'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Group header */}
           <div
@@ -545,6 +557,54 @@ export function EpicList() {
           })}
         </div>
       ))}
+
+      {/* Archive toggle */}
+      {archivedGroups.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => setShowArchive(!showArchive)}
+            style={{
+              width: '100%', background: 'none', border: '1px solid var(--border2)',
+              borderRadius: 8, color: 'var(--text3)', fontSize: 13, padding: '8px 16px',
+              cursor: 'pointer', fontFamily: 'var(--font)', fontWeight: 500, textAlign: 'center',
+            }}
+          >
+            {showArchive ? 'Hide' : 'Show'} Archive ({archivedGroups.reduce((a, g) => a + g.epics.length, 0)} completed epics)
+          </button>
+          {showArchive && (
+            <div style={{ marginTop: 12, opacity: 0.7 }}>
+              {archivedGroups.map((group, gi) => (
+                <div key={group.milestone?.id ?? 'none'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text3)', borderBottom: '1px solid var(--border)', paddingBottom: 6, marginTop: gi > 0 ? 8 : 0 }}>
+                    {group.milestone ? group.milestone.name : 'No Milestone'}
+                  </div>
+                  {group.epics.map((epic) => {
+                    const progress = epic.ticket_count > 0 ? Math.round((epic.done_count / epic.ticket_count) * 100) : 0;
+                    return (
+                      <div key={epic.id} style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                        <div style={{ width: 5, flexShrink: 0, background: epic.color }} />
+                        <div style={{ flex: 1, padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text3)' }}>{epic.name}</span>
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(59,130,246,.10)', color: 'var(--blue)', fontWeight: 600 }}>Completed</span>
+                            <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{epic.done_count}/{epic.ticket_count} tickets</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                            <div style={{ flex: 1, height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
+                              <div style={{ width: `${progress}%`, height: '100%', background: 'var(--blue)', borderRadius: 2 }} />
+                            </div>
+                            <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{progress}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

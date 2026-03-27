@@ -34,7 +34,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "list_sprints",
     "List all sprints with status and ticket counts",
-    { status: z.enum(["planning", "implementation", "qa", "retro", "closed"]).optional().describe("Filter by status") },
+    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional().describe("Filter by status") },
     async ({ status }) => {
       let q = `SELECT s.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM sprints s LEFT JOIN tickets t ON t.sprint_id=s.id`;
       const params: any[] = [];
@@ -162,10 +162,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       goal: z.string().optional().describe("Sprint goal"),
       start_date: z.string().optional().describe("Start date (ISO 8601)"),
       end_date: z.string().optional().describe("End date (ISO 8601)"),
+      milestone_id: z.number().optional().describe("Milestone ID to associate with"),
     },
-    async ({ name, goal, start_date, end_date }) => {
+    async ({ name, goal, start_date, end_date, milestone_id }) => {
       try {
-        const result = db.prepare(`INSERT INTO sprints (name, goal, start_date, end_date, status) VALUES (?, ?, ?, ?, 'planning')`).run(name, goal || null, start_date || null, end_date || null);
+        const result = db.prepare(`INSERT INTO sprints (name, goal, start_date, end_date, milestone_id, status) VALUES (?, ?, ?, ?, ?, 'planning')`).run(name, goal || null, start_date || null, end_date || null, milestone_id || null);
         return { content: [{ type: "text" as const, text: `Sprint created: ${name} (id: ${result.lastInsertRowid})` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -182,11 +183,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       goal: z.string().optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
+      milestone_id: z.number().optional().describe("Milestone ID to associate with"),
     },
-    async ({ sprint_id, status, goal, velocity_committed, velocity_completed }) => {
+    async ({ sprint_id, status, goal, velocity_committed, velocity_completed, milestone_id }) => {
       const sets: string[] = []; const vals: any[] = [];
       if (status) { sets.push("status=?"); vals.push(status); }
       if (goal) { sets.push("goal=?"); vals.push(goal); }
+      if (milestone_id !== undefined) { sets.push("milestone_id=?"); vals.push(milestone_id); }
       if (velocity_committed !== undefined) { sets.push("velocity_committed=?"); vals.push(velocity_committed); }
       if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
       if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
@@ -719,11 +722,20 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   // ─── Sprint Process Instructions ────────────────────────────────────────────
   const INSTRUCTION_SECTIONS: Record<string, string> = {
-    lifecycle: `## Sprint Lifecycle
-1. **planning** → Team defines tickets, assigns points, sets velocity target (~19pts)
-2. **active** → Development work in progress
-3. **review** → Team reviews completed work, updates ticket statuses
-4. **closed** → Sprint finalized (CANNOT close without retro findings)`,
+    lifecycle: `## Sprint Lifecycle (10 phases)
+1. **preparation** → Groom backlog, confirm capacity, prepare sprint backlog (0.5 day)
+2. **kickoff** → Align team on goals, assign roles, Sprint Kickoff ceremony (0.5 day)
+3. **planning** → Define sprint goal, assign tickets & points, commit velocity (~19pts target) (0.5 day)
+4. **implementation** → Development work in progress, daily standups (3 days)
+5. **qa** → Verify acceptance criteria, run tests — MANDATORY gate, bugs return to implementation (1 day)
+6. **refactoring** → Code cleanup, tech debt reduction (0.5 day)
+7. **retro** → Auto-generate analysis, collect findings, Retrospective ceremony (0.5 day)
+8. **review** → Stakeholder demo, approve deliverables, Sprint Review ceremony (0.5 day)
+9. **closed** → Rebuild marketing stats, archive sprint — CANNOT close without retro findings
+10. **rest** → Team recovery, knowledge sharing (1 day)
+
+**Status flow:** preparation → kickoff → planning → implementation → qa → refactoring → retro → review → closed → rest
+**Bug return:** If QA finds bugs, sprint returns to implementation phase.`,
 
     tickets: `## Ticket Workflow
 **Status flow:** TODO → IN_PROGRESS → DONE
@@ -1312,6 +1324,394 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           `INSERT INTO skills (name, content, owner_role) VALUES ('SPRINT_PROCESS', ?, 'scrum-master') ON CONFLICT(name) DO UPDATE SET content=excluded.content, owner_role='scrum-master', updated_at=datetime('now')`
         ).run(content);
         return { content: [{ type: "text" as const, text: `Sprint process config updated (${content.length} chars).` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Sprint Metrics & Burndown
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "snapshot_sprint_metrics",
+    "Capture a daily burndown snapshot for a sprint — records remaining, completed, added, and removed points",
+    {
+      sprint_id: z.number().describe("Sprint ID"),
+      date: z.string().optional().describe("Date (ISO 8601, defaults to today)"),
+    },
+    async ({ sprint_id, date }) => {
+      try {
+        const d = date || new Date().toISOString().split("T")[0];
+        const tickets = db.prepare(`SELECT status, story_points FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
+        const remaining = tickets.filter(t => t.status !== "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
+        const completed = tickets.filter(t => t.status === "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
+        db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprint_id, d, remaining, completed);
+        return { content: [{ type: "text" as const, text: `Snapshot ${d}: ${completed}pts done, ${remaining}pts remaining` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_burndown",
+    "Get burndown data for a sprint — daily snapshots of remaining vs completed points",
+    {
+      sprint_id: z.number().describe("Sprint ID"),
+    },
+    async ({ sprint_id }) => {
+      try {
+        const sprint = db.prepare(`SELECT name, velocity_committed FROM sprints WHERE id = ?`).get(sprint_id) as any;
+        if (!sprint) return { content: [{ type: "text" as const, text: "Sprint not found" }], isError: true };
+        const rows = db.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprint_id) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: `No burndown data for ${sprint.name}. Use snapshot_sprint_metrics to capture data points.` }] };
+        const lines = rows.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
+        return { content: [{ type: "text" as const, text: `# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Ticket Dependencies
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "add_dependency",
+    "Add a dependency between two tickets (blocks, blocked_by, or related)",
+    {
+      source_ticket_id: z.number().describe("Source ticket ID"),
+      target_ticket_id: z.number().describe("Target ticket ID"),
+      dependency_type: z.enum(["blocks", "blocked_by", "related"]).default("blocks"),
+    },
+    async ({ source_ticket_id, target_ticket_id, dependency_type }) => {
+      try {
+        if (source_ticket_id === target_ticket_id) return { content: [{ type: "text" as const, text: "Cannot create self-dependency" }], isError: true };
+        // Check for circular: if target already blocks source
+        if (dependency_type === "blocks") {
+          const circular = db.prepare(`SELECT id FROM ticket_dependencies WHERE source_ticket_id = ? AND target_ticket_id = ? AND dependency_type = 'blocks'`).get(target_ticket_id, source_ticket_id);
+          if (circular) return { content: [{ type: "text" as const, text: "Circular dependency detected — target already blocks source" }], isError: true };
+        }
+        db.prepare(`INSERT INTO ticket_dependencies (source_ticket_id, target_ticket_id, dependency_type) VALUES (?, ?, ?)`).run(source_ticket_id, target_ticket_id, dependency_type);
+        return { content: [{ type: "text" as const, text: `Dependency added: ticket ${source_ticket_id} ${dependency_type} ticket ${target_ticket_id}` }] };
+      } catch (e: any) {
+        if (e.message.includes("UNIQUE")) return { content: [{ type: "text" as const, text: "Dependency already exists" }], isError: true };
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "remove_dependency",
+    "Remove a dependency between two tickets",
+    {
+      source_ticket_id: z.number().describe("Source ticket ID"),
+      target_ticket_id: z.number().describe("Target ticket ID"),
+    },
+    async ({ source_ticket_id, target_ticket_id }) => {
+      try {
+        const result = db.prepare(`DELETE FROM ticket_dependencies WHERE source_ticket_id = ? AND target_ticket_id = ?`).run(source_ticket_id, target_ticket_id);
+        return { content: [{ type: "text" as const, text: result.changes > 0 ? "Dependency removed." : "No dependency found." }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_dependency_graph",
+    "Get all dependencies for a ticket or sprint",
+    {
+      ticket_id: z.number().optional().describe("Ticket ID (get deps for one ticket)"),
+      sprint_id: z.number().optional().describe("Sprint ID (get all deps in sprint)"),
+    },
+    async ({ ticket_id, sprint_id }) => {
+      try {
+        let rows: any[];
+        if (ticket_id) {
+          rows = db.prepare(`
+            SELECT d.*, s.ticket_ref as source_ref, s.title as source_title, t.ticket_ref as target_ref, t.title as target_title
+            FROM ticket_dependencies d
+            JOIN tickets s ON d.source_ticket_id = s.id
+            JOIN tickets t ON d.target_ticket_id = t.id
+            WHERE d.source_ticket_id = ? OR d.target_ticket_id = ?
+          `).all(ticket_id, ticket_id) as any[];
+        } else if (sprint_id) {
+          rows = db.prepare(`
+            SELECT d.*, s.ticket_ref as source_ref, s.title as source_title, t.ticket_ref as target_ref, t.title as target_title
+            FROM ticket_dependencies d
+            JOIN tickets s ON d.source_ticket_id = s.id
+            JOIN tickets t ON d.target_ticket_id = t.id
+            WHERE s.sprint_id = ? OR t.sprint_id = ?
+          `).all(sprint_id, sprint_id) as any[];
+        } else {
+          return { content: [{ type: "text" as const, text: "Provide ticket_id or sprint_id" }], isError: true };
+        }
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No dependencies found." }] };
+        const lines = rows.map((r: any) => `${r.source_ref} (${r.source_title}) —[${r.dependency_type}]→ ${r.target_ref} (${r.target_title})`);
+        return { content: [{ type: "text" as const, text: `# Dependencies (${rows.length})\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Ticket Tags
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "add_tag",
+    "Add a tag to a ticket (creates tag if it doesn't exist)",
+    {
+      ticket_id: z.number().describe("Ticket ID"),
+      tag_name: z.string().describe("Tag name (e.g. 'tech-debt', 'security')"),
+      color: z.string().optional().describe("Hex color for new tags (default #6b7280)"),
+    },
+    async ({ ticket_id, tag_name, color }) => {
+      try {
+        db.prepare(`INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)`).run(tag_name, color || "#6b7280");
+        const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
+        db.prepare(`INSERT OR IGNORE INTO ticket_tags (ticket_id, tag_id) VALUES (?, ?)`).run(ticket_id, tag.id);
+        return { content: [{ type: "text" as const, text: `Tag '${tag_name}' added to ticket ${ticket_id}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "remove_tag",
+    "Remove a tag from a ticket",
+    {
+      ticket_id: z.number().describe("Ticket ID"),
+      tag_name: z.string().describe("Tag name"),
+    },
+    async ({ ticket_id, tag_name }) => {
+      try {
+        const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
+        if (!tag) return { content: [{ type: "text" as const, text: `Tag '${tag_name}' not found` }], isError: true };
+        db.prepare(`DELETE FROM ticket_tags WHERE ticket_id = ? AND tag_id = ?`).run(ticket_id, tag.id);
+        return { content: [{ type: "text" as const, text: `Tag '${tag_name}' removed from ticket ${ticket_id}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_tags",
+    "List all available tags with usage counts",
+    {},
+    async () => {
+      try {
+        const rows = db.prepare(`SELECT t.name, t.color, COUNT(tt.ticket_id) as usage_count FROM tags t LEFT JOIN ticket_tags tt ON t.id = tt.tag_id GROUP BY t.id ORDER BY usage_count DESC`).all() as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No tags defined." }] };
+        const lines = rows.map((r: any) => `- **${r.name}** (${r.color}) — ${r.usage_count} tickets`);
+        return { content: [{ type: "text" as const, text: `# Tags (${rows.length})\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Time Tracking
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "log_time",
+    "Log estimated or actual hours on a ticket",
+    {
+      ticket_id: z.number().describe("Ticket ID"),
+      estimated_hours: z.number().optional().describe("Estimated hours"),
+      actual_hours: z.number().optional().describe("Actual hours spent"),
+    },
+    async ({ ticket_id, estimated_hours, actual_hours }) => {
+      try {
+        const sets: string[] = []; const vals: any[] = [];
+        if (estimated_hours !== undefined) { sets.push("estimated_hours=?"); vals.push(estimated_hours); }
+        if (actual_hours !== undefined) { sets.push("actual_hours=?"); vals.push(actual_hours); }
+        if (sets.length === 0) return { content: [{ type: "text" as const, text: "Provide estimated_hours or actual_hours" }], isError: true };
+        vals.push(ticket_id);
+        db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+        return { content: [{ type: "text" as const, text: `Time logged on ticket ${ticket_id}${estimated_hours !== undefined ? ` — est: ${estimated_hours}h` : ""}${actual_hours !== undefined ? ` — actual: ${actual_hours}h` : ""}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_time_report",
+    "Get time tracking report for a sprint — estimated vs actual hours per agent",
+    {
+      sprint_id: z.number().describe("Sprint ID"),
+    },
+    async ({ sprint_id }) => {
+      try {
+        const rows = db.prepare(`
+          SELECT assigned_to, COUNT(*) as tickets,
+            SUM(estimated_hours) as total_estimated, SUM(actual_hours) as total_actual,
+            CASE WHEN SUM(estimated_hours) > 0 THEN ROUND(SUM(actual_hours) / SUM(estimated_hours) * 100, 1) ELSE NULL END as accuracy_pct
+          FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL GROUP BY assigned_to ORDER BY assigned_to
+        `).all(sprint_id) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No time data for this sprint." }] };
+        const lines = rows.map((r: any) => `- **${r.assigned_to}**: ${r.tickets} tickets, est ${r.total_estimated || 0}h, actual ${r.total_actual || 0}h${r.accuracy_pct ? ` (${r.accuracy_pct}% accuracy)` : ""}`);
+        const totEst = rows.reduce((s: number, r: any) => s + (r.total_estimated || 0), 0);
+        const totAct = rows.reduce((s: number, r: any) => s + (r.total_actual || 0), 0);
+        return { content: [{ type: "text" as const, text: `# Time Report\n\n${lines.join("\n")}\n\n**Total:** est ${totEst}h, actual ${totAct}h` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Agent Mood History
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "record_mood",
+    "Record an agent's mood for a sprint (1-5 scale)",
+    {
+      agent_id: z.number().describe("Agent ID"),
+      sprint_id: z.number().describe("Sprint ID"),
+      mood: z.number().min(1).max(5).describe("Mood 1-5 (1=burned out, 5=energized)"),
+      workload_points: z.number().optional().describe("Story points assigned this sprint"),
+      notes: z.string().optional().describe("Notes about mood/workload"),
+    },
+    async ({ agent_id, sprint_id, mood, workload_points, notes }) => {
+      try {
+        db.prepare(`INSERT INTO agent_mood_history (agent_id, sprint_id, mood, workload_points, notes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(agent_id, sprint_id) DO UPDATE SET mood=excluded.mood, workload_points=excluded.workload_points, notes=excluded.notes`).run(agent_id, sprint_id, mood, workload_points || 0, notes || null);
+        const warning = mood <= 2 ? "\n⚠️ BURNOUT RISK — mood ≤ 2. Reduce workload next sprint." : "";
+        return { content: [{ type: "text" as const, text: `Mood recorded: agent ${agent_id}, sprint ${sprint_id}, mood ${mood}/5${warning}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_mood_trends",
+    "Get mood history for an agent or all agents — detects burnout patterns",
+    {
+      agent_id: z.number().optional().describe("Agent ID (omit for all agents)"),
+      last_n_sprints: z.number().optional().describe("Number of recent sprints (default 5)"),
+    },
+    async ({ agent_id, last_n_sprints }) => {
+      try {
+        const limit = last_n_sprints || 5;
+        let rows: any[];
+        if (agent_id) {
+          rows = db.prepare(`
+            SELECT m.*, a.name as agent_name, s.name as sprint_name
+            FROM agent_mood_history m
+            JOIN agents a ON m.agent_id = a.id
+            JOIN sprints s ON m.sprint_id = s.id
+            WHERE m.agent_id = ?
+            ORDER BY s.created_at DESC LIMIT ?
+          `).all(agent_id, limit) as any[];
+        } else {
+          rows = db.prepare(`
+            SELECT m.*, a.name as agent_name, s.name as sprint_name
+            FROM agent_mood_history m
+            JOIN agents a ON m.agent_id = a.id
+            JOIN sprints s ON m.sprint_id = s.id
+            ORDER BY a.name, s.created_at DESC
+          `).all() as any[];
+        }
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No mood data recorded. Use record_mood to start tracking." }] };
+
+        // Detect burnout: mood ≤ 2 for 2+ consecutive sprints
+        const byAgent = new Map<string, any[]>();
+        rows.forEach((r: any) => { const arr = byAgent.get(r.agent_name) || []; arr.push(r); byAgent.set(r.agent_name, arr); });
+        const alerts: string[] = [];
+        byAgent.forEach((moods, name) => {
+          const consecutive = moods.filter((m: any) => m.mood <= 2).length;
+          if (consecutive >= 2) alerts.push(`🔴 **${name}** — mood ≤ 2 for ${consecutive} sprints — BURNOUT RISK`);
+        });
+
+        const lines = rows.map((r: any) => `- ${r.agent_name} @ ${r.sprint_name}: mood ${r.mood}/5, ${r.workload_points}pts${r.notes ? ` — ${r.notes}` : ""}`);
+        return { content: [{ type: "text" as const, text: `# Mood Trends\n\n${alerts.length > 0 ? alerts.join("\n") + "\n\n" : ""}${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Audit Trail / Event Log
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "get_audit_trail",
+    "Get audit trail for an entity — all state changes over time",
+    {
+      entity_type: z.enum(["ticket", "sprint", "epic", "milestone", "agent", "blocker", "bug"]).describe("Entity type"),
+      entity_id: z.number().describe("Entity ID"),
+      limit: z.number().optional().describe("Max results (default 50)"),
+    },
+    async ({ entity_type, entity_id, limit }) => {
+      try {
+        const rows = db.prepare(`SELECT * FROM event_log WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT ?`).all(entity_type, entity_id, limit || 50) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: `No audit trail for ${entity_type} #${entity_id}` }] };
+        const lines = rows.map((r: any) => `[${r.created_at}] ${r.action}${r.field_name ? ` ${r.field_name}` : ""}: ${r.old_value || "—"} → ${r.new_value || "—"}${r.actor ? ` (by ${r.actor})` : ""}`);
+        return { content: [{ type: "text" as const, text: `# Audit Trail: ${entity_type} #${entity_id} (${rows.length} events)\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "log_event",
+    "Manually log an event in the audit trail",
+    {
+      entity_type: z.enum(["ticket", "sprint", "epic", "milestone", "agent", "blocker", "bug"]),
+      entity_id: z.number(),
+      action: z.enum(["created", "updated", "deleted", "status_changed"]),
+      field_name: z.string().optional(),
+      old_value: z.string().optional(),
+      new_value: z.string().optional(),
+      actor: z.string().optional(),
+    },
+    async ({ entity_type, entity_id, action, field_name, old_value, new_value, actor }) => {
+      try {
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(entity_type, entity_id, action, field_name || null, old_value || null, new_value || null, actor || null);
+        return { content: [{ type: "text" as const, text: `Event logged: ${entity_type} #${entity_id} ${action}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M20: Velocity Trends
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "get_velocity_trends",
+    "Get velocity trend data across sprints — committed vs completed, completion rate, bugs",
+    {
+      last_n_sprints: z.number().optional().describe("Number of recent sprints (default 10)"),
+      status: z.string().optional().describe("Filter by sprint status (e.g. 'closed')"),
+    },
+    async ({ last_n_sprints, status }) => {
+      try {
+        let sql = `SELECT * FROM velocity_trends`;
+        const params: any[] = [];
+        if (status) { sql += ` WHERE status = ?`; params.push(status); }
+        sql += ` LIMIT ?`;
+        params.push(last_n_sprints || 10);
+        const rows = db.prepare(sql).all(...params) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No velocity data available." }] };
+        const lines = rows.map((r: any) => `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts (${r.completion_rate}%), ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`);
+        const avgRate = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.completion_rate, 0) / rows.length) : 0;
+        return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion: ${avgRate}%\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

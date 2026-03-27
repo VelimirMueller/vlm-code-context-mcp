@@ -17,8 +17,8 @@ interface ColConfig {
 }
 
 const COLUMNS: Record<string, ColConfig> = {
-  TODO: { label: 'To Do', color: '#6b7280' },
   IN_PROGRESS: { label: 'In Progress', color: 'var(--blue)' },
+  TODO: { label: 'To Do', color: '#6b7280' },
   DONE: { label: 'Done', color: 'var(--accent)' },
   BLOCKED: { label: 'Blocked', color: 'var(--red)' },
 };
@@ -99,7 +99,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: '2fr 1.5fr 1fr 0.8fr',
         gap: 12,
         padding: '12px 0',
       }}

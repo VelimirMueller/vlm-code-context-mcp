@@ -48,8 +48,9 @@ export function TeamGrid() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }}>
-      {/* Top bar with Add button */}
-      <div style={{ padding: '16px 20px 0', display: 'flex', justifyContent: 'flex-end' }}>
+      {/* Header bar with title and Add button */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 12px' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Team Members</div>
         {!showForm && (
           <button
             onClick={() => setShowForm(true)}

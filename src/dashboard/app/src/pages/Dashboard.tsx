@@ -6,7 +6,6 @@ import { useSprints } from '@/hooks/useSprints';
 import { useAgents } from '@/hooks/useAgents';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SprintList } from '@/components/organisms/SprintList';
 import { SprintDetail } from '@/components/organisms/SprintDetail';
@@ -44,12 +43,6 @@ export function Dashboard() {
     }
   }, [sprints, selectedSprintId, selectSprint]);
 
-  // Board hero data
-  const sprintDetail = useSprintStore((s) => s.sprintDetail);
-  const tickets = useSprintStore((s) => s.tickets);
-  const doneCount = tickets.filter((t) => t.status === 'DONE').length;
-  const totalCount = tickets.length;
-  const velocity = sprintDetail?.velocity_completed ?? 0;
 
   return (
     <div
@@ -76,7 +69,7 @@ export function Dashboard() {
             {/* Sprint list sidebar */}
             <div
               style={{
-                width: 260,
+                width: 300,
                 flexShrink: 0,
                 borderRight: '1px solid var(--border)',
                 background: 'var(--surface)',
@@ -104,19 +97,6 @@ export function Dashboard() {
 
             {/* Sprint detail panel */}
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <HeroText>
-                {'Sprint '}
-                <span style={{ fontFamily: 'var(--font)', color: 'var(--accent)', fontWeight: 700 }}>
-                  {sprintDetail?.name ?? '—'}
-                </span>
-                {' — '}
-                <AnimatedNumber value={doneCount} />
-                {'/'}
-                <AnimatedNumber value={totalCount} />
-                {' tickets shipped, '}
-                <AnimatedNumber value={velocity} />
-                {'pt velocity'}
-              </HeroText>
               <SprintDetail />
             </div>
           </motion.div>

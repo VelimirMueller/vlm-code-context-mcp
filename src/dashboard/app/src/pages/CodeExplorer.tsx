@@ -16,8 +16,8 @@ import { fmtSize, langColors } from '@/lib/utils';
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 const EXPLORER_TABS = [
   { id: 'detail', label: 'Detail' },
-  { id: 'changes', label: 'Changes' },
   { id: 'graph', label: 'Graph' },
+  { id: 'changes', label: 'Changes' },
 ];
 
 // ─── Detail tab ───────────────────────────────────────────────────────────────

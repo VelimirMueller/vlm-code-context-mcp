@@ -75,6 +75,9 @@ export function App() {
   const fetchMe = useMeStore((s) => s.fetchAll);
   const fetchMeConfigured = useMeStore((s) => s.fetchConfigured);
 
+  const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
+  const fetchTickets = useSprintStore((s) => s.fetchTickets);
+
   useEventSource({
     onEvent: () => {
       // Refresh all data stores on any server event
@@ -83,6 +86,10 @@ export function App() {
       fetchAgents();
       fetchMeConfigured();
       fetchMe();
+      // Re-fetch tickets for the currently selected sprint so the board updates reactively
+      if (selectedSprintId) {
+        fetchTickets(selectedSprintId);
+      }
     },
   });
 
@@ -147,11 +154,11 @@ export function App() {
             {/* Dashboard page - shows Sprint board with quick actions */}
             {normalizedPage === 'dashboard' && <Dashboard />}
 
-            {/* Code page - shows Code Explorer */}
-            {normalizedPage === 'code' && <CodeExplorer />}
-
             {/* Planning page - shows Project Management */}
             {normalizedPage === 'planning' && <ProjectManagement />}
+
+            {/* Code page - shows Code Explorer */}
+            {normalizedPage === 'code' && <CodeExplorer />}
 
             {/* Team page - shows Team grid */}
             {normalizedPage === 'team' && <Team />}

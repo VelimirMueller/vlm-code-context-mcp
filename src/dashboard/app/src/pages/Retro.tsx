@@ -58,6 +58,8 @@ export function Retro() {
             {" sprints — here's what we learned"}
           </HeroText>
 
+          <BentoGrid />
+
           {/* Auto-analysis cards — highlighted section */}
           {autoFindings.length > 0 && (
             <div style={{ padding: '0 20px 8px 20px' }}>
@@ -109,8 +111,6 @@ export function Retro() {
               </div>
             </div>
           )}
-
-          <BentoGrid />
         </motion.div>
       </AnimatePresence>
     </div>
