@@ -4,3 +4,4 @@ export { AgentCard } from './AgentCard';
 export { BentoCard } from './BentoCard';
 export { SubTabBar } from './SubTabBar';
 export { HeroText } from './HeroText';
+export { QuickFilters } from './QuickFilters';

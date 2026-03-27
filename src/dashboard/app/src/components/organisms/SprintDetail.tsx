@@ -1,5 +1,10 @@
+'use client';
+
+import { useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { KanbanBoard } from './KanbanBoard';
+import { SprintCompletionPanel } from './SprintCompletionPanel';
+import type { RetroFinding } from '@/types';
 
 export function SprintDetail() {
   const sprintDetail = useSprintStore((s) => s.sprintDetail);
@@ -256,6 +261,98 @@ export function SprintDetail() {
 
       {/* Kanban board */}
       <KanbanBoard tickets={tickets} />
+
+      {/* Planning Summary */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: '14px 16px',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)',
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
+          Sprint Planning
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>Committed</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono)' }}>{sprintDetail.velocity_committed}sp</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>Completed</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{donePts}sp</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>Team</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono)' }}>
+              {new Set(tickets.map(t => t.assigned_to).filter(Boolean)).size} members
+            </div>
+          </div>
+        </div>
+        {(sprintDetail.start_date || sprintDetail.end_date) && (
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+            {sprintDetail.start_date ?? '?'} → {sprintDetail.end_date ?? '?'}
+          </div>
+        )}
+      </div>
+
+      {/* Sprint Completion Panel */}
+      <SprintCompletionPanel sprint={sprintDetail} />
+
+      {/* Retro Findings */}
+      <RetroInline />
+    </div>
+  );
+}
+
+function RetroInline() {
+  const findings = useSprintStore((s) => s.selectedRetroFindings);
+  const [expanded, setExpanded] = useState(false);
+
+  if (findings.length === 0) return null;
+
+  const well = findings.filter((f: RetroFinding) => f.category === 'went_well');
+  const wrong = findings.filter((f: RetroFinding) => f.category === 'went_wrong');
+  const tryNext = findings.filter((f: RetroFinding) => f.category === 'try_next');
+
+  const categories = [
+    { items: well, label: 'Went Well', color: 'var(--accent)', icon: '✓' },
+    { items: wrong, label: 'Went Wrong', color: 'var(--red)', icon: '✗' },
+    { items: tryNext, label: 'Try Next', color: 'var(--purple)', icon: '→' },
+  ];
+
+  return (
+    <div style={{ marginTop: 16, padding: '14px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', fontFamily: 'var(--font)',
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Retro Findings</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{findings.length} findings</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>▶</span>
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+          {categories.map(({ items, label, color, icon }) => items.length > 0 && (
+            <div key={label}>
+              <div style={{ fontSize: 11, fontWeight: 600, color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>{icon}</span> {label} ({items.length})
+              </div>
+              {items.map((f: RetroFinding, i: number) => (
+                <div key={f.id ?? i} style={{ padding: '6px 10px', background: 'var(--bg)', borderRadius: 6, fontSize: 12, color: 'var(--text2)', marginBottom: 4, borderLeft: `3px solid ${color}` }}>
+                  {f.finding}
+                  {f.action_owner && <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 8 }}>— {f.action_owner}</span>}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

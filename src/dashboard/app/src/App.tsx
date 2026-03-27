@@ -1,6 +1,8 @@
-import { useState } from 'react';
+'use client';
+
+import { useState, useMemo, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -8,25 +10,101 @@ import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { CodeExplorer } from '@/pages/CodeExplorer';
-import { Sprint } from '@/pages/Sprint';
+import { Dashboard } from '@/pages/Dashboard';
+import { Team } from '@/pages/Team';
+import { Retro } from '@/pages/Retro';
 import { ProjectManagement } from '@/pages/ProjectManagement';
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
+import { TopNav } from '@/components/molecules/TopNav';
+import { QuickActionsBar } from '@/components/molecules/QuickActionsBar';
+import { Breadcrumb } from '@/components/molecules/Breadcrumb';
 
-const pages = ['explorer', 'planning', 'sprint'] as const;
-type Page = (typeof pages)[number];
+// Page mapping: old pages -> new PageType
+const pageMapping: Record<string, PageType> = {
+  explorer: 'code',
+  planning: 'planning',
+  sprint: 'dashboard',
+};
 
-const pageLabels: Record<Page, string> = {
-  explorer: 'Code Explorer',
-  planning: 'Project Management',
-  sprint: 'Sprint',
+// Reverse mapping for URL hash compatibility
+const reversePageMapping: Record<PageType, string> = {
+  dashboard: 'sprint',
+  code: 'explorer',
+  planning: 'planning',
+  team: 'sprint',
+  retro: 'sprint',
+};
+
+// Legacy URL redirect map: old hash -> new hash
+const legacyUrlMap: Record<string, string> = {
+  // Old sprint URLs redirect to dashboard
+  '#sprint': '#dashboard',
+  '#sprint/board': '#dashboard/board',
+  '#sprint/team': '#team',
+  '#sprint/insights': '#retro',
+  // Old explorer URLs redirect to code
+  '#explorer': '#code',
+  '#explorer/files': '#code/files',
 };
 
 export function App() {
   const activePage = useUIStore((s) => s.activePage);
   const setPage = useUIStore((s) => s.setPage);
   const prefersReducedMotion = useReducedMotion();
+
+  // Map legacy page names to new PageType
+  const normalizedPage: PageType = pageMapping[activePage as keyof typeof pageMapping] || activePage as PageType;
+
+  // Quick actions data
+  const tickets = useSprintStore((s) => s.tickets);
+  const quickFilter = useUIStore((s) => s.quickFilter);
+  const setQuickFilter = useUIStore((s) => s.setQuickFilter);
+
+  const quickActions = useMemo(() => {
+    const myTicketsCount = tickets.filter((t) => t.assigned_to === 'Me').length;
+    const blockedCount = tickets.filter((t) => t.status === 'BLOCKED').length;
+    const qaPendingCount = tickets.filter((t) => t.qa_verified === 0 && t.status !== 'TODO').length;
+
+    return [
+      {
+        id: 'my-tickets',
+        label: 'My Tickets',
+        icon: '🎯',
+        count: myTicketsCount,
+        onClick: () => setQuickFilter('mine'),
+      },
+      {
+        id: 'blockers',
+        label: 'Blockers',
+        icon: '🚫',
+        count: blockedCount,
+        highlight: blockedCount > 0,
+        onClick: () => setQuickFilter('blocked'),
+      },
+      {
+        id: 'qa-pending',
+        label: 'QA Pending',
+        icon: '⚠',
+        count: qaPendingCount,
+        onClick: () => setQuickFilter('qa-pending'),
+      },
+      ];
+  }, [tickets, quickFilter, setQuickFilter]);
+
+  const breadcrumb = useUIStore((s) => s.breadcrumbTrail);
+
+  // Legacy URL redirect handling
+  useEffect(() => {
+    const hash = window.location.hash;
+    const cleanHash = hash.split('?')[0]; // Remove query params for redirect lookup
+
+    // Check if the current hash matches any legacy URLs
+    if (cleanHash && legacyUrlMap[cleanHash]) {
+      window.location.hash = legacyUrlMap[cleanHash];
+    }
+  }, []);
 
   // Show landing animation once per session
   const [showLanding, setShowLanding] = useState(
@@ -77,21 +155,27 @@ export function App() {
           </span>
         </div>
       </header>
-      <nav className="page-nav">
-        {pages.map((p) => (
-          <button
-            key={p}
-            className={`page-nav-item ${activePage === p ? 'active' : ''}`}
-            onClick={() => setPage(p)}
-          >
-            {pageLabels[p]}
-          </button>
-        ))}
-      </nav>
+
+      {/* Top Navigation */}
+      <TopNav
+        activeTab={normalizedPage}
+        onTabChange={(tab) => {
+          // Map new PageType back to legacy page name for internal routing
+          const legacyPage = reversePageMapping[tab as PageType];
+          setPage(legacyPage);
+        }}
+      />
+
+      {/* Quick Actions Bar */}
+      <QuickActionsBar
+        actions={quickActions}
+        searchQuery={useUIStore((s) => s.searchQuery)}
+        onSearchChange={useUIStore((s) => s.setSearch)}
+      />
       <main className="page-content">
         <AnimatePresence mode="wait">
           <motion.div
-            key={activePage}
+            key={normalizedPage}
             variants={variants}
             initial="initial"
             animate="animate"
@@ -99,9 +183,20 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            {activePage === 'explorer' && <CodeExplorer />}
-            {activePage === 'planning' && <ProjectManagement />}
-            {activePage === 'sprint' && <Sprint />}
+            {/* Dashboard page - shows Sprint board with quick actions */}
+            {normalizedPage === 'dashboard' && <Dashboard />}
+
+            {/* Code page - shows Code Explorer */}
+            {normalizedPage === 'code' && <CodeExplorer />}
+
+            {/* Planning page - shows Project Management */}
+            {normalizedPage === 'planning' && <ProjectManagement />}
+
+            {/* Team page - shows Team grid */}
+            {normalizedPage === 'team' && <Team />}
+
+            {/* Retro page - shows Retro insights */}
+            {normalizedPage === 'retro' && <Retro />}
           </motion.div>
         </AnimatePresence>
       </main>

@@ -1,11 +1,13 @@
 import { motion } from 'framer-motion';
 import { cardHover, listItemVariants } from '@/lib/motion';
 import type { Sprint } from '@/types';
+import { StatusBadge, RetroDoneBadge, QaVerifiedBadge, QaPendingBadge, VelocityMetBadge, VelocityLowBadge } from '@/components/atoms';
 
 interface SprintCardProps {
   sprint: Sprint;
   selected: boolean;
   onClick: (id: number) => void;
+  showStatusBadges?: boolean;
 }
 
 const statusColor: Record<string, string> = {
@@ -14,13 +16,25 @@ const statusColor: Record<string, string> = {
   planned: 'var(--blue)',
 };
 
-export function SprintCard({ sprint, selected, onClick }: SprintCardProps) {
+export function SprintCard({ sprint, selected, onClick, showStatusBadges = true }: SprintCardProps) {
   const pct =
     sprint.ticket_count > 0
       ? Math.round((sprint.done_count / sprint.ticket_count) * 100)
       : 0;
 
+  const velocityPct =
+    sprint.velocity_committed > 0
+      ? Math.round((sprint.velocity_completed / sprint.velocity_committed) * 100)
+      : 0;
+
   const color = statusColor[sprint.status] ?? 'var(--text3)';
+
+  // Determine status badges
+  const hasRetroFindings = sprint.retro_count > 0;
+  const qaVerified = sprint.qa_count >= sprint.ticket_count * 0.9;
+  const qaPartial = sprint.qa_count >= sprint.ticket_count * 0.7 && !qaVerified;
+  const velocityMet = velocityPct >= 100;
+  const velocityLow = velocityPct < 70 && sprint.velocity_committed > 0;
 
   return (
     <motion.div
@@ -39,6 +53,24 @@ export function SprintCard({ sprint, selected, onClick }: SprintCardProps) {
         borderLeft: selected ? '3px solid var(--accent)' : '3px solid transparent',
       }}
     >
+      {/* Status badges row */}
+      {showStatusBadges && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            marginBottom: 6,
+            flexWrap: 'wrap',
+          }}
+        >
+          {hasRetroFindings && <RetroDoneBadge variant="solid" />}
+          {qaVerified && <QaVerifiedBadge variant="solid" />}
+          {qaPartial && <QaPendingBadge variant="solid" />}
+          {velocityMet && <VelocityMetBadge variant="solid" />}
+          {velocityLow && sprint.status !== 'planned' && <VelocityLowBadge variant="solid" />}
+        </div>
+      )}
+
       <div
         style={{
           fontSize: 13,
@@ -72,6 +104,14 @@ export function SprintCard({ sprint, selected, onClick }: SprintCardProps) {
         <span>
           {sprint.velocity_completed ?? 0}/{sprint.velocity_committed ?? 0} pts
         </span>
+        {sprint.velocity_committed > 0 && (
+          <span style={{
+            color: velocityPct >= 80 ? 'var(--accent)' : velocityPct >= 50 ? 'var(--orange)' : 'var(--red)',
+            fontWeight: 600,
+          }}>
+            {velocityPct}%
+          </span>
+        )}
       </div>
 
       {/* Progress bar */}
