@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cardHover, listItemVariants } from '@/lib/motion';
+import { getPhaseStyle } from '@/lib/phases';
 import type { Sprint } from '@/types';
 import { StatusBadge, RetroDoneBadge, QaVerifiedBadge, QaPendingBadge, VelocityMetBadge, VelocityLowBadge } from '@/components/atoms';
 
@@ -9,15 +10,6 @@ interface SprintCardProps {
   onClick: (id: number) => void;
   showStatusBadges?: boolean;
 }
-
-const statusColor: Record<string, string> = {
-  planning: 'var(--purple)',
-  refinement: '#d97706',
-  active: 'var(--accent)',
-  review: '#f59e0b',
-  closed: 'var(--text3)',
-  planned: 'var(--blue)',
-};
 
 export function SprintCard({ sprint, selected, onClick, showStatusBadges = true }: SprintCardProps) {
   const pct =
@@ -30,7 +22,7 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
       ? Math.round((sprint.velocity_completed / sprint.velocity_committed) * 100)
       : 0;
 
-  const color = statusColor[sprint.status] ?? 'var(--text3)';
+  const color = getPhaseStyle(sprint.status).bg;
 
   // Determine status badges (defensive: qa_count/retro_count may be undefined from API)
   const qaCount = sprint.qa_count ?? 0;

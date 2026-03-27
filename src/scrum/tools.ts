@@ -34,7 +34,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "list_sprints",
     "List all sprints with status and ticket counts",
-    { status: z.enum(["planning", "active", "review", "closed"]).optional().describe("Filter by status") },
+    { status: z.enum(["planning", "implementation", "qa", "retro", "closed"]).optional().describe("Filter by status") },
     async ({ status }) => {
       let q = `SELECT s.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM sprints s LEFT JOIN tickets t ON t.sprint_id=s.id`;
       const params: any[] = [];
@@ -178,7 +178,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Update sprint status or details",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      status: z.enum(["planning", "active", "review", "closed"]).optional(),
+      status: z.enum(["planning", "implementation", "qa", "retro", "closed"]).optional(),
       goal: z.string().optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
