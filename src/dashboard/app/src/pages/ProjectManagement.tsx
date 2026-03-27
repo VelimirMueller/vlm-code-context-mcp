@@ -9,6 +9,7 @@ import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
 import { VisionPlayer } from '@/components/organisms/VisionPlayer';
 import { GanttChart } from '@/components/organisms/GanttChart';
+import { ProcessFlow } from '@/components/organisms/ProcessFlow';
 import { PlanningInsights } from '@/components/organisms/PlanningInsights';
 import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
@@ -17,7 +18,7 @@ import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'vision' | 'milestones' | 'epics' | 'planning' | 'gantt' | 'insights';
+type Tab = 'vision' | 'milestones' | 'epics' | 'planning' | 'gantt' | 'process' | 'insights';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
@@ -25,6 +26,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'epics', label: 'Epics' },
   { id: 'planning', label: 'Planning' },
   { id: 'gantt', label: 'Gantt' },
+  { id: 'process', label: 'Process' },
   { id: 'insights', label: 'Insights' },
 ];
 
@@ -210,6 +212,18 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <GanttChart />
+            </motion.div>
+          )}
+          {activeTab === 'process' && (
+            <motion.div
+              key="process"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <ProcessFlow />
             </motion.div>
           )}
           {activeTab === 'insights' && (

@@ -13,6 +13,7 @@ export function SprintList() {
   const loadingGrouped = useSprintStore((s) => s.loading.grouped);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showArchive, setShowArchive] = useState(false);
 
   useEffect(() => {
     fetchGrouped();
@@ -65,7 +66,7 @@ export function SprintList() {
 
   // Fallback: if grouped API hasn't loaded yet, show flat list
   if (milestoneGroups.length === 0 && sprints.length > 0) {
-    const statusOrder: Record<string, number> = { active: 0, planning: 1, review: 2, closed: 3 };
+    const statusOrder: Record<string, number> = { implementation: 0, planning: 1, qa: 2, retro: 3, closed: 4 };
     const sorted = [...sprints].sort((a, b) => {
       const ao = statusOrder[a.status] ?? 3;
       const bo = statusOrder[b.status] ?? 3;
@@ -93,8 +94,6 @@ export function SprintList() {
       </div>
     );
   }
-
-  const [showArchive, setShowArchive] = useState(false);
 
   const activeGroups = milestoneGroups.filter((g) => g.milestone?.status !== 'completed' || g.sprints.some((s) => s.status !== 'closed'));
   const archivedGroups = milestoneGroups.filter((g) => g.milestone?.status === 'completed' && g.sprints.every((s) => s.status === 'closed'));
