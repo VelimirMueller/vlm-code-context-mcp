@@ -3,7 +3,7 @@
 import React from 'react';
 
 interface TopNavProps {
-  activeTab: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
+  activeTab: 'me' | 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
   onTabChange: (tab: string) => void;
   badgeCounts?: {
     myTickets?: number;
@@ -13,13 +13,14 @@ interface TopNavProps {
 }
 
 interface NavItem {
-  id: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
+  id: 'me' | 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
   label: string;
   icon: React.ReactNode;
 }
 
 // Clean SVG icons — no emoji rendering inconsistencies
 const navItems: NavItem[] = [
+  { id: 'me', label: 'Me', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 14.5c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
   { id: 'dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/></svg> },
   { id: 'code', label: 'Code', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5.5 4L2 8l3.5 4M10.5 4L14 8l-3.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
   { id: 'planning', label: 'Planning', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/><circle cx="8" cy="8" r=".75" fill="currentColor"/></svg> },
