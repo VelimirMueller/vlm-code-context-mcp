@@ -309,7 +309,6 @@ function Roadmap({ milestones }: { milestones: any[] }) {
 
   const future = [
     { name: 'npm publish', description: 'Publish v2.0.0 to npm registry. One-command install for any project.', status: 'next' },
-    { name: 'Remotion Animations', description: 'Vision-driven animated video generation from project data via MCP.', status: 'planned' },
     { name: 'Multi-project Support', description: 'Manage multiple codebases from a single dashboard instance.', status: 'planned' },
     { name: 'GitHub/GitLab Sync', description: 'Two-way sync between MCP scrum board and GitHub Issues/GitLab.', status: 'planned' },
   ];

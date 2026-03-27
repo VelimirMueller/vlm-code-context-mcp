@@ -223,9 +223,12 @@ function apiSprintDetail(id: number) {
 function apiSprintTickets(sprintId: number) {
   try {
     return writeDb.prepare(`
-      SELECT id, ticket_ref, title, description, priority, status, assigned_to,
-        story_points, milestone, qa_verified, verified_by, acceptance_criteria, notes
-      FROM tickets WHERE sprint_id = ? ORDER BY priority, status
+      SELECT t.id, t.ticket_ref, t.title, t.description, t.priority, t.status, t.assigned_to,
+        t.story_points, t.milestone, t.milestone_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes,
+        m.name as milestone_name
+      FROM tickets t
+      LEFT JOIN milestones m ON t.milestone_id = m.id
+      WHERE t.sprint_id = ? ORDER BY t.priority, t.status
     `).all(sprintId);
   } catch { return []; }
 }
@@ -262,14 +265,14 @@ function apiSprintsGroupedByMilestone() {
     `).all() as any[];
 
     const sprintQuery = writeDb.prepare(`
-      SELECT DISTINCT s.*,
+      SELECT s.*,
         (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
         (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
         (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
         (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
-      INNER JOIN tickets t ON t.sprint_id = s.id AND t.milestone_id = ?
+      WHERE s.milestone_id = ?
       ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
     `);
 
@@ -281,7 +284,7 @@ function apiSprintsGroupedByMilestone() {
         (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
-      WHERE NOT EXISTS (SELECT 1 FROM tickets t WHERE t.sprint_id = s.id AND t.milestone_id IS NOT NULL)
+      WHERE s.milestone_id IS NULL
       ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
     `);
 
@@ -354,8 +357,10 @@ function apiVisionUpdate(body: any) {
 function apiBacklog() {
   try {
     return writeDb.prepare(`
-      SELECT t.id, t.ticket_ref, t.title, t.priority, t.status, t.story_points, t.assigned_to, t.milestone, t.milestone_id
+      SELECT t.id, t.ticket_ref, t.title, t.priority, t.status, t.story_points, t.assigned_to, t.milestone, t.milestone_id,
+        m.name as milestone_name
       FROM tickets t
+      LEFT JOIN milestones m ON t.milestone_id = m.id
       WHERE t.sprint_id IS NULL
         OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed'))
       ORDER BY t.priority, t.created_at
@@ -526,11 +531,11 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         const milestoneId = body.milestone_id;
         if (milestoneId === null || milestoneId === undefined) {
-          writeDb.prepare("UPDATE tickets SET milestone = NULL WHERE id = ?").run(tid);
+          writeDb.prepare("UPDATE tickets SET milestone = NULL, milestone_id = NULL WHERE id = ?").run(tid);
         } else {
           const milestone = writeDb.prepare("SELECT name FROM milestones WHERE id = ?").get(milestoneId) as any;
           if (!milestone) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
-          writeDb.prepare("UPDATE tickets SET milestone = ? WHERE id = ?").run(milestone.name, tid);
+          writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, tid);
         }
         data = { ok: true };
       }
