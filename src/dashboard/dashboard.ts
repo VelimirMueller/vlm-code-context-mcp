@@ -470,10 +470,26 @@ function apiSprintUpdate(id: number, body: any) {
       ).get(id) as any).c;
       const committed = current.velocity_committed ?? 0;
       const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+      const velocityDelta = donePoints - committed;
+      const velocityDeltaStr = velocityDelta >= 0 ? `+${velocityDelta}` : `${velocityDelta}`;
 
-      const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}%). ` +
-        `Velocity: ${donePoints}pt completed of ${committed}pt committed. ` +
-        `Points delivered: ${totalPoints}pt total across sprint.`;
+      // Blocker count for this sprint
+      const blockerCount = (writeDb.prepare(
+        `SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ?`
+      ).get(id) as any)?.c || 0;
+
+      // Average velocity across all sprints for comparison
+      const avgVelRow = writeDb.prepare(
+        `SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status = 'closed' AND velocity_completed IS NOT NULL`
+      ).get() as any;
+      const avgVelocity = avgVelRow?.avg_vel ? Math.round(avgVelRow.avg_vel * 10) / 10 : 0;
+      const vsAvgDelta = donePoints - avgVelocity;
+      const vsAvgStr = vsAvgDelta >= 0 ? `+${Math.round(vsAvgDelta * 10) / 10}` : `${Math.round(vsAvgDelta * 10) / 10}`;
+
+      const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). ` +
+        `Velocity: ${donePoints}pt completed of ${committed}pt committed (${velocityDeltaStr}pt delta). ` +
+        `Blockers: ${blockerCount} total. ` +
+        `vs. average velocity ${avgVelocity}pt across all sprints (${vsAvgStr}pt).`;
 
       writeDb.prepare(
         `INSERT INTO retro_findings (sprint_id, role, category, finding) VALUES (?, 'auto_analysis', 'auto_analysis', ?)`
