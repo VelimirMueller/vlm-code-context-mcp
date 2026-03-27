@@ -1,17 +1,18 @@
 /**
- * Linear MCP integration layer.
+ * Linear integration layer.
  *
- * Checks whether a "linear" MCP server is configured in `.mcp.json` at the
- * project root.  When the server is not configured every function returns a
- * graceful "not-configured" response.  When configured the module currently
- * returns mock data that matches the expected Linear shapes – the mock will be
- * replaced with real MCP tool calls once the Linear MCP server is guaranteed
- * to be running.
+ * The dashboard cannot call Linear MCP tools directly (OAuth tokens are
+ * managed by the Claude session).  Instead, data is pushed into SQLite
+ * via POST /api/me/sync (called from Claude or a hook) and read back
+ * by the frontend through GET /api/me/* endpoints.
+ *
+ * If no synced data exists yet, the Me tab shows a "sync required" prompt.
  */
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import type Database from "better-sqlite3";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,12 +61,16 @@ export interface LinearProject {
   targetDate: string | null;
 }
 
+export interface LinearSyncPayload {
+  user?: LinearUser;
+  issues?: LinearIssue[];
+  cycles?: LinearCycle[];
+  projects?: LinearProject[];
+}
+
 // ─── Configuration detection ────────────────────────────────────────────────
 
 function findProjectRoot(): string {
-  // Walk up from the compiled output to the repo root.  The compiled JS lives
-  // under dist/dashboard/ so the repo root is two directories up from __dirname
-  // at runtime.  We also support the source-tree layout (src/dashboard/).
   let dir = __dirname;
   for (let i = 0; i < 5; i++) {
     if (fs.existsSync(path.join(dir, ".mcp.json"))) return dir;
@@ -76,7 +81,7 @@ function findProjectRoot(): string {
 
 const PROJECT_ROOT = findProjectRoot();
 
-export async function isLinearConfigured(): Promise<boolean> {
+export function isLinearConfigured(): boolean {
   try {
     const mcpPath = path.join(PROJECT_ROOT, ".mcp.json");
     const raw = fs.readFileSync(mcpPath, "utf-8");
@@ -87,93 +92,67 @@ export async function isLinearConfigured(): Promise<boolean> {
   }
 }
 
-// ─── Mock data ──────────────────────────────────────────────────────────────
+// ─── SQLite cache ───────────────────────────────────────────────────────────
 
-const MOCK_USER: LinearUser = {
-  id: "usr_mock_001",
-  name: "Mock User",
-  email: "mock@example.com",
-  avatarUrl: null,
-};
-
-const MOCK_ISSUES: LinearIssue[] = [
-  {
-    id: "iss_mock_001",
-    identifier: "VLM-100",
-    title: "Implement Linear integration layer",
-    description: "Create backend module for Linear MCP integration",
-    priority: 1,
-    priorityLabel: "Urgent",
-    status: "In Progress",
-    statusColor: "#f59e0b",
-    labels: ["feature", "integration"],
-    projectName: "MCP Server",
-    assigneeId: "usr_mock_001",
-    createdAt: "2026-03-25T10:00:00Z",
-    updatedAt: "2026-03-27T08:30:00Z",
-  },
-  {
-    id: "iss_mock_002",
-    identifier: "VLM-101",
-    title: "Add Me tab dashboard UI",
-    description: "Build the Me tab frontend components",
-    priority: 2,
-    priorityLabel: "High",
-    status: "Todo",
-    statusColor: "#6b7280",
-    labels: ["feature", "ui"],
-    projectName: "MCP Server",
-    assigneeId: "usr_mock_001",
-    createdAt: "2026-03-25T11:00:00Z",
-    updatedAt: "2026-03-26T15:00:00Z",
-  },
-];
-
-const MOCK_CYCLES: LinearCycle[] = [
-  {
-    id: "cyc_mock_001",
-    name: "Sprint 34",
-    startsAt: "2026-03-23T00:00:00Z",
-    endsAt: "2026-03-29T23:59:59Z",
-    completedIssueCount: 5,
-    totalIssueCount: 12,
-    status: "active",
-  },
-];
-
-const MOCK_PROJECTS: LinearProject[] = [
-  {
-    id: "prj_mock_001",
-    name: "MCP Server",
-    status: "started",
-    progress: 0.65,
-    leadName: "Mock User",
-    targetDate: "2026-06-30",
-  },
-];
-
-// ─── Public API ─────────────────────────────────────────────────────────────
-
-export async function getLinearUser(): Promise<LinearUser | null> {
-  if (!(await isLinearConfigured())) return null;
-  // TODO: replace with real MCP tool call to linear.get_user
-  return MOCK_USER;
+export function initLinearSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS linear_cache (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
 }
 
-export async function getLinearIssues(): Promise<LinearIssue[]> {
-  if (!(await isLinearConfigured())) return [];
-  // TODO: replace with real MCP tool call to linear.list_issues
-  return MOCK_ISSUES;
+export function syncLinearData(db: Database.Database, payload: LinearSyncPayload): { ok: boolean; synced: string[] } {
+  const synced: string[] = [];
+  const upsert = db.prepare(`INSERT INTO linear_cache (key, value, synced_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=datetime('now')`);
+
+  const tx = db.transaction(() => {
+    if (payload.user) {
+      upsert.run("user", JSON.stringify(payload.user));
+      synced.push("user");
+    }
+    if (payload.issues) {
+      upsert.run("issues", JSON.stringify(payload.issues));
+      synced.push("issues");
+    }
+    if (payload.cycles) {
+      upsert.run("cycles", JSON.stringify(payload.cycles));
+      synced.push("cycles");
+    }
+    if (payload.projects) {
+      upsert.run("projects", JSON.stringify(payload.projects));
+      synced.push("projects");
+    }
+  });
+  tx();
+  return { ok: true, synced };
 }
 
-export async function getLinearCycles(): Promise<LinearCycle[]> {
-  if (!(await isLinearConfigured())) return [];
-  // TODO: replace with real MCP tool call to linear.list_cycles
-  return MOCK_CYCLES;
+function getCache(db: Database.Database, key: string): any | null {
+  const row = db.prepare("SELECT value FROM linear_cache WHERE key = ?").get(key) as { value: string } | undefined;
+  if (!row) return null;
+  try { return JSON.parse(row.value); } catch { return null; }
 }
 
-export async function getLinearProjects(): Promise<LinearProject[]> {
-  if (!(await isLinearConfigured())) return [];
-  // TODO: replace with real MCP tool call to linear.list_projects
-  return MOCK_PROJECTS;
+export function getLinearUser(db: Database.Database): LinearUser | null {
+  return getCache(db, "user");
+}
+
+export function getLinearIssues(db: Database.Database): LinearIssue[] {
+  return getCache(db, "issues") ?? [];
+}
+
+export function getLinearCycles(db: Database.Database): LinearCycle[] {
+  return getCache(db, "cycles") ?? [];
+}
+
+export function getLinearProjects(db: Database.Database): LinearProject[] {
+  return getCache(db, "projects") ?? [];
+}
+
+export function getLinearSyncStatus(db: Database.Database): { synced: boolean; syncedAt: string | null } {
+  const row = db.prepare("SELECT synced_at FROM linear_cache WHERE key = 'issues' LIMIT 1").get() as { synced_at: string } | undefined;
+  return { synced: !!row, syncedAt: row?.synced_at ?? null };
 }

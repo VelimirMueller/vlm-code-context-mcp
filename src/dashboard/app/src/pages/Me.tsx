@@ -14,6 +14,8 @@ const STATUS_ORDER = ['In Progress', 'Todo', 'Done', 'Cancelled'];
 
 export function Me() {
   const configured = useMeStore((s) => s.configured);
+  const synced = useMeStore((s) => s.synced);
+  const syncedAt = useMeStore((s) => s.syncedAt);
   const issues = useMeStore((s) => s.issues);
   const cycles = useMeStore((s) => s.cycles);
   const projects = useMeStore((s) => s.projects);
@@ -114,6 +116,55 @@ export function Me() {
   "args": ["-y", "@anthropic/linear-mcp-server"]
 }`}
           </pre>
+        </div>
+      </div>
+    );
+  }
+
+  // Configured but no data synced yet
+  if (configured && !synced && !loading.issues) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          padding: 40,
+        }}
+      >
+        <div
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: '32px 40px',
+            maxWidth: 480,
+            textAlign: 'center',
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: 'rgba(16,185,129,.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" fill="var(--accent)"/>
+            </svg>
+          </div>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+            Sync Linear Data
+          </h3>
+          <p style={{ fontSize: 13, color: 'var(--text3)', lineHeight: 1.5 }}>
+            Linear MCP is configured. Ask Claude to <code style={{ fontFamily: 'var(--mono)', background: 'var(--surface2)', padding: '1px 4px', borderRadius: 3 }}>sync linear</code> to fetch your issues, cycles, and projects.
+          </p>
         </div>
       </div>
     );
