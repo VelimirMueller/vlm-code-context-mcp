@@ -212,37 +212,37 @@ function ReleaseNotes({ sprints }: { sprints: any[] }) {
 function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount }: { totalTickets: number; totalPoints: number; sprintCount: number; agentCount: number }) {
   const valueProps = [
     {
-      icon: '🤖',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" stroke="var(--accent)" strokeWidth="1.5"/><path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/><path d="M13 4l2-2M13 4l2 2" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round"/></svg>,
       title: 'AI-Native Scrum',
       description: `${agentCount} specialized AI agents running full scrum ceremonies — planning, standups, retros, QA — autonomously. No human bottleneck.`,
       stat: `${agentCount} agents`,
     },
     {
-      icon: '📊',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="11" y="2" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="2" y="11" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="11" y="11" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/></svg>,
       title: 'Real-Time Dashboard',
       description: 'Enterprise-grade React dashboard with kanban, Gantt charts, velocity tracking, burndown, and bento grid insights. Zero-config via MCP.',
       stat: '7 views',
     },
     {
-      icon: '🔄',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v4l3 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="9" r="7" stroke="var(--purple)" strokeWidth="1.5"/><path d="M13 13l2 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/></svg>,
       title: 'MCP-First Architecture',
       description: 'Every action flows through Model Context Protocol. Claude, Cursor, or any MCP client becomes your entire IT department.',
       stat: '27+ tools',
     },
     {
-      icon: '🛡️',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l7 4v6l-7 4-7-4V6l7-4z" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 10v6M2 6l7 4 7-4" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
       title: 'Process Guardrails',
       description: 'Mandatory retros, QA gates, burnout protection, minimum ticket rules. Process discipline enforced by the system, not by willpower.',
       stat: '7 rules',
     },
     {
-      icon: '📈',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 14l4-5 3 3 5-7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
       title: 'Proven Track Record',
       description: `${sprintCount} sprints completed, ${totalTickets} tickets delivered, ${totalPoints} story points shipped. Built by its own scrum process.`,
       stat: `${totalPoints}pt`,
     },
     {
-      icon: '🚀',
+      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v8l4 4" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 6l4-4 4 4" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
       title: 'One Command Setup',
       description: 'npm install → MCP connect → full project management with agents, dashboard, and persistence. Bootstrap in under 60 seconds.',
       stat: '< 60s',
