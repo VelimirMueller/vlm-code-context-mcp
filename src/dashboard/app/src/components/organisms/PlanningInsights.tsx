@@ -176,15 +176,15 @@ export function PlanningInsights() {
         <BentoCard
           icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 14l4-5 3 3 5-7" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           title="Velocity Trend"
-          subtitle={`${closedSprints.length} closed sprints`}
+          subtitle={`Last ${Math.min(8, closedSprints.length)} sprints`}
           borderColor="var(--blue)"
           iconBg="rgba(59,130,246,.15)"
           wide
         >
-          {/* Mini bar chart */}
+          {/* Mini bar chart — last 8 closed sprints only */}
           {closedSprints.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {closedSprints.map((s) => (
+              {closedSprints.slice(-8).map((s) => (
                 <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span
                     style={{

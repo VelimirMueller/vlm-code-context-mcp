@@ -19,15 +19,16 @@ export function SprintList() {
   }, [sprints.length]);
 
   // Auto-collapse completed milestones
+  // Auto-collapse completed milestones and unassigned group
   useEffect(() => {
     if (milestoneGroups.length === 0) return;
-    const completedKeys = milestoneGroups
-      .filter((g) => g.milestone?.status === 'completed')
-      .map((g) => `m-${g.milestone!.id}`);
-    if (completedKeys.length > 0) {
+    const autoCollapseKeys = milestoneGroups
+      .filter((g) => g.milestone?.status === 'completed' || g.milestone === null)
+      .map((g) => g.milestone ? `m-${g.milestone.id}` : 'unassigned');
+    if (autoCollapseKeys.length > 0) {
       setCollapsed((prev) => {
         const next = new Set(prev);
-        completedKeys.forEach((k) => next.add(k));
+        autoCollapseKeys.forEach((k) => next.add(k));
         return next;
       });
     }

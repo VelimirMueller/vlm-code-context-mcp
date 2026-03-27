@@ -288,12 +288,25 @@ function apiSprintsGroupedByMilestone() {
 // ─── Milestones, Vision, Backlog, Sprint Planning API ────────────────────────
 function apiMilestones() {
   try {
-    return writeDb.prepare(`
+    const milestones = writeDb.prepare(`
       SELECT m.*,
         (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id) as ticket_count,
         (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE') as done_count
-      FROM milestones m ORDER BY m.created_at DESC
-    `).all();
+      FROM milestones m ORDER BY m.id ASC
+    `).all() as any[];
+
+    const sprintQuery = writeDb.prepare(`
+      SELECT DISTINCT s.id, s.name, s.status, s.velocity_committed, s.velocity_completed,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count
+      FROM sprints s INNER JOIN tickets t ON t.sprint_id = s.id AND t.milestone_id = ?
+      ORDER BY s.created_at ASC
+    `);
+
+    return milestones.map((m: any) => ({
+      ...m,
+      sprints: sprintQuery.all(m.id),
+    }));
   } catch { return []; }
 }
 
