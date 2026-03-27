@@ -4,27 +4,32 @@ import { usePlanning } from '@/hooks/usePlanning';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { useUIStore } from '@/stores/uiStore';
 import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
 import { GanttChart } from '@/components/organisms/GanttChart';
 import { PlanningInsights } from '@/components/organisms/PlanningInsights';
+import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'milestones' | 'vision' | 'gantt' | 'insights';
+type Tab = 'vision' | 'milestones' | 'planning' | 'gantt' | 'insights';
 
 const tabs: { id: Tab; label: string }[] = [
-  { id: 'milestones', label: 'Milestones' },
   { id: 'vision', label: 'Vision' },
+  { id: 'milestones', label: 'Milestones' },
+  { id: 'planning', label: 'Planning' },
   { id: 'gantt', label: 'Gantt' },
   { id: 'insights', label: 'Insights' },
 ];
 
 export function ProjectManagement() {
   usePlanning();
-  const [activeTab, setActiveTab] = useState<Tab>('milestones');
+  const activeTab = useUIStore((s) => s.activeTab) as Tab;
+  const storeSetTab = useUIStore((s) => s.setTab);
+  const setActiveTab = (tab: Tab) => storeSetTab(tab);
   const [showPlanner, setShowPlanner] = useState(false);
 
   // Pre-fetch sprint and agent data for the Insights tab
@@ -161,6 +166,18 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <VisionEditor />
+            </motion.div>
+          )}
+          {activeTab === 'planning' && (
+            <motion.div
+              key="planning"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <SprintPlanningView />
             </motion.div>
           )}
           {activeTab === 'gantt' && (

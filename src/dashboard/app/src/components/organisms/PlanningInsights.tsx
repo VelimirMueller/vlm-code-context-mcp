@@ -65,14 +65,17 @@ function StatRow({
 // ─── PlanningInsights ─────────────────────────────────────────────────────────
 
 export function PlanningInsights() {
-  const sprints = useSprintStore((s) => s.sprints);
+  const allSprints = useSprintStore((s) => s.sprints);
   const agents = useAgentStore((s) => s.agents);
   const milestones = usePlanningStore((s) => s.milestones);
+
+  // Only show active + planning sprints in insights
+  const sprints = allSprints.filter((s) => s.status === 'active' || s.status === 'planning');
 
   const [allFindings, setAllFindings] = useState<RetroFinding[]>([]);
   const [retroLoading, setRetroLoading] = useState(false);
 
-  // Fetch retro findings for all sprints
+  // Fetch retro findings for active/planning sprints only
   useEffect(() => {
     if (sprints.length === 0) return;
     setRetroLoading(true);
@@ -89,8 +92,8 @@ export function PlanningInsights() {
       .finally(() => setRetroLoading(false));
   }, [sprints.length]);
 
-  // ── Velocity card data ────────────────────────────────────────────────────
-  const closedSprints = sprints.filter((s) => s.status === 'closed');
+  // ── Velocity card data (use closed sprints for historical trend) ────────
+  const closedSprints = allSprints.filter((s) => s.status === 'closed');
   const velocities = closedSprints.map((s) => s.velocity_completed);
   const avgVelocity =
     velocities.length > 0
@@ -157,7 +160,7 @@ export function PlanningInsights() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
         <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>Planning Insights</span>
         <span style={{ fontSize: 12, color: 'var(--text3)' }}>
-          {sprints.length} sprints · {agents.length} agents · {milestones.length} milestones
+          {sprints.length} active/planning · {agents.length} agents · {milestones.length} milestones
         </span>
       </div>
 
@@ -275,10 +278,9 @@ export function PlanningInsights() {
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>avg completion</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <StatRow label="Total sprints" value={sprints.length} mono />
             <StatRow label="Active" value={activeSprints} mono color="var(--accent)" />
-            <StatRow label="Closed" value={closedSprints.length} mono color="var(--blue)" />
             <StatRow label="Planning" value={planningSprints} mono color="var(--purple)" />
+            <StatRow label="Closed (historical)" value={closedSprints.length} mono color="var(--text3)" />
           </div>
         </BentoCard>
 
@@ -462,7 +464,7 @@ export function PlanningInsights() {
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                 <StatRow
                   label="Retros conducted"
-                  value={`${sprintsWithRetros} / ${sprints.length} sprints`}
+                  value={`${sprintsWithRetros} / ${sprints.length} active/planning`}
                   mono
                 />
                 {wentWell + wentWrong > 0 && (

@@ -47,7 +47,9 @@ export function FolderItem({
         >
           <path d="M6 3l5 5-5 5z" />
         </svg>
-        <span className="folder-icon">📁</span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="folder-icon" style={{ flexShrink: 0, color: isOpen ? 'var(--accent)' : 'var(--text3)' }}>
+          <path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5V4.5z" stroke="currentColor" strokeWidth="1.3" fill={isOpen ? 'currentColor' : 'none'} fillOpacity={isOpen ? 0.15 : 0} />
+        </svg>
         <span className="folder-name">{dirInfo.name}</span>
         <span className="folder-count">{dirInfo.file_count}</span>
       </div>

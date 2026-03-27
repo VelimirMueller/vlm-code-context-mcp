@@ -1,0 +1,204 @@
+import { useEffect, useState } from 'react';
+import { useSprintStore } from '@/stores/sprintStore';
+import type { MilestoneSprintGroup, Ticket } from '@/types';
+
+interface SprintTickets {
+  sprintId: number;
+  tickets: Ticket[];
+}
+
+export function SprintPlanningView() {
+  const milestoneGroups = useSprintStore((s) => s.milestoneGroups);
+  const fetchGrouped = useSprintStore((s) => s.fetchGroupedSprints);
+  const loading = useSprintStore((s) => s.loading.grouped);
+
+  const [sprintTickets, setSprintTickets] = useState<Map<number, Ticket[]>>(new Map());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  useEffect(() => { fetchGrouped(); }, []);
+
+  // Filter to only active+planning sprints
+  const filteredGroups = milestoneGroups
+    .map((g) => ({
+      ...g,
+      sprints: g.sprints.filter((s) => s.status === 'active' || s.status === 'planning'),
+    }))
+    .filter((g) => g.sprints.length > 0);
+
+  const toggleSprint = async (sprintId: number) => {
+    const next = new Set(expanded);
+    if (next.has(sprintId)) {
+      next.delete(sprintId);
+    } else {
+      next.add(sprintId);
+      // Fetch tickets if not already loaded
+      if (!sprintTickets.has(sprintId)) {
+        try {
+          const res = await fetch(`/api/sprint/${sprintId}/tickets`);
+          const tickets = await res.json();
+          setSprintTickets((prev) => new Map(prev).set(sprintId, tickets));
+        } catch {
+          setSprintTickets((prev) => new Map(prev).set(sprintId, []));
+        }
+      }
+    }
+    setExpanded(next);
+  };
+
+  const statusColor: Record<string, string> = {
+    TODO: 'var(--text3)',
+    IN_PROGRESS: 'var(--blue)',
+    DONE: 'var(--accent)',
+    BLOCKED: 'var(--red)',
+  };
+
+  if (loading && filteredGroups.length === 0) {
+    return (
+      <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 13 }}>
+        Loading sprint planning...
+      </div>
+    );
+  }
+
+  if (filteredGroups.length === 0) {
+    return (
+      <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 13 }}>
+        No active or planning sprints found
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {filteredGroups.map((group) => {
+        const ms = group.milestone;
+        const msLabel = ms ? ms.name : 'Unassigned';
+        const msPct = ms && ms.ticket_count > 0 ? Math.round((ms.done_count / ms.ticket_count) * 100) : 0;
+        const msColor = ms?.status === 'in_progress' ? 'var(--accent)' : 'var(--purple)';
+
+        return (
+          <div key={ms ? ms.id : 'unassigned'}>
+            {/* Milestone header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{msLabel}</span>
+              {ms && (
+                <>
+                  <span style={{
+                    fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600,
+                    padding: '2px 8px', borderRadius: 5,
+                    background: `${msColor}20`, color: msColor,
+                    textTransform: 'uppercase',
+                  }}>
+                    {ms.status.replace('_', ' ')}
+                  </span>
+                  <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                    {msPct}%
+                  </span>
+                  <div style={{ flex: 1, height: 3, background: 'var(--surface3)', borderRadius: 2, maxWidth: 120 }}>
+                    <div style={{ width: `${msPct}%`, height: '100%', background: msColor, borderRadius: 2 }} />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Sprints under this milestone */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {group.sprints.map((sprint) => {
+                const isExpanded = expanded.has(sprint.id);
+                const tickets = sprintTickets.get(sprint.id) ?? [];
+                const velPct = sprint.velocity_committed > 0
+                  ? Math.round((sprint.velocity_completed / sprint.velocity_committed) * 100) : 0;
+                const sprintStatusColor = sprint.status === 'active' ? 'var(--accent)' : 'var(--text3)';
+
+                return (
+                  <div
+                    key={sprint.id}
+                    style={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {/* Sprint header */}
+                    <button
+                      onClick={() => toggleSprint(sprint.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        width: '100%', padding: '12px 16px',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        fontFamily: 'var(--font)',
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
+                        style={{ color: 'var(--text3)', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>
+                        <path d="M6 3l5 5-5 5z" />
+                      </svg>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {sprint.name}
+                      </span>
+                      <span style={{
+                        fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600,
+                        padding: '2px 7px', borderRadius: 5,
+                        background: `${sprintStatusColor}20`, color: sprintStatusColor,
+                        textTransform: 'uppercase',
+                      }}>
+                        {sprint.status}
+                      </span>
+                      <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                        {sprint.done_count}/{sprint.ticket_count}
+                      </span>
+                      <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text2)' }}>
+                        {sprint.velocity_completed}/{sprint.velocity_committed}pt
+                      </span>
+                    </button>
+
+                    {/* Expanded ticket list */}
+                    {isExpanded && (
+                      <div style={{ borderTop: '1px solid var(--border)', padding: '8px 16px 12px' }}>
+                        {tickets.length === 0 ? (
+                          <div style={{ fontSize: 12, color: 'var(--text3)', padding: '8px 0' }}>No tickets</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {tickets.map((t) => (
+                              <div
+                                key={t.id}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                  padding: '6px 8px', borderRadius: 4,
+                                  fontSize: 12,
+                                }}
+                              >
+                                <span style={{
+                                  width: 8, height: 8, borderRadius: '50%',
+                                  background: statusColor[t.status] ?? 'var(--text3)',
+                                  flexShrink: 0,
+                                }} />
+                                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flexShrink: 0, width: 40 }}>
+                                  {t.ticket_ref}
+                                </span>
+                                <span style={{ flex: 1, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {t.title}
+                                </span>
+                                <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', flexShrink: 0 }}>
+                                  {t.story_points ?? 0}sp
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, width: 80, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {t.assigned_to ?? '—'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
