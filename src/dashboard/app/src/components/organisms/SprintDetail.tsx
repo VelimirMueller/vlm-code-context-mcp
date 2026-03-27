@@ -7,6 +7,7 @@ import { patch, put } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
+import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
 import type { RetroFinding } from '@/types';
 
 interface SprintDetailProps {
@@ -151,6 +152,15 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
             {sprintDetail.status}
           </div>
         </div>
+      </div>
+
+      {/* Phase Gate Stepper */}
+      <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <PhaseGateStepper
+          currentPhase={sprintDetail.status}
+          sprintId={sprintDetail.id}
+          onTransition={() => { if (selectedSprintId) selectSprint(selectedSprintId); }}
+        />
       </div>
 
       {/* Sprint goal */}

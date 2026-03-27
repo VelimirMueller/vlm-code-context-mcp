@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { get as apiGet, post as apiPost, patch as apiPatch } from '@/lib/api';
+import { getPhaseStyle } from '@/lib/phases';
 import type { MilestoneSprintGroup, Ticket, Milestone } from '@/types';
 
 interface SprintTickets {
@@ -291,7 +292,7 @@ export function SprintPlanningView() {
                 const tickets = sprintTickets.get(sprint.id) ?? [];
                 const velPct = sprint.velocity_committed > 0
                   ? Math.round((sprint.velocity_completed / sprint.velocity_committed) * 100) : 0;
-                const sprintStatusColor = sprint.status === 'active' ? 'var(--accent)' : 'var(--text3)';
+                const sprintStatusColor = getPhaseStyle(sprint.status).bg;
 
                 return (
                   <div

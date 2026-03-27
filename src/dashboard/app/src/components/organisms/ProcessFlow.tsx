@@ -10,7 +10,9 @@ interface PhaseConfig {
   name: string;
   criteria: string[];
   actions: string[];
+  ceremonies?: string[];
   duration: string;
+  mandatory?: boolean;
 }
 
 interface ProcessConfig {
@@ -247,6 +249,16 @@ function PhaseNode({
         {!isExpanded ? (
           /* ---- Collapsed view ---- */
           <>
+            {phase.ceremonies && phase.ceremonies.length > 0 && (
+              <>
+                <div style={{ ...labelStyle, color: 'var(--accent)' }}>Ceremonies</div>
+                <ul style={listStyle}>
+                  {phase.ceremonies.map((c, i) => (
+                    <li key={i} style={{ color: 'var(--text)' }}>{c}</li>
+                  ))}
+                </ul>
+              </>
+            )}
             <div style={labelStyle}>Entry Criteria</div>
             <ul style={listStyle}>
               {phase.criteria.map((c, i) => (
@@ -259,6 +271,11 @@ function PhaseNode({
                 <li key={i}>{a}</li>
               ))}
             </ul>
+            {phase.mandatory && (
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--orange)', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Mandatory
+              </div>
+            )}
           </>
         ) : (
           /* ---- Expanded (edit) view ---- */
@@ -352,7 +369,14 @@ export function ProcessFlow() {
   useEffect(() => {
     get<ProcessConfig>('/api/sprint-process')
       .then((cfg) => {
-        if (cfg?.phases?.length) setPhases(cfg.phases);
+        if (cfg?.phases?.length) {
+          // Normalize names to lowercase to match PHASE_COLORS keys
+          const normalized = cfg.phases.map((p) => ({
+            ...p,
+            name: p.name.toLowerCase().replace(/^\d+\.\s*/, '').trim(),
+          }));
+          setPhases(normalized);
+        }
       })
       .catch(() => {
         /* use defaults */

@@ -23,6 +23,10 @@ function validateSprintTransition(current: string, next: string) {
   if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
 }
 
+// Read version from package.json
+const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
+const TOOL_COUNT = 48; // TODO: count from MCP registry at startup
+
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
@@ -251,8 +255,13 @@ function serializeSprintPhasesToMarkdown(phases: SprintPhase[]): string {
   ).join("\n\n");
 }
 
-function apiGetSprintProcess(): { phases: SprintPhase[] } {
+function apiGetSprintProcess(): { phases: any[] } {
   try {
+    const jsonRow = writeDb.prepare(`SELECT content FROM skills WHERE name = 'SPRINT_PROCESS_JSON'`).get() as { content: string } | undefined;
+    if (jsonRow?.content) {
+      const parsed = JSON.parse(jsonRow.content);
+      if (parsed.phases?.length > 0) return parsed;
+    }
     const row = writeDb.prepare(`SELECT content FROM skills WHERE name = 'SPRINT_PHASES'`).get() as { content: string } | undefined;
     if (row?.content) {
       const phases = parseSprintPhasesMarkdown(row.content);
@@ -327,7 +336,7 @@ function apiSprints() {
 
 function apiSprintDetail(id: number) {
   try {
-    const sprint = writeDb.prepare(`SELECT * FROM sprints WHERE id = ?`).get(id);
+    const sprint = writeDb.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(id);
     if (!sprint) return null;
     return sprint;
   } catch { return null; }
@@ -363,7 +372,7 @@ function apiAllRetroFindings() {
       SELECT rf.id, rf.role, rf.category, rf.finding, rf.action_owner, rf.action_applied,
         rf.sprint_id, s.name as sprint_name
       FROM retro_findings rf
-      JOIN sprints s ON rf.sprint_id = s.id
+      JOIN sprints s ON rf.sprint_id = s.id AND s.deleted_at IS NULL
       ORDER BY s.created_at DESC, rf.category
     `).all();
   } catch { return []; }
@@ -373,33 +382,33 @@ function apiSprintsGroupedByMilestone() {
   try {
     const milestones = writeDb.prepare(`
       SELECT m.*,
-        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE') as done_count
-      FROM milestones m
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND deleted_at IS NULL) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE' AND deleted_at IS NULL) as done_count
+      FROM milestones m WHERE m.deleted_at IS NULL
       ORDER BY CASE m.status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END, m.created_at DESC
     `).all() as any[];
 
     const sprintQuery = writeDb.prepare(`
       SELECT s.*,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1 AND deleted_at IS NULL) as qa_count,
         (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
-      WHERE s.milestone_id = ?
+      WHERE s.milestone_id = ? AND s.deleted_at IS NULL
       ORDER BY CASE s.status WHEN 'implementation' THEN 0 WHEN 'planning' THEN 1 WHEN 'qa' THEN 2 WHEN 'retro' THEN 3 ELSE 4 END, s.created_at DESC
     `);
 
     const unassignedQuery = writeDb.prepare(`
       SELECT s.*,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1) as qa_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as ticket_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as done_count,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1 AND deleted_at IS NULL) as qa_count,
         (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
-      WHERE s.milestone_id IS NULL
+      WHERE s.milestone_id IS NULL AND s.deleted_at IS NULL
       ORDER BY CASE s.status WHEN 'implementation' THEN 0 WHEN 'planning' THEN 1 WHEN 'qa' THEN 2 WHEN 'retro' THEN 3 ELSE 4 END, s.created_at DESC
     `);
 
@@ -526,12 +535,63 @@ const SPRINT_TRANSITIONS: Record<string, string> = {
   retro: 'closed',
 };
 
+function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition: boolean; blockers: string[]; warnings: string[] } {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+
+  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) return { canTransition: false, blockers: ['Sprint not found'], warnings: [] };
+
+  if (targetPhase === 'implementation') {
+    // Check: sprint has tickets assigned
+    const ticketCount = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").get(sprintId) as any).c;
+    if (ticketCount === 0) blockers.push('No tickets assigned to this sprint');
+    // Check: velocity committed
+    if (!sprint.velocity_committed) warnings.push('No velocity committed');
+  }
+
+  if (targetPhase === 'qa') {
+    // Check: ALL tickets must be DONE
+    const undone = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
+    if (undone > 0) blockers.push(`${undone} tickets not DONE`);
+    // Check: no open blockers
+    const openBlockers = (writeDb.prepare("SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'").get(sprintId) as any).c;
+    if (openBlockers > 0) blockers.push(`${openBlockers} open blockers`);
+  }
+
+  if (targetPhase === 'retro') {
+    // Check: all tickets qa_verified
+    const unverified = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND qa_verified = 0 AND status = 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
+    if (unverified > 0) warnings.push(`${unverified} tickets not QA verified`);
+  }
+
+  if (targetPhase === 'closed') {
+    // Check: retro findings exist
+    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
+    if (retroCount === 0) warnings.push('No retro findings recorded');
+  }
+
+  return { canTransition: blockers.length === 0, blockers, warnings };
+}
+
 function apiSprintUpdate(id: number, body: any) {
   // Read current sprint state before updating
   const current = writeDb.prepare(`SELECT * FROM sprints WHERE id = ?`).get(id) as any;
   if (!current) throw new Error("sprint not found");
 
   const sets: string[] = []; const vals: any[] = [];
+
+  // Phase gate verification before transition
+  if (body.status && body.status !== current.status) {
+    const gate = verifyPhaseGate(id, body.status);
+    if (!gate.canTransition) {
+      throw Object.assign(new Error('Phase gate blocked'), { status: 409, gate });
+    }
+    // Store warnings for response
+    if (gate.warnings.length > 0) {
+      (body as any)._gate_warnings = gate.warnings;
+    }
+  }
 
   // Phase transition validation when status is changing
   if (body.status && body.status !== current.status) {
@@ -645,7 +705,7 @@ function apiCreateTicket(body: any) {
   if (priority) validateEnum(priority, ['P0', 'P1', 'P2', 'P3'], 'priority');
 
   // Generate ticket_ref: T-<next_id>
-  const maxRef = writeDb.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any;
+  const maxRef = writeDb.prepare(`SELECT MAX(id) as m FROM tickets WHERE deleted_at IS NULL`).get() as any;
   const nextNum = (maxRef?.m ?? 0) + 1;
   const ticket_ref = `T-${nextNum}`;
 
@@ -711,12 +771,12 @@ function apiUpdateTicket(id: number, body: any) {
 
 function rebuildMarketingStats() {
   try {
-    const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status = 'closed'").get() as any).c;
-    const doneTickets = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE status = 'DONE'").get() as any).c;
-    const totalVelocity = (writeDb.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as c FROM sprints WHERE status = 'closed'").get() as any).c;
+    const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status = 'closed' AND deleted_at IS NULL").get() as any).c;
+    const doneTickets = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE status = 'DONE' AND deleted_at IS NULL").get() as any).c;
+    const totalVelocity = (writeDb.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as c FROM sprints WHERE status = 'closed' AND deleted_at IS NULL").get() as any).c;
     const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
     const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
-    const toolCount = 48; // Registered MCP tools (10 core + 38 scrum)
+    const toolCount = TOOL_COUNT;
 
     // Enhanced stats: velocity trend for last 10 closed sprints
     const velocityTrendRows = writeDb.prepare(
@@ -762,7 +822,7 @@ function rebuildMarketingStats() {
       avg_completion_rate,
       peak_velocity,
       avg_velocity,
-      version: "2.0.0",
+      version: PKG_VERSION,
       updated_at: new Date().toISOString(),
     });
 
@@ -788,7 +848,7 @@ function apiDump() {
   for (const table of allTables) {
     try { dump[table] = writeDb.prepare(`SELECT * FROM ${table}`).all(); } catch {}
   }
-  return { version: "2.0.0", exported_at: new Date().toISOString(), tables: dump };
+  return { version: PKG_VERSION, exported_at: new Date().toISOString(), tables: dump };
 }
 
 async function apiRestore(body: any) {
@@ -829,8 +889,8 @@ function apiProjectStatus() {
   const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
 
   // Read cached marketing stats for tool count + version
-  let toolCount = 48; // default: 10 core + 38 scrum tools
-  let version = "2.0.0";
+  let toolCount = TOOL_COUNT;
+  let version = PKG_VERSION;
   try {
     const mktg = writeDb.prepare("SELECT content FROM skills WHERE name = 'MARKETING_STATS'").get() as any;
     if (mktg?.content) {
@@ -1114,12 +1174,19 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname === "/api/sprint-process" && req.method === "PUT") {
         const body = await readBody(req);
         data = apiPutSprintProcess(body);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/gate\/[a-z]+$/) && req.method === "GET") {
+        const parts = url.pathname.split("/");
+        const sid = Number(parts[3]);
+        const phase = parts[5];
+        data = verifyPhaseGate(sid, phase);
       } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));
     } catch (e: any) {
+      const payload: any = { error: e.message };
+      if (e.gate) payload.gate = e.gate;
       res.writeHead(e.status ?? 500);
-      res.end(JSON.stringify({ error: e.message }));
+      res.end(JSON.stringify(payload));
     }
     return;
   }
