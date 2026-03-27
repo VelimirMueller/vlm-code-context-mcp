@@ -549,6 +549,10 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname === "/api/me/projects") {
         data = getLinearProjects(writeDb);
       } else if (url.pathname === "/api/me/sync" && req.method === "POST") {
+        // Only accept sync from localhost
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
         const body = await readBody(req);
         data = syncLinearData(writeDb, body);
         notifyClients();

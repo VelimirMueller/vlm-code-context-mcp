@@ -60,16 +60,36 @@ export function LinearIssueCard({ issue, onClick }: LinearIssueCardProps) {
           marginBottom: 4,
         }}
       >
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: 'var(--text3)',
-            fontFamily: 'var(--mono)',
-          }}
-        >
-          {issue.identifier}
-        </span>
+        {issue.url ? (
+          <a
+            href={issue.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: 'var(--text3)',
+              fontFamily: 'var(--mono)',
+              textDecoration: 'none',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {issue.identifier}
+          </a>
+        ) : (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: 'var(--text3)',
+              fontFamily: 'var(--mono)',
+            }}
+          >
+            {issue.identifier}
+          </span>
+        )}
         <span
           style={{
             padding: '1px 5px',
