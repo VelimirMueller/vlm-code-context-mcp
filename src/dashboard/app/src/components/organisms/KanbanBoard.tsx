@@ -3,6 +3,7 @@ import type { Ticket } from '@/types';
 import { TicketCard } from '@/components/molecules/TicketCard';
 import { TicketDetailModal } from './TicketDetailModal';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useSprintStore } from '@/stores/sprintStore';
 import { patch } from '@/lib/api';
 
 interface KanbanBoardProps {
@@ -25,21 +26,27 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
+  const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
+  const fetchTickets = useSprintStore((s) => s.fetchTickets);
+  const fetchGrouped = useSprintStore((s) => s.fetchGroupedSprints);
 
   useEffect(() => {
     if (milestones.length === 0) fetchMilestones();
   }, [milestones.length, fetchMilestones]);
 
   const handleMilestoneChange = async (ticketId: number, milestoneId: number | null) => {
-    try {
-      await patch(`/api/ticket/${ticketId}/milestone`, { milestone_id: milestoneId });
-      if (selectedTicket && selectedTicket.id === ticketId) {
-        const milestone = milestones.find(m => m.id === milestoneId);
-        setSelectedTicket({ ...selectedTicket, milestone: milestone?.name ?? null });
-      }
-    } catch (e) {
-      console.error('Failed to link milestone:', e);
+    await patch(`/api/ticket/${ticketId}/milestone`, { milestone_id: milestoneId });
+    const milestone = milestones.find(m => m.id === milestoneId);
+    if (selectedTicket && selectedTicket.id === ticketId) {
+      setSelectedTicket({
+        ...selectedTicket,
+        milestone: milestone?.name ?? null,
+        milestone_id: milestoneId ?? undefined,
+      });
     }
+    // Re-fetch sprint tickets and milestone groupings so the board updates
+    if (selectedSprintId) fetchTickets(selectedSprintId);
+    fetchGrouped();
   };
 
   return (

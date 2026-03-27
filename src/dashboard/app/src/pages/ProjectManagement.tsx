@@ -7,6 +7,7 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useUIStore } from '@/stores/uiStore';
 import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
+import { VisionPlayer } from '@/components/organisms/VisionPlayer';
 import { GanttChart } from '@/components/organisms/GanttChart';
 import { PlanningInsights } from '@/components/organisms/PlanningInsights';
 import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
@@ -128,8 +129,8 @@ export function ProjectManagement() {
       <div
         style={{
           flex: 1,
-          overflowY: 'auto',
-          padding: '24px 28px',
+          overflowY: activeTab === 'vision' ? 'hidden' : 'auto',
+          padding: activeTab === 'vision' ? 0 : '24px 28px',
         }}
       >
         <AnimatePresence mode="wait">
@@ -164,8 +165,13 @@ export function ProjectManagement() {
               animate="animate"
               exit="exit"
               transition={tabTransition}
+              style={{ display: 'grid', gridTemplateColumns: 'minmax(600px, 800px) 1fr', gap: 0, height: '100%' }}
+              className="vision-layout"
             >
-              <VisionEditor />
+              <div style={{ padding: '16px 20px', overflowY: 'auto', height: '100%', borderRight: '1px solid var(--border)' }}>
+                <VisionEditor />
+              </div>
+              <VisionPlayer />
             </motion.div>
           )}
           {activeTab === 'planning' && (

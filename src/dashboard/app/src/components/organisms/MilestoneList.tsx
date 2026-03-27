@@ -425,6 +425,11 @@ export function MilestoneList() {
     </form>
   );
 
+  const [showArchive, setShowArchive] = useState(false);
+
+  const activeMilestones = useMemo(() => milestones.filter((m) => m.status !== 'completed'), [milestones]);
+  const archivedMilestones = useMemo(() => milestones.filter((m) => m.status === 'completed'), [milestones]);
+
   const defaultStats: MilestoneStats = { linkedSprints: [], totalTickets: 0, doneTickets: 0, totalPoints: 0, donePoints: 0, progress: 0 };
 
   return (
@@ -432,30 +437,32 @@ export function MilestoneList() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
           Milestones
-          {milestones.length > 0 && (
+          {activeMilestones.length > 0 && (
             <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginLeft: 8 }}>
-              ({milestones.length})
+              ({activeMilestones.length} active)
             </span>
           )}
         </h2>
-        {!showCreate && (
-          <button
-            onClick={() => { setShowCreate(true); setCreateForm(emptyForm); setCreateError(null); }}
-            style={{
-              background: 'var(--accent)',
-              color: '#000',
-              border: 'none',
-              borderRadius: 8,
-              padding: '7px 16px',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'var(--font)',
-            }}
-          >
-            + Create Milestone
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {!showCreate && (
+            <button
+              onClick={() => { setShowCreate(true); setCreateForm(emptyForm); setCreateError(null); }}
+              style={{
+                background: 'var(--accent)',
+                color: '#000',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--font)',
+              }}
+            >
+              + Create Milestone
+            </button>
+          )}
+        </div>
       </div>
 
       {showCreate && inlineForm(createForm, setCreateForm, handleCreate, () => setShowCreate(false), createBusy, createError, 'Create')}
@@ -464,8 +471,8 @@ export function MilestoneList() {
         <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>Loading milestones...</div>
       )}
 
-      {!loading && milestones.length === 0 && (
-        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>No milestones yet. Create one to get started.</div>
+      {!loading && activeMilestones.length === 0 && !showArchive && (
+        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>No active milestones. Create one or check the archive.</div>
       )}
 
       {editTarget && inlineForm(
@@ -478,7 +485,8 @@ export function MilestoneList() {
         'Save Changes'
       )}
 
-      {milestones.map((m) => (
+      {/* Active milestones */}
+      {activeMilestones.map((m) => (
         editTarget?.id === m.id ? null : (
           <MilestoneCard
             key={m.id}
@@ -488,6 +496,45 @@ export function MilestoneList() {
           />
         )
       ))}
+
+      {/* Archive toggle */}
+      {archivedMilestones.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button
+            onClick={() => setShowArchive(!showArchive)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--border2)',
+              borderRadius: 8,
+              color: 'var(--text3)',
+              fontSize: 13,
+              padding: '8px 16px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font)',
+              fontWeight: 500,
+              width: '100%',
+              textAlign: 'center',
+            }}
+          >
+            {showArchive ? 'Hide' : 'Show'} Archive ({archivedMilestones.length} completed)
+          </button>
+
+          {showArchive && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12, opacity: 0.7 }}>
+              {archivedMilestones.map((m) => (
+                editTarget?.id === m.id ? null : (
+                  <MilestoneCard
+                    key={m.id}
+                    milestone={m}
+                    stats={milestoneStats.get(m.id) ?? defaultStats}
+                    onEdit={openEdit}
+                  />
+                )
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

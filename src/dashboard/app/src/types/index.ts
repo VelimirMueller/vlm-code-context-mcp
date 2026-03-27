@@ -57,6 +57,8 @@ export interface Ticket {
   assigned_to: string | null;
   story_points: number | null;
   milestone: string | null;
+  milestone_id?: number;
+  milestone_name?: string;
   qa_verified: number;
   verified_by: string | null;
   acceptance_criteria: string | null;

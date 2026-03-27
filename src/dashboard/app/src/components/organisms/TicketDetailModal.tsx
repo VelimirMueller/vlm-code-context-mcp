@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Ticket, Milestone } from '@/types';
 
@@ -5,7 +6,7 @@ interface TicketDetailModalProps {
   ticket: Ticket | null;
   milestones: Milestone[];
   onClose: () => void;
-  onMilestoneChange: (ticketId: number, milestoneId: number | null) => void;
+  onMilestoneChange: (ticketId: number, milestoneId: number | null) => Promise<void>;
 }
 
 const priorityColor: Record<string, string> = {
@@ -26,6 +27,28 @@ function MetaField({ label, value, mono, color }: { label: string; value: string
 }
 
 export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChange }: TicketDetailModalProps) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!ticket) return;
+    const val = e.target.value ? Number(e.target.value) : null;
+    setSaving(true);
+    setSaved(false);
+    setError(false);
+    try {
+      await onMilestoneChange(ticket.id, val);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError(true);
+      setTimeout(() => setError(false), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {ticket && (
@@ -95,19 +118,41 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
 
             {/* Milestone selector */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 6 }}>Milestone</div>
-              <select
-                value={milestones.find(m => m.name === ticket.milestone)?.id ?? ''}
-                onChange={(e) => onMilestoneChange(ticket.id, e.target.value ? Number(e.target.value) : null)}
-                style={{
-                  width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
-                  borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '8px 12px',
-                  fontFamily: 'var(--font)', cursor: 'pointer', outline: 'none',
-                }}
-              >
-                <option value="">None</option>
-                {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const }}>Milestone</div>
+                {saving && (
+                  <div style={{ fontSize: 10, color: 'var(--orange)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Saving...
+                  </div>
+                )}
+                {saved && (
+                  <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Saved
+                  </div>
+                )}
+                {error && (
+                  <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                    Failed to save
+                  </div>
+                )}
+              </div>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={ticket.milestone_id ?? ''}
+                  onChange={handleChange}
+                  disabled={saving}
+                  style={{
+                    width: '100%', background: 'var(--bg)',
+                    border: `1px solid ${saving ? 'var(--orange)' : saved ? 'var(--accent)' : error ? 'var(--red)' : 'var(--border)'}`,
+                    borderRadius: 8, color: saving ? 'var(--text3)' : 'var(--text)', fontSize: 13, padding: '8px 12px',
+                    fontFamily: 'var(--font)', cursor: saving ? 'wait' : 'pointer', outline: 'none',
+                    opacity: saving ? 0.6 : 1, transition: 'all .2s',
+                  }}
+                >
+                  <option value="">None</option>
+                  {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
             </div>
 
             {/* Acceptance criteria */}
