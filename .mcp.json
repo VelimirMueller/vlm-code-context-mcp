@@ -6,6 +6,11 @@
         "./dist/server/index.js",
         "./context.db"
       ]
+    },
+
+    "linear": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/linear-mcp-server"]
     }
   }
 }
