@@ -34,7 +34,7 @@ Examples:
 After setup:
   code-context-dashboard               Open dashboard at http://localhost:3333
 
-MCP Tools (35 total):
+MCP Tools (39 total):
   10 code-context tools (index, search, file context, symbols, changes)
   25 scrum tools (sprints, tickets, retros, milestones, agents, dump/restore)
 `);
@@ -169,7 +169,7 @@ console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);
 console.log(`  npx code-context-dashboard ./context.db 3333 .  — With file watcher`);
 console.log("");
-console.log("Restart your AI client to load the MCP tools (35 total):");
+console.log("Restart your AI client to load the MCP tools (39 total):");
 console.log("");
 console.log("  Code Context Tools:");
 console.log("  index_directory        — Re-index a directory");
@@ -200,4 +200,5 @@ console.log("  link_ticket_to_milestone      — Link tickets to milestones");
 console.log("  update_vision                 — Update product vision");
 console.log("  get_backlog / plan_sprint     — Backlog & planning");
 console.log("  get_project_status            — Project health check");
+console.log("  sync_linear_data              — Sync Linear workspace to dashboard");
 console.log("");
