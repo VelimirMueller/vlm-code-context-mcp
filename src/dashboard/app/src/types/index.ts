@@ -36,6 +36,7 @@ export interface Sprint {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  milestone_id?: number;
   velocity_committed: number;
   velocity_completed: number;
   created_at: string;
@@ -59,6 +60,8 @@ export interface Ticket {
   milestone: string | null;
   milestone_id?: number;
   milestone_name?: string;
+  epic_id?: number;
+  epic_name?: string;
   qa_verified: number;
   verified_by: string | null;
   acceptance_criteria: string | null;
@@ -77,6 +80,19 @@ export interface Agent {
   mood: number;
   mood_emoji: string;
   mood_label: string;
+}
+
+export interface Epic {
+  id: number;
+  name: string;
+  description: string | null;
+  status: string;
+  milestone_id: number | null;
+  color: string;
+  priority: number;
+  ticket_count: number;
+  done_count: number;
+  created_at: string;
 }
 
 export interface RetroFinding {

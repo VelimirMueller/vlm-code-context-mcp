@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
+import { usePlanningStore } from '@/stores/planningStore';
+import { patch } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import type { RetroFinding } from '@/types';
@@ -16,6 +18,14 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
   const retroFindings = useSprintStore((s) => s.selectedRetroFindings);
   const loading = useSprintStore((s) => s.loading.detail);
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
+  const selectSprint = useSprintStore((s) => s.selectSprint);
+  const milestones = usePlanningStore((s) => s.milestones);
+  const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
+  const [milestoneUpdating, setMilestoneUpdating] = useState(false);
+
+  useEffect(() => {
+    if (milestones.length === 0) fetchMilestones();
+  }, [milestones.length, fetchMilestones]);
 
   if (!selectedSprintId) {
     return (
@@ -98,18 +108,53 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
         <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
           {sprintDetail.name}
         </div>
-        <div
-          style={{
-            padding: '3px 10px',
-            borderRadius: 6,
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            background: statusColor,
-            color: 'white',
-          }}
-        >
-          {sprintDetail.status}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Milestone selector */}
+          <select
+            value={sprintDetail.milestone_id ?? ''}
+            disabled={milestoneUpdating}
+            onChange={async (e) => {
+              const val = e.target.value;
+              const newMilestoneId = val === '' ? null : Number(val);
+              setMilestoneUpdating(true);
+              try {
+                await patch(`/api/sprint/${sprintDetail.id}/milestone`, { milestone_id: newMilestoneId });
+                if (selectedSprintId) await selectSprint(selectedSprintId);
+              } finally {
+                setMilestoneUpdating(false);
+              }
+            }}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '3px 8px',
+              fontSize: 11,
+              color: 'var(--text2)',
+              fontFamily: 'var(--font)',
+              cursor: 'pointer',
+              maxWidth: 160,
+              opacity: milestoneUpdating ? 0.5 : 1,
+            }}
+          >
+            <option value="">No milestone</option>
+            {milestones.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+          <div
+            style={{
+              padding: '3px 10px',
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              background: statusColor,
+              color: 'white',
+            }}
+          >
+            {sprintDetail.status}
+          </div>
         </div>
       </div>
 

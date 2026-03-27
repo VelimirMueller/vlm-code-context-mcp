@@ -1,7 +1,57 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-//test
+
+// ─── .gitignore support ─────────────────────────────────────────────────────
+interface GitignorePattern {
+  pattern: string;
+  negated: boolean;
+  dirOnly: boolean;
+}
+
+function loadGitignore(rootDir: string): GitignorePattern[] {
+  const gitignorePath = path.join(rootDir, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) return [];
+  const content = fs.readFileSync(gitignorePath, "utf-8");
+  const patterns: GitignorePattern[] = [];
+  for (const raw of content.split("\n")) {
+    let line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const negated = line.startsWith("!");
+    if (negated) line = line.slice(1);
+    const dirOnly = line.endsWith("/");
+    if (dirOnly) line = line.slice(0, -1);
+    patterns.push({ pattern: line, negated, dirOnly });
+  }
+  return patterns;
+}
+
+function matchesGitignore(relativePath: string, isDirectory: boolean, patterns: GitignorePattern[]): boolean {
+  const name = path.basename(relativePath);
+  let ignored = false;
+  for (const p of patterns) {
+    if (p.dirOnly && !isDirectory) continue;
+    let matches = false;
+    if (p.pattern.includes("/")) {
+      // Path pattern: match against relative path
+      matches = relativePath.startsWith(p.pattern) || relativePath === p.pattern;
+    } else if (p.pattern.startsWith("*.")) {
+      // Extension glob: match by suffix
+      const ext = p.pattern.slice(1); // e.g. ".log"
+      matches = name.endsWith(ext);
+    } else if (p.pattern.startsWith("*")) {
+      // Generic trailing wildcard
+      const suffix = p.pattern.slice(1);
+      matches = name.endsWith(suffix);
+    } else {
+      // Simple name match (directory or file)
+      matches = name === p.pattern;
+    }
+    if (matches) ignored = !p.negated;
+  }
+  return ignored;
+}
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", ".next", "build", "coverage", ".turbo",
@@ -231,19 +281,27 @@ function countLines(content: string): number {
 }
 
 // ─── Walk directory ──────────────────────────────────────────────────────────
-function walkDir(dir: string): string[] {
+function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePattern[]): string[] {
+  const root = rootDir ?? dir;
+  const patterns = gitignorePatterns ?? loadGitignore(root);
   const results: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    // Always skip node_modules and .git regardless of .gitignore
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".") && entry.name !== ".env") continue;
     const full = path.join(dir, entry.name);
+    const relativePath = path.relative(root, full);
     if (entry.isSymbolicLink()) continue; // skip symlinks to avoid loops
     if (entry.isDirectory()) {
-      try { results.push(...walkDir(full)); } catch { /* skip inaccessible dirs */ }
+      // Check .gitignore patterns for directories
+      if (patterns.length > 0 && matchesGitignore(relativePath, true, patterns)) continue;
+      try { results.push(...walkDir(full, root, patterns)); } catch { /* skip inaccessible dirs */ }
     } else {
       const ext = path.extname(entry.name).toLowerCase();
       if (BINARY_EXTENSIONS.has(ext)) continue;
       if (SKIP_FILES.has(entry.name)) continue;
+      // Check .gitignore patterns for files
+      if (patterns.length > 0 && matchesGitignore(relativePath, false, patterns)) continue;
       // Skip files > 5MB
       try { if (fs.statSync(full).size > 5 * 1024 * 1024) { console.warn(`[indexer] Skipping large file: ${full}`); continue; } } catch { continue; }
       results.push(full);
@@ -412,7 +470,14 @@ function generateFileDescription(filePath: string, lang: string, ext: string, li
   else if (name.includes("setup")) parts.push("Setup/bootstrap script");
   else if (name.includes("schema")) parts.push("Schema definitions");
   else if (name.includes("config")) parts.push("Configuration");
-  else if (name.endsWith(".test.ts") || name.endsWith(".spec.ts")) parts.push("Test suite");
+  else if (name.endsWith(".test.ts") || name.endsWith(".spec.ts") || name.endsWith(".test.js") || name.endsWith(".spec.js") || name.endsWith(".test.tsx") || name.endsWith(".spec.tsx")) parts.push("Test suite");
+  else if (name.includes("middleware")) parts.push("Middleware");
+  else if (/^use[A-Z]/.test(name.replace(/\.\w+$/, ""))) parts.push("React hook");
+  else if (name.includes("hook")) parts.push("Hook");
+  else if (name.includes("util")) parts.push("Utility functions");
+  else if (name.includes("helper")) parts.push("Helper functions");
+  else if (name.includes("constant")) parts.push("Constants");
+  else if (name.includes("types") || name.endsWith(".d.ts")) parts.push("Type definitions");
 
   // What does it export?
   if (exports.length > 0) {
@@ -443,18 +508,74 @@ function generateFileDescription(filePath: string, lang: string, ext: string, li
   // Size context
   if (lineCount > 500) parts.push(`${lineCount} lines`);
 
-  // For non-code files, use summary if meaningful
+  // For non-code files, use summary if meaningful or fall back to extension-based heuristics
   if (!PARSEABLE_EXTENSIONS.has(ext)) {
     if (ext === ".md" || ext === ".mdx") {
-      return summary !== name ? summary : null;
+      return summary !== name ? summary : "Markdown document";
     }
     if (ext === ".json") {
-      return summary !== name ? summary : null;
+      return summary !== name ? summary : "Configuration file";
     }
-    if (ext === ".html") {
-      parts.unshift("HTML document");
+    if (ext === ".css" || ext === ".scss" || ext === ".sass" || ext === ".less") {
+      if (parts.length === 0) parts.push("Stylesheet");
+    }
+    if (ext === ".html" || ext === ".htm") {
+      if (parts.length === 0) parts.push("HTML document");
+    }
+    if (ext === ".yaml" || ext === ".yml" || ext === ".toml" || ext === ".ini" || ext === ".cfg") {
+      if (parts.length === 0) parts.push("Configuration file");
+    }
+    if (ext === ".env") {
+      if (parts.length === 0) parts.push("Environment variables");
+    }
+    if (ext === ".sql") {
+      if (parts.length === 0) parts.push("SQL script");
+    }
+    if (ext === ".sh" || ext === ".bash" || ext === ".zsh") {
+      if (parts.length === 0) parts.push("Shell script");
+    }
+    if (ext === ".graphql" || ext === ".gql") {
+      if (parts.length === 0) parts.push("GraphQL schema/queries");
+    }
+    if (ext === ".prisma") {
+      if (parts.length === 0) parts.push("Prisma schema");
+    }
+    if (ext === ".proto") {
+      if (parts.length === 0) parts.push("Protocol Buffer definitions");
+    }
+    if (ext === ".dockerfile" || name === "Dockerfile" || name.startsWith("Dockerfile.")) {
+      if (parts.length === 0) parts.push("Docker configuration");
     }
     return parts.length ? parts.join(". ") + "." : null;
+  }
+
+  // For parseable (JS/TS) files with no exports and no imports, use path-based heuristics
+  if (parts.length === 0 && exports.length === 0 && imports.length === 0) {
+    // Extension-based fallback for test files already handled above via name patterns
+    // Use directory path for additional context
+    const dirName = path.basename(path.dirname(filePath));
+    const pathHints: Record<string, string> = {
+      middleware: "Middleware module",
+      hooks: "Hook module",
+      utils: "Utility module",
+      helpers: "Helper module",
+      constants: "Constants module",
+      types: "Type definitions module",
+      components: "UI component",
+      services: "Service module",
+      models: "Data model",
+      lib: "Library module",
+      config: "Configuration module",
+      scripts: "Script",
+      api: "API handler",
+      routes: "Route handler",
+      pages: "Page component",
+      layouts: "Layout component",
+      store: "State store",
+      stores: "State store",
+    };
+    const hint = pathHints[dirName.toLowerCase()];
+    if (hint) parts.push(hint);
   }
 
   if (parts.length === 0) return null;

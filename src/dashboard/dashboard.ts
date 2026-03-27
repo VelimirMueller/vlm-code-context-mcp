@@ -11,6 +11,18 @@ import { initScrumSchema } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema } from "./linear.js";
 
+// ─── Input validation helpers ─────────────────────────────────────────────
+function validateEnum(value: string, allowed: string[], name: string) {
+  if (!allowed.includes(value)) throw Object.assign(new Error(`Invalid ${name}: ${value}. Allowed: ${allowed.join(', ')}`), { status: 400 });
+}
+function validateColor(hex: string) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw Object.assign(new Error('Invalid hex color'), { status: 400 });
+}
+function validateSprintTransition(current: string, next: string) {
+  const allowed: Record<string, string[]> = { planning: ['implementation'], implementation: ['qa'], qa: ['retro'], retro: ['closed'], closed: [] };
+  if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
+}
+
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
@@ -35,6 +47,9 @@ const scrumImport = importScrumData(writeDb, claudeDir);
 if (scrumImport.agents + scrumImport.sprints > 0) {
   console.log(`[scrum] Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets, ${scrumImport.skills} skills`);
 }
+
+// Rebuild marketing stats on startup so cached values are fresh
+try { rebuildMarketingStats(); } catch {}
 
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
@@ -224,10 +239,12 @@ function apiSprintTickets(sprintId: number) {
   try {
     return writeDb.prepare(`
       SELECT t.id, t.ticket_ref, t.title, t.description, t.priority, t.status, t.assigned_to,
-        t.story_points, t.milestone, t.milestone_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes,
-        m.name as milestone_name
+        t.story_points, t.milestone, t.milestone_id, t.epic_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes,
+        m.name as milestone_name,
+        e.name as epic_name
       FROM tickets t
       LEFT JOIN milestones m ON t.milestone_id = m.id
+      LEFT JOIN epics e ON t.epic_id = e.id
       WHERE t.sprint_id = ? ORDER BY t.priority, t.status
     `).all(sprintId);
   } catch { return []; }
@@ -273,7 +290,7 @@ function apiSprintsGroupedByMilestone() {
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
       WHERE s.milestone_id = ?
-      ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
+      ORDER BY CASE s.status WHEN 'implementation' THEN 0 WHEN 'planning' THEN 1 WHEN 'qa' THEN 2 WHEN 'retro' THEN 3 ELSE 4 END, s.created_at DESC
     `);
 
     const unassignedQuery = writeDb.prepare(`
@@ -285,7 +302,7 @@ function apiSprintsGroupedByMilestone() {
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s
       WHERE s.milestone_id IS NULL
-      ORDER BY CASE s.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, s.created_at DESC
+      ORDER BY CASE s.status WHEN 'implementation' THEN 0 WHEN 'planning' THEN 1 WHEN 'qa' THEN 2 WHEN 'retro' THEN 3 ELSE 4 END, s.created_at DESC
     `);
 
     const groups = milestones.map((m: any) => ({
@@ -330,13 +347,14 @@ function apiMilestones() {
 function apiCreateMilestone(body: any) {
   const { name, description, target_date, status } = body;
   if (!name) throw new Error("name is required");
+  if (status) validateEnum(status, ['planned', 'active', 'completed'], 'milestone status');
   const result = writeDb.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run(name, description || null, target_date || null, status || "planned");
   return { id: result.lastInsertRowid, name };
 }
 
 function apiMilestoneUpdate(id: number, body: any) {
   const sets: string[] = []; const vals: any[] = [];
-  if (body.status) { sets.push("status=?"); vals.push(body.status); }
+  if (body.status) { validateEnum(body.status, ['planned', 'active', 'completed'], 'milestone status'); sets.push("status=?"); vals.push(body.status); }
   if (body.description) { sets.push("description=?"); vals.push(body.description); }
   if (body.progress !== undefined) { sets.push("progress=?"); vals.push(body.progress); }
   if (body.target_date) { sets.push("target_date=?"); vals.push(body.target_date); }
@@ -368,6 +386,20 @@ function apiBacklog() {
   } catch { return []; }
 }
 
+function apiEpics(milestoneId?: number) {
+  try {
+    let sql = `SELECT e.*,
+      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id) as ticket_count,
+      (SELECT COUNT(*) FROM tickets WHERE epic_id = e.id AND status = 'DONE') as done_count
+    FROM epics e`;
+    if (milestoneId) {
+      sql += ` WHERE e.milestone_id = ?`;
+      return writeDb.prepare(sql + ' ORDER BY e.priority, e.name').all(milestoneId);
+    }
+    return writeDb.prepare(sql + ' ORDER BY e.priority, e.name').all();
+  } catch { return []; }
+}
+
 function apiPlanSprint(body: any) {
   const name = body.name;
   const goal = body.goal;
@@ -386,11 +418,232 @@ function apiPlanSprint(body: any) {
   return { id: sprintId, name, tickets_assigned: ticketIds.length };
 }
 
+// ─── Sprint Update API ──────────────────────────────────────────────────────
+const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'qa', 'retro', 'closed'] as const;
+const SPRINT_TRANSITIONS: Record<string, string> = {
+  planning: 'implementation',
+  implementation: 'qa',
+  qa: 'retro',
+  retro: 'closed',
+};
+
+function apiSprintUpdate(id: number, body: any) {
+  // Read current sprint state before updating
+  const current = writeDb.prepare(`SELECT * FROM sprints WHERE id = ?`).get(id) as any;
+  if (!current) throw new Error("sprint not found");
+
+  const sets: string[] = []; const vals: any[] = [];
+
+  // Phase transition validation when status is changing
+  if (body.status && body.status !== current.status) {
+    const newStatus = body.status;
+    const currentStatus = current.status;
+
+    // Validate transition order: planning -> implementation -> qa -> retro -> closed
+    validateEnum(newStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
+    validateEnum(currentStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
+    validateSprintTransition(currentStatus, newStatus);
+
+    // When transitioning to 'qa': check all tickets are DONE
+    if (newStatus === 'qa') {
+      const undone = (writeDb.prepare(
+        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE'`
+      ).get(id) as any).c;
+      if (undone > 0) {
+        throw new Error(`Cannot transition to qa: ${undone} ticket(s) are not DONE`);
+      }
+    }
+
+    // When transitioning to 'retro': auto-generate retro analysis
+    if (newStatus === 'retro') {
+      const totalTickets = (writeDb.prepare(
+        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ?`
+      ).get(id) as any).c;
+      const doneTickets = (writeDb.prepare(
+        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`
+      ).get(id) as any).c;
+      const totalPoints = (writeDb.prepare(
+        `SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ?`
+      ).get(id) as any).c;
+      const donePoints = (writeDb.prepare(
+        `SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`
+      ).get(id) as any).c;
+      const committed = current.velocity_committed ?? 0;
+      const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+
+      const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}%). ` +
+        `Velocity: ${donePoints}pt completed of ${committed}pt committed. ` +
+        `Points delivered: ${totalPoints}pt total across sprint.`;
+
+      writeDb.prepare(
+        `INSERT INTO retro_findings (sprint_id, role, category, finding) VALUES (?, 'auto_analysis', 'auto_analysis', ?)`
+      ).run(id, analysis);
+
+      // Auto-set velocity_completed
+      sets.push("velocity_completed=?"); vals.push(donePoints);
+    }
+
+    sets.push("status=?"); vals.push(newStatus);
+  } else if (body.status) {
+    // Status provided but same as current — no-op for status
+  }
+
+  if (body.goal !== undefined) { sets.push("goal=?"); vals.push(body.goal); }
+  if (body.velocity_committed !== undefined) { sets.push("velocity_committed=?"); vals.push(body.velocity_committed); }
+  if (body.velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(body.velocity_completed); }
+  if (sets.length === 0) throw new Error("nothing to update");
+  sets.push("updated_at=datetime('now')");
+  vals.push(id);
+  writeDb.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+  // Auto-rebuild marketing stats when a sprint is closed
+  if (body.status === 'closed') {
+    rebuildMarketingStats();
+  }
+
+  return { id, updated: true };
+}
+
+// ─── Ticket CRUD API ────────────────────────────────────────────────────────
+function apiCreateTicket(body: any) {
+  const { title, description, priority, sprint_id, epic_id, milestone_id, assigned_to, story_points } = body;
+  if (!title) throw new Error("title is required");
+  if (priority) validateEnum(priority, ['P0', 'P1', 'P2', 'P3'], 'priority');
+
+  // Generate ticket_ref: T-<next_id>
+  const maxRef = writeDb.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any;
+  const nextNum = (maxRef?.m ?? 0) + 1;
+  const ticket_ref = `T-${nextNum}`;
+
+  // Resolve milestone name if milestone_id provided
+  let milestone: string | null = null;
+  if (milestone_id) {
+    const ms = writeDb.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
+    if (ms) milestone = ms.name;
+  }
+
+  const result = writeDb.prepare(`
+    INSERT INTO tickets (ticket_ref, title, description, priority, sprint_id, epic_id, milestone_id, milestone, assigned_to, story_points)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    ticket_ref,
+    title,
+    description || null,
+    priority ?? 0,
+    sprint_id || null,
+    epic_id || null,
+    milestone_id || null,
+    milestone,
+    assigned_to || null,
+    story_points ?? 0
+  );
+
+  return { id: result.lastInsertRowid, ticket_ref, title };
+}
+
+function apiUpdateTicket(id: number, body: any) {
+  const existing = writeDb.prepare(`SELECT * FROM tickets WHERE id = ?`).get(id) as any;
+  if (!existing) throw new Error("ticket not found");
+
+  const sets: string[] = []; const vals: any[] = [];
+  if (body.title !== undefined) { sets.push("title=?"); vals.push(body.title); }
+  if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
+  if (body.priority !== undefined) { validateEnum(body.priority, ['P0', 'P1', 'P2', 'P3'], 'priority'); sets.push("priority=?"); vals.push(body.priority); }
+  if (body.status !== undefined) { validateEnum(body.status, ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'PARTIAL', 'NOT_DONE'], 'ticket status'); sets.push("status=?"); vals.push(body.status); }
+  if (body.assigned_to !== undefined) { sets.push("assigned_to=?"); vals.push(body.assigned_to); }
+  if (body.story_points !== undefined) { sets.push("story_points=?"); vals.push(body.story_points); }
+  if (body.qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(body.qa_verified ? 1 : 0); }
+  if (body.epic_id !== undefined) { sets.push("epic_id=?"); vals.push(body.epic_id); }
+  if (body.milestone_id !== undefined) {
+    sets.push("milestone_id=?"); vals.push(body.milestone_id);
+    // Also update milestone name
+    if (body.milestone_id) {
+      const ms = writeDb.prepare(`SELECT name FROM milestones WHERE id = ?`).get(body.milestone_id) as any;
+      sets.push("milestone=?"); vals.push(ms?.name || null);
+    } else {
+      sets.push("milestone=?"); vals.push(null);
+    }
+  }
+  if (sets.length === 0) throw new Error("nothing to update");
+  sets.push("updated_at=datetime('now')");
+  vals.push(id);
+  writeDb.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+  return { id, updated: true };
+}
+
+function rebuildMarketingStats() {
+  try {
+    const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status = 'closed'").get() as any).c;
+    const doneTickets = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE status = 'DONE'").get() as any).c;
+    const totalVelocity = (writeDb.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as c FROM sprints WHERE status = 'closed'").get() as any).c;
+    const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+    const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
+    const toolCount = 48; // Registered MCP tools (10 core + 38 scrum)
+
+    // Enhanced stats: velocity trend for last 10 closed sprints
+    const velocityTrendRows = writeDb.prepare(
+      `SELECT name, velocity_completed FROM sprints WHERE status = 'closed' ORDER BY created_at DESC LIMIT 10`
+    ).all() as any[];
+    const velocity_trend = velocityTrendRows.reverse().map((r: any) => ({
+      sprint_name: r.name,
+      velocity: r.velocity_completed ?? 0,
+    }));
+
+    // Enhanced stats: avg completion rate across closed sprints
+    const completionRows = writeDb.prepare(`
+      SELECT s.id,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_c,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as total_c
+      FROM sprints s WHERE s.status = 'closed'
+    `).all() as any[];
+    const completionRates = completionRows
+      .filter((r: any) => r.total_c > 0)
+      .map((r: any) => (r.done_c / r.total_c) * 100);
+    const avg_completion_rate = completionRates.length > 0
+      ? Math.round(completionRates.reduce((a: number, b: number) => a + b, 0) / completionRates.length * 10) / 10
+      : 0;
+
+    // Enhanced stats: peak and average velocity
+    const velocityRows = writeDb.prepare(
+      `SELECT velocity_completed FROM sprints WHERE status = 'closed' AND velocity_completed IS NOT NULL`
+    ).all() as any[];
+    const velocities = velocityRows.map((r: any) => r.velocity_completed ?? 0);
+    const peak_velocity = velocities.length > 0 ? Math.max(...velocities) : 0;
+    const avg_velocity = velocities.length > 0
+      ? Math.round(velocities.reduce((a: number, b: number) => a + b, 0) / velocities.length * 10) / 10
+      : 0;
+
+    const stats = JSON.stringify({
+      closed_sprints: closedSprints,
+      done_tickets: doneTickets,
+      total_velocity: totalVelocity,
+      agent_count: agentCount,
+      milestone_count: milestoneCount,
+      tool_count: toolCount,
+      velocity_trend,
+      avg_completion_rate,
+      peak_velocity,
+      avg_velocity,
+      version: "2.0.0",
+      updated_at: new Date().toISOString(),
+    });
+
+    writeDb.prepare(
+      `INSERT INTO skills (name, content, owner_role) VALUES ('MARKETING_STATS', ?, 'scrum-master')
+       ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`
+    ).run(stats);
+
+    console.log(`[marketing] Rebuilt marketing stats: ${closedSprints} sprints, ${doneTickets} tickets, ${totalVelocity}pt`);
+  } catch (err: any) {
+    console.error(`[marketing] Failed to rebuild stats: ${err.message}`);
+  }
+}
+
 // ─── Dump / Restore / Project Status API ────────────────────────────────────
 function apiDump() {
   const allTables = [
     "agents", "sprints", "tickets", "subtasks", "retro_findings",
-    "blockers", "bugs", "skills", "processes", "milestones",
+    "blockers", "bugs", "skills", "processes", "milestones", "epics",
     "files", "exports", "dependencies", "directories", "changes"
   ];
   const dump: Record<string, any[]> = {};
@@ -404,7 +657,7 @@ async function apiRestore(body: any) {
   if (!body.version || !body.tables) return { error: "Invalid dump format" };
 
   const order = [
-    "milestones", "agents", "skills", "processes",
+    "milestones", "epics", "agents", "skills", "processes",
     "sprints", "tickets", "subtasks",
     "retro_findings", "blockers", "bugs",
     "files", "exports", "dependencies", "directories", "changes"
@@ -437,6 +690,18 @@ function apiProjectStatus() {
   const skillCount = (writeDb.prepare("SELECT COUNT(*) as c FROM skills").get() as any).c;
   const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
 
+  // Read cached marketing stats for tool count + version
+  let toolCount = 48; // default: 10 core + 38 scrum tools
+  let version = "2.0.0";
+  try {
+    const mktg = writeDb.prepare("SELECT content FROM skills WHERE name = 'MARKETING_STATS'").get() as any;
+    if (mktg?.content) {
+      const parsed = JSON.parse(mktg.content);
+      if (parsed.tool_count) toolCount = parsed.tool_count;
+      if (parsed.version) version = parsed.version;
+    }
+  } catch {}
+
   return {
     initialized: fileCount > 0,
     files: fileCount,
@@ -445,6 +710,8 @@ function apiProjectStatus() {
     tickets: ticketCount,
     skills: skillCount,
     milestones: milestoneCount,
+    toolCount,
+    version,
   };
 }
 
@@ -521,6 +788,19 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintRetro(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "PUT") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        data = apiSprintUpdate(sid, body);
+        notifyClients();
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "DELETE") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ?").get(sid);
+        if (!existing) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
+        writeDb.prepare("DELETE FROM tickets WHERE sprint_id = ?").run(sid);
+        writeDb.prepare("DELETE FROM sprints WHERE id = ?").run(sid);
+        data = { ok: true };
+        notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintDetail(sid);
@@ -538,6 +818,81 @@ const server = http.createServer(async (req, res) => {
           writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, tid);
         }
         data = { ok: true };
+      }
+      else if (url.pathname === "/api/epics" && req.method === "POST") {
+        const body = await readBody(req);
+        if (!body.name) { res.writeHead(400); res.end('{"error":"name is required"}'); return; }
+        if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
+        if (body.color) validateColor(body.color);
+        const result = writeDb.prepare(`INSERT INTO epics (name, description, milestone_id, priority, status) VALUES (?, ?, ?, ?, ?)`).run(
+          body.name, body.description || null, body.milestone_id || null, body.priority ?? 0, body.status || 'planned'
+        );
+        data = { id: result.lastInsertRowid, name: body.name };
+      }
+      else if (url.pathname === "/api/epics") {
+        const mid = url.searchParams.get("milestone_id");
+        data = apiEpics(mid ? Number(mid) : undefined);
+      }
+      else if (url.pathname.match(/^\/api\/epic\/\d+$/) && req.method === "PUT") {
+        const eid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
+        if (body.color) validateColor(body.color);
+        const sets: string[] = []; const vals: any[] = [];
+        if (body.name) { sets.push("name=?"); vals.push(body.name); }
+        if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
+        if (body.milestone_id !== undefined) { sets.push("milestone_id=?"); vals.push(body.milestone_id); }
+        if (body.priority) { sets.push("priority=?"); vals.push(body.priority); }
+        if (body.status) { sets.push("status=?"); vals.push(body.status); }
+        if (sets.length === 0) { res.writeHead(400); res.end('{"error":"nothing to update"}'); return; }
+        sets.push("updated_at=datetime('now')");
+        vals.push(eid);
+        writeDb.prepare(`UPDATE epics SET ${sets.join(",")} WHERE id=?`).run(...vals);
+        data = { id: eid, updated: true };
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/milestone$/) && req.method === "PATCH") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        writeDb.prepare("UPDATE sprints SET milestone_id=?, updated_at=datetime('now') WHERE id=?").run(body.milestone_id ?? null, sid);
+        data = { ok: true };
+      }
+      else if (url.pathname.match(/^\/api\/ticket\/\d+\/epic$/) && req.method === "PATCH") {
+        const tid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        writeDb.prepare("UPDATE tickets SET epic_id=?, updated_at=datetime('now') WHERE id=?").run(body.epic_id ?? null, tid);
+        data = { ok: true };
+      }
+      // ── Ticket CRUD endpoints ──────────────────────────────────────────
+      else if (url.pathname === "/api/tickets" && req.method === "POST") {
+        const body = await readBody(req);
+        data = apiCreateTicket(body);
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/ticket\/\d+$/) && req.method === "PUT") {
+        const tid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        data = apiUpdateTicket(tid, body);
+        notifyClients();
+      }
+      // ── DELETE endpoints ─────────────────────────────────────────────
+      else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "DELETE") {
+        const mid = Number(url.pathname.split("/")[3]);
+        const existing = writeDb.prepare("SELECT id FROM milestones WHERE id = ?").get(mid);
+        if (!existing) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
+        writeDb.prepare("UPDATE tickets SET milestone_id = NULL, milestone = NULL WHERE milestone_id = ?").run(mid);
+        writeDb.prepare("UPDATE sprints SET milestone_id = NULL WHERE milestone_id = ?").run(mid);
+        writeDb.prepare("DELETE FROM milestones WHERE id = ?").run(mid);
+        data = { ok: true };
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/epic\/\d+$/) && req.method === "DELETE") {
+        const eid = Number(url.pathname.split("/")[3]);
+        const existing = writeDb.prepare("SELECT id FROM epics WHERE id = ?").get(eid);
+        if (!existing) { res.writeHead(404); res.end('{"error":"epic not found"}'); return; }
+        writeDb.prepare("UPDATE tickets SET epic_id = NULL WHERE epic_id = ?").run(eid);
+        writeDb.prepare("DELETE FROM epics WHERE id = ?").run(eid);
+        data = { ok: true };
+        notifyClients();
       }
       else if (url.pathname === "/api/dump") data = apiDump();
       else if (url.pathname === "/api/restore" && req.method === "POST") {
@@ -578,7 +933,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200);
       res.end(JSON.stringify(data));
     } catch (e: any) {
-      res.writeHead(500);
+      res.writeHead(e.status ?? 500);
       res.end(JSON.stringify({ error: e.message }));
     }
     return;

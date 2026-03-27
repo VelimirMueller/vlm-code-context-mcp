@@ -193,7 +193,43 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sets.push("updated_at=datetime('now')");
       vals.push(sprint_id);
       db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
-      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.` }] };
+
+      // M12-015: Auto-generate retro analysis when sprint is closed
+      let retroNote = "";
+      if (status === "closed") {
+        try {
+          const sprint = db.prepare(`SELECT * FROM sprints WHERE id=?`).get(sprint_id) as any;
+          const tickets = db.prepare(`SELECT id, status, story_points FROM tickets WHERE sprint_id=?`).all(sprint_id) as any[];
+          const totalTickets = tickets.length;
+          const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
+          const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+          const committedPts = sprint.velocity_committed || 0;
+          const completedPts = sprint.velocity_completed || tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+          const velocityDelta = completedPts - committedPts;
+          const blockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id=?`).get(sprint_id) as any).c;
+
+          // Velocity trend from last 5 closed sprints
+          const recentSprints = db.prepare(`SELECT name, velocity_committed, velocity_completed FROM sprints WHERE status='closed' AND id != ? ORDER BY id DESC LIMIT 5`).all(sprint_id) as any[];
+          const trendText = recentSprints.length > 0
+            ? recentSprints.map((s: any) => `${s.name}: ${s.velocity_completed}/${s.velocity_committed}`).join(", ")
+            : "No prior sprints";
+
+          const summary = [
+            `Auto-analysis for ${sprint.name}:`,
+            `Velocity: ${completedPts}/${committedPts} (delta: ${velocityDelta >= 0 ? "+" : ""}${velocityDelta})`,
+            `Ticket completion: ${doneTickets}/${totalTickets} (${completionRate}%)`,
+            `Blockers: ${blockerCount}`,
+            `Trend (last 5): ${trendText}`,
+          ].join(" | ");
+
+          db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
+          retroNote = "\nAuto retro analysis generated.";
+        } catch {
+          // Non-fatal — don't block the update
+        }
+      }
+
+      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}` }] };
     }
   );
 
@@ -1016,6 +1052,266 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         ];
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── Epic CRUD Tools ────────────────────────────────────────────────
+
+  server.tool(
+    "create_epic",
+    "Create a new epic to group related tickets",
+    {
+      name: z.string().describe("Epic name"),
+      description: z.string().optional().describe("Epic description"),
+      milestone_id: z.number().optional().describe("Milestone ID to associate with"),
+      color: z.string().default("#3b82f6").describe("Hex color for the epic (default #3b82f6)"),
+      priority: z.number().min(0).max(4).default(0).describe("Priority 0-4 (default 0)"),
+    },
+    async ({ name, description, milestone_id, color, priority }) => {
+      try {
+        const result = db.prepare(
+          `INSERT INTO epics (name, description, milestone_id, color, priority) VALUES (?, ?, ?, ?, ?)`
+        ).run(name, description ?? null, milestone_id ?? null, color, priority);
+        return {
+          content: [{ type: "text" as const, text: `Epic created — id: ${result.lastInsertRowid}, name: "${name}"` }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error creating epic: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update_epic",
+    "Update an existing epic's fields",
+    {
+      epic_id: z.number().describe("Epic ID"),
+      name: z.string().optional().describe("New name"),
+      description: z.string().optional().describe("New description"),
+      status: z.string().optional().describe("New status"),
+      color: z.string().optional().describe("New hex color"),
+      priority: z.number().min(0).max(4).optional().describe("New priority 0-4"),
+    },
+    async ({ epic_id, name, description, status, color, priority }) => {
+      try {
+        const fields: string[] = [];
+        const values: any[] = [];
+        if (name !== undefined) { fields.push("name = ?"); values.push(name); }
+        if (description !== undefined) { fields.push("description = ?"); values.push(description); }
+        if (status !== undefined) { fields.push("status = ?"); values.push(status); }
+        if (color !== undefined) { fields.push("color = ?"); values.push(color); }
+        if (priority !== undefined) { fields.push("priority = ?"); values.push(priority); }
+        if (fields.length === 0) {
+          return { content: [{ type: "text" as const, text: "No fields to update." }] };
+        }
+        values.push(epic_id);
+        const result = db.prepare(`UPDATE epics SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+        if (result.changes === 0) {
+          return { content: [{ type: "text" as const, text: `Epic ${epic_id} not found.` }] };
+        }
+        return { content: [{ type: "text" as const, text: `Epic ${epic_id} updated (${fields.length} field(s)).` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error updating epic: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_epics",
+    "List epics with optional status and milestone filters, including ticket progress counts",
+    {
+      status: z.string().optional().describe("Filter by status"),
+      milestone_id: z.number().optional().describe("Filter by milestone ID"),
+    },
+    async ({ status, milestone_id }) => {
+      let q = `SELECT e.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM epics e LEFT JOIN tickets t ON t.epic_id = e.id`;
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (status) { conditions.push("e.status = ?"); params.push(status); }
+      if (milestone_id !== undefined) { conditions.push("e.milestone_id = ?"); params.push(milestone_id); }
+      if (conditions.length) { q += " WHERE " + conditions.join(" AND "); }
+      q += " GROUP BY e.id ORDER BY e.priority DESC, e.id";
+      const epics = db.prepare(q).all(...params) as any[];
+      if (epics.length === 0) return { content: [{ type: "text" as const, text: "No epics found." }] };
+      const text = epics.map(
+        (e: any) => `**${e.name}** (#${e.id}) [${e.status || "open"}] priority=${e.priority || 0} color=${e.color || "#3b82f6"}\n${e.description || "—"}\nTickets: ${e.done_count || 0}/${e.ticket_count || 0} done`
+      ).join("\n\n");
+      return { content: [{ type: "text" as const, text: `# Epics (${epics.length})\n\n${text}` }] };
+    }
+  );
+
+  server.tool(
+    "link_ticket_to_epic",
+    "Link a ticket to an epic, or unlink by passing null epic_id",
+    {
+      ticket_id: z.number().describe("Ticket ID"),
+      epic_id: z.number().nullable().describe("Epic ID (null to unlink)"),
+    },
+    async ({ ticket_id, epic_id }) => {
+      try {
+        const result = db.prepare(`UPDATE tickets SET epic_id = ? WHERE id = ?`).run(epic_id, ticket_id);
+        if (result.changes === 0) {
+          return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} not found.` }] };
+        }
+        const action = epic_id === null ? "unlinked from epic" : `linked to epic ${epic_id}`;
+        return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} ${action}.` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error linking ticket: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DECISIONS (M12-016)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "log_decision",
+    "Log an architectural or process decision with rationale and alternatives considered",
+    {
+      title: z.string().describe("Decision title"),
+      rationale: z.string().optional().describe("Why this decision was made"),
+      alternatives: z.string().optional().describe("Alternatives considered"),
+      outcome: z.string().optional().describe("Expected or actual outcome"),
+      category: z.string().optional().default("technical").describe("Category (e.g. technical, process, product)"),
+    },
+    async ({ title, rationale, alternatives, outcome, category }) => {
+      try {
+        const result = db.prepare(`INSERT INTO decisions (title, rationale, alternatives, outcome, category) VALUES (?,?,?,?,?)`).run(title, rationale || null, alternatives || null, outcome || null, category);
+        return { content: [{ type: "text" as const, text: `Decision logged: #${result.lastInsertRowid} — ${title}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_decisions",
+    "List logged decisions with optional category filter",
+    {
+      category: z.string().optional().describe("Filter by category"),
+      limit: z.number().optional().default(20).describe("Max results (default 20)"),
+    },
+    async ({ category, limit }) => {
+      let q = `SELECT * FROM decisions WHERE 1=1`;
+      const p: any[] = [];
+      if (category) { q += " AND category=?"; p.push(category); }
+      q += ` ORDER BY created_at DESC LIMIT ?`;
+      p.push(limit);
+      const decisions = db.prepare(q).all(...p) as any[];
+      if (decisions.length === 0) return { content: [{ type: "text" as const, text: "No decisions found." }] };
+      const text = decisions.map((d: any) => [
+        `**#${d.id}: ${d.title}** [${d.category}]`,
+        d.rationale ? `  Rationale: ${d.rationale}` : null,
+        d.alternatives ? `  Alternatives: ${d.alternatives}` : null,
+        d.outcome ? `  Outcome: ${d.outcome}` : null,
+        `  Created: ${d.created_at}`,
+      ].filter(Boolean).join("\n")).join("\n\n");
+      return { content: [{ type: "text" as const, text: `# Decisions (${decisions.length})\n\n${text}` }] };
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RETRO PATTERN DETECTION (M12-019)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "analyze_retro_patterns",
+    "Analyze retrospective findings across all sprints — category breakdown, recurring issues, and action follow-through rate",
+    {},
+    async () => {
+      try {
+        // Total findings count
+        const totalRow = db.prepare(`SELECT COUNT(*) as total FROM retro_findings`).get() as any;
+        const total = totalRow.total;
+        if (total === 0) return { content: [{ type: "text" as const, text: "No retro findings to analyze." }] };
+
+        // Category breakdown
+        const categories = db.prepare(`SELECT category, COUNT(*) as count FROM retro_findings GROUP BY category ORDER BY count DESC`).all() as any[];
+
+        // Action applied rate
+        const actionStats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN action_applied = 1 THEN 1 ELSE 0 END) as applied FROM retro_findings WHERE action_owner IS NOT NULL`).get() as any;
+        const actionRate = actionStats.total > 0 ? Math.round((actionStats.applied / actionStats.total) * 100) : 0;
+
+        // Top recurring went_wrong findings — simple word-frequency approach
+        const wrongFindings = db.prepare(`SELECT finding FROM retro_findings WHERE category = 'went_wrong'`).all() as any[];
+        const wordCounts: Record<string, { count: number; examples: string[] }> = {};
+        const stopWords = new Set(["the", "a", "an", "is", "was", "were", "are", "be", "been", "to", "of", "in", "for", "and", "or", "not", "with", "on", "at", "by", "from", "it", "this", "that", "we", "our", "had", "has", "no", "but"]);
+        for (const f of wrongFindings) {
+          const words = (f.finding as string).toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+          const seen = new Set<string>();
+          for (const w of words) {
+            if (seen.has(w)) continue;
+            seen.add(w);
+            if (!wordCounts[w]) wordCounts[w] = { count: 0, examples: [] };
+            wordCounts[w].count++;
+            if (wordCounts[w].examples.length < 2) wordCounts[w].examples.push(f.finding);
+          }
+        }
+        const topWords = Object.entries(wordCounts)
+          .sort((a, b) => b[1].count - a[1].count)
+          .slice(0, 3)
+          .map(([word, data]) => `"${word}" (${data.count}x) — e.g. ${data.examples[0]}`);
+
+        // Build report
+        const lines = [
+          `# Retro Pattern Analysis`,
+          ``,
+          `**Total findings:** ${total}`,
+          ``,
+          `## Category Breakdown`,
+          ...categories.map((c: any) => `- **${c.category}**: ${c.count} (${Math.round((c.count / total) * 100)}%)`),
+          ``,
+          `## Action Follow-Through`,
+          `- Actions with owners: ${actionStats.total}`,
+          `- Actions applied: ${actionStats.applied}`,
+          `- Follow-through rate: ${actionRate}%`,
+          ``,
+          `## Top Recurring Issues (went_wrong)`,
+          wrongFindings.length === 0 ? "No went_wrong findings yet." : (topWords.length > 0 ? topWords.map((t, i) => `${i + 1}. ${t}`).join("\n") : "Not enough data for patterns."),
+        ];
+
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── Sprint Process Config (data-driven) ────────────────────────────────────
+
+  server.tool(
+    "get_sprint_config",
+    "Read the SPRINT_PROCESS skill from the database — returns the current sprint process configuration",
+    {},
+    async () => {
+      try {
+        const row = db.prepare(`SELECT content, owner_role, updated_at FROM skills WHERE name = ?`).get("SPRINT_PROCESS") as any;
+        if (!row) {
+          return { content: [{ type: "text" as const, text: "No SPRINT_PROCESS config found in skills table. Use update_sprint_config to create one." }] };
+        }
+        return { content: [{ type: "text" as const, text: `# Sprint Process Config\n\nOwner: ${row.owner_role || "—"}\nUpdated: ${row.updated_at || "—"}\n\n${row.content}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update_sprint_config",
+    "Create or update the SPRINT_PROCESS skill — stores sprint process configuration in the database",
+    {
+      content: z.string().describe("Sprint process configuration content (markdown)"),
+    },
+    async ({ content }) => {
+      try {
+        db.prepare(
+          `INSERT INTO skills (name, content, owner_role) VALUES ('SPRINT_PROCESS', ?, 'scrum-master') ON CONFLICT(name) DO UPDATE SET content=excluded.content, owner_role='scrum-master', updated_at=datetime('now')`
+        ).run(content);
+        return { content: [{ type: "text" as const, text: `Sprint process config updated (${content.length} chars).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

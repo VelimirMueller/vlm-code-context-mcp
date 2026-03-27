@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
-import { get as apiGet } from '@/lib/api';
-import type { MilestoneSprintGroup, Ticket } from '@/types';
+import { usePlanningStore } from '@/stores/planningStore';
+import { get as apiGet, post as apiPost, patch as apiPatch } from '@/lib/api';
+import type { MilestoneSprintGroup, Ticket, Milestone } from '@/types';
 
 interface SprintTickets {
   sprintId: number;
@@ -13,10 +14,57 @@ export function SprintPlanningView() {
   const fetchGrouped = useSprintStore((s) => s.fetchGroupedSprints);
   const loading = useSprintStore((s) => s.loading.grouped);
 
+  const milestones = usePlanningStore((s) => s.milestones);
+  const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
+
   const [sprintTickets, setSprintTickets] = useState<Map<number, Ticket[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [msSaving, setMsSaving] = useState<number | null>(null);
+
+  // Sprint creation state
+  const [showCreateSprint, setShowCreateSprint] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', goal: '', milestone_id: '', startDate: '', endDate: '' });
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const handleCreateSprint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createForm.name.trim()) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      await apiPost('/api/sprints/plan', {
+        name: createForm.name.trim(),
+        goal: createForm.goal.trim() || undefined,
+        startDate: createForm.startDate || undefined,
+        endDate: createForm.endDate || undefined,
+        milestone_id: createForm.milestone_id ? Number(createForm.milestone_id) : undefined,
+        ticketIds: [],
+      });
+      setCreateForm({ name: '', goal: '', milestone_id: '', startDate: '', endDate: '' });
+      setShowCreateSprint(false);
+      fetchGrouped();
+    } catch {
+      setCreateError('Failed to create sprint.');
+    } finally {
+      setCreateBusy(false);
+    }
+  };
 
   useEffect(() => { fetchGrouped(); }, []);
+  useEffect(() => { if (milestones.length === 0) fetchMilestones(); }, [milestones.length, fetchMilestones]);
+
+  const handleSprintMilestoneChange = async (sprintId: number, milestoneId: number | null) => {
+    setMsSaving(sprintId);
+    try {
+      await apiPatch(`/api/sprint/${sprintId}/milestone`, { milestone_id: milestoneId });
+      fetchGrouped();
+    } catch {
+      // silent
+    } finally {
+      setMsSaving(null);
+    }
+  };
 
   // Filter to only active+planning sprints, sort active milestones first
   const statusOrder: Record<string, number> = { in_progress: 0, active: 0, planned: 1, completed: 2 };
@@ -152,6 +200,27 @@ export function SprintPlanningView() {
                       }}>
                         {sprint.status}
                       </span>
+                      <select
+                        value={ms?.id ?? ''}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const val = e.target.value ? Number(e.target.value) : null;
+                          handleSprintMilestoneChange(sprint.id, val);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={msSaving === sprint.id}
+                        style={{
+                          background: 'var(--bg)',
+                          border: `1px solid ${msSaving === sprint.id ? 'var(--orange)' : 'var(--border)'}`,
+                          borderRadius: 5, color: 'var(--text)', fontSize: 10, padding: '2px 6px',
+                          fontFamily: 'var(--mono)', cursor: msSaving === sprint.id ? 'wait' : 'pointer',
+                          outline: 'none', opacity: msSaving === sprint.id ? 0.6 : 1,
+                          maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}
+                      >
+                        <option value="">No milestone</option>
+                        {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
                       <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
                         {sprint.done_count}/{sprint.ticket_count}
                       </span>
