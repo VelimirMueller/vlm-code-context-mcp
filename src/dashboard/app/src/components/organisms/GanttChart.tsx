@@ -311,7 +311,7 @@ export function GanttChart() {
 
   const archivedSprints = useMemo(
     () => [...ganttData]
-      .filter(s => s.status === 'closed')
+      .filter(s => s.status === 'closed' || s.status === 'rest')
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
       .slice(0, 20),
     [ganttData],

@@ -40,6 +40,30 @@ const legacyUrlMap: Record<string, string> = {
   '#explorer/files': '#code/files',
 };
 
+function PageSkeleton() {
+  return (
+    <div style={{ padding: 20, height: '100%' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} style={{ width: 80, height: 32, background: 'var(--surface2)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 16, height: 'calc(100% - 60px)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{ height: 56, background: 'var(--surface2)', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ height: 24, width: '40%', background: 'var(--surface2)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <div style={{ height: 16, width: '70%', background: 'var(--surface2)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <div style={{ flex: 1, background: 'var(--surface2)', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const activePage = useUIStore((s) => s.activePage);
   const setPage = useUIStore((s) => s.setPage);
@@ -140,7 +164,6 @@ export function App() {
         breadcrumbItems={breadcrumb}
       />
       <main className="page-content">
-        <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)', fontSize: 13 }}>Loading...</div>}>
         <AnimatePresence mode="wait">
           <motion.div
             key={normalizedPage}
@@ -151,26 +174,16 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            {/* Dashboard page - shows Sprint board with quick actions */}
-            {normalizedPage === 'dashboard' && <Dashboard />}
-
-            {/* Planning page - shows Project Management */}
-            {normalizedPage === 'planning' && <ProjectManagement />}
-
-            {/* Code page - shows Code Explorer */}
-            {normalizedPage === 'code' && <CodeExplorer />}
-
-            {/* Team page - shows Team grid */}
-            {normalizedPage === 'team' && <Team />}
-
-            {/* Retro page - shows Retro insights */}
-            {normalizedPage === 'retro' && <Retro />}
-
-            {/* Marketing page - release notes, positioning, growth */}
-            {normalizedPage === 'marketing' && <Marketing />}
+            <Suspense fallback={<PageSkeleton />}>
+              {normalizedPage === 'dashboard' && <Dashboard />}
+              {normalizedPage === 'planning' && <ProjectManagement />}
+              {normalizedPage === 'code' && <CodeExplorer />}
+              {normalizedPage === 'team' && <Team />}
+              {normalizedPage === 'retro' && <Retro />}
+              {normalizedPage === 'marketing' && <Marketing />}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
-        </Suspense>
       </main>
       <ToastContainer />
     </div>

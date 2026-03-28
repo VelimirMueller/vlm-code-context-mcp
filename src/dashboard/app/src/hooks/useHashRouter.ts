@@ -80,7 +80,11 @@ export function useHashRouter() {
         selectFile(resourceId);
       }
       if (page === 'dashboard' && resourceId !== useSprintStore.getState().selectedSprintId) {
-        selectSprint(resourceId);
+        // Only select if sprint exists in loaded sprints, otherwise let auto-select handle it
+        const sprints = useSprintStore.getState().sprints;
+        if (sprints.length === 0 || sprints.some((s) => s.id === resourceId)) {
+          selectSprint(resourceId);
+        }
       }
     }
   }, [setPage, setTab, selectFile, selectSprint]);

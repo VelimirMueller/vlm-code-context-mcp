@@ -212,7 +212,7 @@ export function Sprint({ defaultTab }: SprintProps = {}) {
           >
             <HeroText>
               {'Planning — '}
-              <AnimatedNumber value={sprints.filter(s => s.status === 'closed').length} />
+              <AnimatedNumber value={sprints.filter(s => s.status === 'closed' || s.status === 'rest').length} />
               {' sprints closed, '}
               <AnimatedNumber value={sprints.filter(s => s.status === 'active').length} />
               {' active'}

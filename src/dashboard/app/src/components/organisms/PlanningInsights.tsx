@@ -93,7 +93,7 @@ export function PlanningInsights() {
   }, [sprints.length]);
 
   // ── Velocity card data (use closed sprints for historical trend) ────────
-  const closedSprints = allSprints.filter((s) => s.status === 'closed');
+  const closedSprints = allSprints.filter((s) => s.status === 'closed' || s.status === 'rest');
   const velocities = closedSprints.map((s) => s.velocity_completed);
   const avgVelocity =
     velocities.length > 0

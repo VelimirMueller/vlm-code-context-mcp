@@ -179,7 +179,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Update sprint status or details",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      status: z.enum(["planning", "implementation", "qa", "retro", "closed"]).optional(),
+      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional(),
       goal: z.string().optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
@@ -1712,6 +1712,35 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const lines = rows.map((r: any) => `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts (${r.completion_rate}%), ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`);
         const avgRate = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.completion_rate, 0) / rows.length) : 0;
         return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion: ${avgRate}%\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // M17: Recent Events for Claude Reactivity
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "list_recent_events",
+    "List recent events from the audit trail — use this to detect dashboard-initiated changes (e.g. user moved a Linear issue on the kanban board)",
+    {
+      entity_type: z.string().optional().describe("Filter by entity type (ticket, sprint, epic, milestone)"),
+      limit: z.number().optional().describe("Max results (default 20)"),
+    },
+    async ({ entity_type, limit }) => {
+      try {
+        const max = limit || 20;
+        let sql = `SELECT * FROM event_log`;
+        const params: any[] = [];
+        if (entity_type) { sql += ` WHERE entity_type = ?`; params.push(entity_type); }
+        sql += ` ORDER BY created_at DESC LIMIT ?`;
+        params.push(max);
+        const rows = db.prepare(sql).all(...params) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No recent events." }] };
+        const lines = rows.map((r: any) => `[${r.created_at}] ${r.action} ${r.entity_type}#${r.entity_id}${r.field_name ? ` (${r.field_name}: ${r.old_value || '—'} → ${r.new_value || '—'})` : ""}${r.actor ? ` by ${r.actor}` : ""}`);
+        return { content: [{ type: "text" as const, text: `# Recent Events (${rows.length})\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

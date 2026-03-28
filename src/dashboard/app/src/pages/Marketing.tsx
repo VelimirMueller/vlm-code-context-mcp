@@ -17,7 +17,7 @@ import { tabVariants, tabTransition } from '@/lib/motion';
 const TABS = [
   { key: 'releases', label: 'Releases' },
   { key: 'positioning', label: 'Positioning' },
-  { key: 'roadmap', label: 'Roadmap' },
+  { key: 'roadmap', label: 'Release Timeline' },
   { key: 'metrics', label: 'Metrics' },
   { key: 'google-ads', label: 'Campaigns' },
 ];
@@ -46,7 +46,7 @@ export function Marketing() {
   const toolCount = projectStatus.toolCount || 48;
   const version = projectStatus.version || '2.0.0';
 
-  const closedSprints = sprints.filter((s) => s.status === 'closed');
+  const closedSprints = sprints.filter((s) => s.status === 'closed' || s.status === 'rest');
   const totalTickets = closedSprints.reduce((a, s) => a + s.done_count, 0);
   const totalPoints = closedSprints.reduce((a, s) => a + s.velocity_completed, 0);
 
