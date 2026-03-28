@@ -42,7 +42,8 @@ export const useLinearStore = create<LinearStore>((set, getState) => ({
       if (project) params.set('project', project);
       if (state) params.set('state', state);
       const qs = params.toString();
-      const issues = await get<NormalizedLinearIssue[]>(`/api/linear/issues${qs ? `?${qs}` : ''}`);
+      const res = await get<{ issues: NormalizedLinearIssue[] }>(`/api/linear/issues${qs ? `?${qs}` : ''}`);
+      const issues = Array.isArray(res) ? res : res?.issues;
       set((s) => ({ issues: Array.isArray(issues) ? issues : [], loading: { ...s.loading, issues: false } }));
     } catch (e) {
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, issues: false } }));
@@ -52,7 +53,8 @@ export const useLinearStore = create<LinearStore>((set, getState) => ({
   fetchStates: async () => {
     set((s) => ({ loading: { ...s.loading, states: true } }));
     try {
-      const states = await get<LinearState[]>('/api/linear/states');
+      const res = await get<{ states: LinearState[] }>('/api/linear/states');
+      const states = Array.isArray(res) ? res : res?.states;
       set((s) => ({ states: Array.isArray(states) ? states : [], loading: { ...s.loading, states: false } }));
     } catch (e) {
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, states: false } }));
