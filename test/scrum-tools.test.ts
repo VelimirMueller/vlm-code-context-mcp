@@ -109,7 +109,7 @@ describe("Error Handling", () => {
   });
 
   it("rejects invalid ticket status", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("test-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("test-sprint", "implementation");
     const sprint = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("test-sprint") as any;
     expect(() => {
       db.prepare(`INSERT INTO tickets (sprint_id, title, status) VALUES (?, ?, ?)`).run(sprint.id, "Bad", "INVALID");
@@ -117,7 +117,7 @@ describe("Error Handling", () => {
   });
 
   it("rejects invalid priority", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("test-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("test-sprint", "implementation");
     const sprint = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("test-sprint") as any;
     expect(() => {
       db.prepare(`INSERT INTO tickets (sprint_id, title, priority) VALUES (?, ?, ?)`).run(sprint.id, "Bad", "P99");
@@ -131,7 +131,7 @@ describe("Error Handling", () => {
   });
 
   it("cascades sprint delete to tickets", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("del-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("del-sprint", "implementation");
     const s = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("del-sprint") as any;
     db.prepare(`INSERT INTO tickets (sprint_id, title) VALUES (?, ?)`).run(s.id, "Will be deleted");
     db.prepare(`DELETE FROM sprints WHERE id = ?`).run(s.id);
@@ -149,7 +149,7 @@ describe("Error Handling", () => {
   });
 
   it("rejects invalid bug severity", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("bug-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("bug-sprint", "implementation");
     const s = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("bug-sprint") as any;
     expect(() => {
       db.prepare(`INSERT INTO bugs (sprint_id, severity, description) VALUES (?, ?, ?)`).run(s.id, "INVALID", "test");
@@ -167,7 +167,7 @@ describe("dump/restore tools", () => {
 
   it("should dump and restore a sprint roundtrip", () => {
     // Create test data
-    db.prepare("INSERT INTO sprints (name, status) VALUES (?, ?)").run("test-sprint", "active");
+    db.prepare("INSERT INTO sprints (name, status) VALUES (?, ?)").run("test-sprint", "implementation");
     db.prepare("INSERT INTO agents (role, name) VALUES (?, ?)").run("qa", "QA Agent");
 
     // Dump
@@ -252,7 +252,7 @@ describe("milestone tools", () => {
   it("links a ticket to a milestone", () => {
     db.prepare(`INSERT INTO milestones (name) VALUES (?)`).run("M3: Polish");
     const m = db.prepare(`SELECT id FROM milestones WHERE name = ?`).get("M3: Polish") as any;
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("link-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("link-sprint", "implementation");
     const s = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("link-sprint") as any;
     db.prepare(`INSERT INTO tickets (sprint_id, title) VALUES (?, ?)`).run(s.id, "Linked ticket");
     const t = db.prepare(`SELECT id FROM tickets WHERE title = ?`).get("Linked ticket") as any;
@@ -271,7 +271,7 @@ describe("milestone tools", () => {
     db.prepare(`INSERT INTO tickets (title, status) VALUES (?, ?)`).run("Unassigned", "TODO");
 
     // Create an active sprint with a TODO ticket (should NOT be in backlog)
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("active-sprint", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("active-sprint", "implementation");
     const as2 = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("active-sprint") as any;
     db.prepare(`INSERT INTO tickets (sprint_id, title, status) VALUES (?, ?, ?)`).run(as2.id, "Active work", "TODO");
 

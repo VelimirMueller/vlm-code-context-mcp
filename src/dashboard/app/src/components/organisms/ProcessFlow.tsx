@@ -615,9 +615,13 @@ export function ProcessFlow() {
   const row1 = phases.slice(0, 5);
   const row2 = phases.slice(5, 10);
 
+  // Connector between phase[idx] and phase[idx+1]:
+  // - 'done' if both phases are completed (idx+1 <= currentIdx)
+  // - 'current' if we're transitioning out of the current phase (idx+1 === currentIdx or idx === currentIdx)
+  // - 'future' if we haven't reached the source phase yet
   const connectorStatus = (idx: number): 'done' | 'current' | 'future' => {
-    if (idx < currentIdx) return 'done';
-    if (idx === currentIdx) return 'current';
+    if (idx + 1 < currentIdx) return 'done';
+    if (idx + 1 === currentIdx || idx === currentIdx) return 'current';
     return 'future';
   };
 

@@ -9,7 +9,7 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
-import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema } from "./linear.js";
+import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus } from "./linear.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
 function validateEnum(value: string, allowed: string[], name: string) {
@@ -75,9 +75,12 @@ try { rebuildMarketingStats(); } catch {}
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
 
-function notifyClients() {
+function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any }) {
+  const payload = event
+    ? JSON.stringify({ ...event, timestamp: new Date().toISOString() })
+    : JSON.stringify({ type: 'updated', timestamp: new Date().toISOString() });
   for (const res of sseClients) {
-    res.write(`data: updated\n\n`);
+    res.write(`data: ${payload}\n\n`);
   }
 }
 
@@ -527,7 +530,7 @@ function apiBacklog() {
       LEFT JOIN milestones m ON t.milestone_id = m.id
       WHERE t.deleted_at IS NULL
         AND (t.sprint_id IS NULL
-          OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status = 'closed')))
+          OR (t.status IN ('TODO','NOT_DONE') AND t.sprint_id IN (SELECT id FROM sprints WHERE status IN ('closed','rest'))))
       ORDER BY t.priority, t.created_at
     `).all();
   } catch { return []; }
@@ -566,12 +569,17 @@ function apiPlanSprint(body: any) {
 }
 
 // ─── Sprint Update API ──────────────────────────────────────────────────────
-const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'qa', 'retro', 'closed'] as const;
+const SPRINT_PHASE_ORDER = ['preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest'] as const;
 const SPRINT_TRANSITIONS: Record<string, string> = {
+  preparation: 'kickoff',
+  kickoff: 'planning',
   planning: 'implementation',
   implementation: 'qa',
-  qa: 'retro',
-  retro: 'closed',
+  qa: 'refactoring',
+  refactoring: 'retro',
+  retro: 'review',
+  review: 'closed',
+  closed: 'rest',
 };
 
 function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition: boolean; blockers: string[]; warnings: string[] } {
@@ -604,10 +612,22 @@ function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition
     if (unverified > 0) warnings.push(`${unverified} tickets not QA verified`);
   }
 
+  if (targetPhase === 'review') {
+    // Check: retro findings exist
+    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
+    if (retroCount === 0) blockers.push('No retro findings recorded — cannot proceed to review');
+  }
+
   if (targetPhase === 'closed') {
     // Check: retro findings exist
     const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
     if (retroCount === 0) warnings.push('No retro findings recorded');
+    // Check: velocity completed is set
+    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
+  }
+
+  if (targetPhase === 'rest') {
+    // No blockers for rest — just a team recovery phase
   }
 
   return { canTransition: blockers.length === 0, blockers, warnings };
@@ -693,7 +713,7 @@ function apiSprintUpdate(id: number, body: any) {
 
       // Average velocity across all sprints for comparison
       const avgVelRow = writeDb.prepare(
-        `SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status = 'closed' AND velocity_completed IS NOT NULL`
+        `SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status IN ('closed','rest') AND velocity_completed IS NOT NULL`
       ).get() as any;
       const avgVelocity = avgVelRow?.avg_vel ? Math.round(avgVelRow.avg_vel * 10) / 10 : 0;
       const vsAvgDelta = donePoints - avgVelocity;
@@ -810,16 +830,16 @@ function apiUpdateTicket(id: number, body: any) {
 
 function rebuildMarketingStats() {
   try {
-    const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status = 'closed' AND deleted_at IS NULL").get() as any).c;
+    const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status IN ('closed','rest') AND deleted_at IS NULL").get() as any).c;
     const doneTickets = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE status = 'DONE' AND deleted_at IS NULL").get() as any).c;
-    const totalVelocity = (writeDb.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as c FROM sprints WHERE status = 'closed' AND deleted_at IS NULL").get() as any).c;
+    const totalVelocity = (writeDb.prepare("SELECT COALESCE(SUM(velocity_completed), 0) as c FROM sprints WHERE status IN ('closed','rest') AND deleted_at IS NULL").get() as any).c;
     const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
     const milestoneCount = (writeDb.prepare("SELECT COUNT(*) as c FROM milestones").get() as any).c;
     const toolCount = TOOL_COUNT;
 
     // Enhanced stats: velocity trend for last 10 closed sprints
     const velocityTrendRows = writeDb.prepare(
-      `SELECT name, velocity_completed FROM sprints WHERE status = 'closed' ORDER BY created_at DESC LIMIT 10`
+      `SELECT name, velocity_completed FROM sprints WHERE status IN ('closed','rest') ORDER BY created_at DESC LIMIT 10`
     ).all() as any[];
     const velocity_trend = velocityTrendRows.reverse().map((r: any) => ({
       sprint_name: r.name,
@@ -831,7 +851,7 @@ function rebuildMarketingStats() {
       SELECT s.id,
         (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE') as done_c,
         (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id) as total_c
-      FROM sprints s WHERE s.status = 'closed'
+      FROM sprints s WHERE s.status IN ('closed','rest')
     `).all() as any[];
     const completionRates = completionRows
       .filter((r: any) => r.total_c > 0)
@@ -842,7 +862,7 @@ function rebuildMarketingStats() {
 
     // Enhanced stats: peak and average velocity
     const velocityRows = writeDb.prepare(
-      `SELECT velocity_completed FROM sprints WHERE status = 'closed' AND velocity_completed IS NOT NULL`
+      `SELECT velocity_completed FROM sprints WHERE status IN ('closed','rest') AND velocity_completed IS NOT NULL`
     ).all() as any[];
     const velocities = velocityRows.map((r: any) => r.velocity_completed ?? 0);
     const peak_velocity = velocities.length > 0 ? Math.max(...velocities) : 0;
@@ -952,6 +972,34 @@ function apiProjectStatus() {
   };
 }
 
+// ─── Linear Proxy API ──────────────────────────────────────────────────────
+function apiLinearIssues(project?: string | null, state?: string | null) {
+  const issues = getLinearIssuesNormalized(writeDb, project, state);
+  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
+  const syncStatus = getLinearNormalizedSyncStatus(writeDb);
+  return { issues, columns, cachedAt: syncStatus.syncedAt, canSync: true };
+}
+
+function apiLinearStates() {
+  const states = getLinearStatesNormalized(writeDb);
+  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
+  return { states, availableColumns: columns };
+}
+
+function apiLinearMoveIssue(issueId: string, kanbanColumn: string) {
+  if (!issueId || issueId.length > 100 || typeof kanbanColumn !== 'string') throw Object.assign(new Error('Invalid parameters'), { status: 400 });
+  const result = moveLinearIssue(writeDb, issueId, kanbanColumn);
+  // Log to event_log for Claude reactivity
+  try {
+    writeDb.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', 0, 'status_changed', 'linear_status', ?, ?, 'dashboard-ui')`).run(result.previousState, result.newState);
+  } catch {}
+  return result;
+}
+
+function apiLinearSyncStatus() {
+  return getLinearNormalizedSyncStatus(writeDb);
+}
+
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -1048,6 +1096,11 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/vision" && req.method === "PUT") {
         const body = await readBody(req);
         data = apiVisionUpdate(body);
+      }
+      else if (url.pathname === "/api/activity") {
+        try {
+          data = writeDb.prepare(`SELECT * FROM event_log ORDER BY created_at DESC LIMIT 50`).all();
+        } catch { data = []; }
       }
       else if (url.pathname === "/api/backlog") data = apiBacklog();
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
@@ -1224,8 +1277,41 @@ const server = http.createServer(async (req, res) => {
         if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
         const body = await readBody(req);
         data = syncLinearData(writeDb, body);
+        // Also populate normalized tables
+        try { syncLinearNormalized(writeDb, body); } catch {}
         notifyClients();
-      } else if (url.pathname === "/api/sprint-process" && req.method === "GET") {
+      }
+      // ── Linear Proxy API (normalized) ─────────────────────────────────
+      else if (url.pathname === "/api/linear/issues") {
+        const project = url.searchParams.get("project");
+        const state = url.searchParams.get("state");
+        data = apiLinearIssues(project, state);
+      }
+      else if (url.pathname === "/api/linear/states") {
+        data = apiLinearStates();
+      }
+      else if (url.pathname.match(/^\/api\/linear\/issue\/[^/]+\/status$/) && req.method === "PATCH") {
+        const issueId = url.pathname.split("/")[4];
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"write only from localhost"}'); return; }
+        const body = await readBody(req);
+        data = apiLinearMoveIssue(issueId, body.kanbanColumn);
+        notifyClients();
+      }
+      else if (url.pathname === "/api/linear/sync" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only from localhost"}'); return; }
+        const body = await readBody(req);
+        try { syncLinearNormalized(writeDb, body); } catch {}
+        data = syncLinearData(writeDb, body);
+        notifyClients();
+      }
+      else if (url.pathname === "/api/linear/sync/status") {
+        data = apiLinearSyncStatus();
+      }
+      else if (url.pathname === "/api/sprint-process" && req.method === "GET") {
         data = apiGetSprintProcess();
       } else if (url.pathname === "/api/sprint-process" && req.method === "PUT") {
         const body = await readBody(req);

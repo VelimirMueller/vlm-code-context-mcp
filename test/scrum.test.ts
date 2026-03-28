@@ -34,7 +34,7 @@ describe("Scrum Schema", () => {
   });
 
   it("inserts sprint with tickets and cascades delete", () => {
-    db.prepare(`INSERT INTO sprints (name, goal, status) VALUES (?, ?, ?)`).run("sprint-1", "Test goal", "active");
+    db.prepare(`INSERT INTO sprints (name, goal, status) VALUES (?, ?, ?)`).run("sprint-1", "Test goal", "implementation");
     const sprint = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("sprint-1") as { id: number };
 
     db.prepare(`INSERT INTO tickets (sprint_id, title, priority, status, story_points) VALUES (?, ?, ?, ?, ?)`).run(sprint.id, "Test ticket", "P0", "TODO", 3);
@@ -62,7 +62,7 @@ describe("Scrum Schema", () => {
   });
 
   it("enforces status check constraints on tickets", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("sprint-3", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("sprint-3", "implementation");
     const sprint = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("sprint-3") as { id: number };
 
     // Valid status should work
@@ -77,7 +77,7 @@ describe("Scrum Schema", () => {
   });
 
   it("enforces priority check constraints", () => {
-    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("sprint-4", "active");
+    db.prepare(`INSERT INTO sprints (name, status) VALUES (?, ?)`).run("sprint-4", "implementation");
     const sprint = db.prepare(`SELECT id FROM sprints WHERE name = ?`).get("sprint-4") as { id: number };
 
     expect(() => {

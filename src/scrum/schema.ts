@@ -223,6 +223,46 @@ export function initScrumSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS linear_states (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'backlog' CHECK (type IN ('backlog', 'unstarted', 'started', 'completed', 'cancelled')),
+      color TEXT,
+      position INTEGER DEFAULT 0,
+      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS linear_issues (
+      id TEXT PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      state_id TEXT,
+      priority INTEGER DEFAULT 4,
+      priority_label TEXT,
+      assignee_id TEXT,
+      assignee_name TEXT,
+      project_name TEXT,
+      cycle_name TEXT,
+      labels TEXT,
+      url TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (state_id) REFERENCES linear_states(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS linear_labels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT,
+      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_linear_issues_state ON linear_issues(state_id);
+    CREATE INDEX IF NOT EXISTS idx_linear_issues_assignee ON linear_issues(assignee_id);
+    CREATE INDEX IF NOT EXISTS idx_linear_issues_project ON linear_issues(project_name);
+
     CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
     CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
     CREATE INDEX IF NOT EXISTS idx_epics_milestone ON epics(milestone_id);
@@ -336,6 +376,7 @@ export function runMigrations(db: Database.Database): void {
       WHERE s.deleted_at IS NULL
       ORDER BY s.created_at DESC;
     ` },
+    { version: 10, name: 'create_linear_normalized_tables', sql: `SELECT 1` }, // tables created in initScrumSchema
   ];
   for (const m of migrations) {
     if (m.version > current) {

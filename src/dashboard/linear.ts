@@ -195,3 +195,124 @@ export function getLinearSyncStatus(db: Database.Database): { synced: boolean; s
   const row = db.prepare("SELECT synced_at FROM linear_cache WHERE key = 'issues' LIMIT 1").get() as { synced_at: string } | undefined;
   return { synced: !!row, syncedAt: row?.synced_at ?? null };
 }
+
+// ─── Normalized Linear Tables (v2) ────────────────────────────────────────
+
+const KANBAN_STATE_MAP: Record<string, string> = {
+  backlog: 'TODO',
+  unstarted: 'TODO',
+  started: 'IN_PROGRESS',
+  completed: 'DONE',
+  cancelled: 'NOT_DONE',
+};
+
+const KANBAN_TO_STATE_TYPE: Record<string, string> = {
+  TODO: 'backlog',
+  IN_PROGRESS: 'started',
+  DONE: 'completed',
+  NOT_DONE: 'cancelled',
+};
+
+export function syncLinearNormalized(db: Database.Database, payload: any): void {
+  const upsertState = db.prepare(`INSERT INTO linear_states (id, name, type, color, position, synced_at) VALUES (?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, color=excluded.color, position=excluded.position, synced_at=datetime('now')`);
+  const upsertIssue = db.prepare(`INSERT INTO linear_issues (id, identifier, title, description, state_id, priority, priority_label, assignee_id, assignee_name, project_name, cycle_name, labels, url, created_at, updated_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET identifier=excluded.identifier, title=excluded.title, description=excluded.description, state_id=excluded.state_id, priority=excluded.priority, priority_label=excluded.priority_label, assignee_id=excluded.assignee_id, assignee_name=excluded.assignee_name, project_name=excluded.project_name, cycle_name=excluded.cycle_name, labels=excluded.labels, url=excluded.url, updated_at=excluded.updated_at, synced_at=datetime('now')`);
+  const upsertLabel = db.prepare(`INSERT INTO linear_labels (id, name, color, synced_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, synced_at=datetime('now')`);
+
+  const tx = db.transaction(() => {
+    // Sync issues — extract states from issue status fields
+    if (payload.issues && Array.isArray(payload.issues)) {
+      const statesSeen = new Map<string, { name: string; color: string }>();
+      for (const issue of payload.issues) {
+        // Create or infer state from issue status string
+        const stateId = issue.statusId || `state-${(issue.status || 'Todo').toLowerCase().replace(/\s+/g, '-')}`;
+        const stateName = issue.status || 'Todo';
+        const stateColor = issue.statusColor || '#6b7280';
+        if (!statesSeen.has(stateId)) {
+          statesSeen.set(stateId, { name: stateName, color: stateColor });
+          const stateType = stateName.toLowerCase().includes('progress') ? 'started'
+            : stateName.toLowerCase().includes('review') ? 'started'
+            : stateName.toLowerCase().includes('done') ? 'completed'
+            : stateName.toLowerCase().includes('cancel') ? 'cancelled'
+            : 'backlog';
+          upsertState.run(stateId, sanitize(stateName, 100), stateType, stateColor, 0);
+        }
+
+        upsertIssue.run(
+          issue.id,
+          sanitize(issue.identifier, 50) || issue.id,
+          sanitize(issue.title, 500) || 'Untitled',
+          sanitize(issue.description, 2000),
+          stateId,
+          issue.priority ?? 4,
+          sanitize(issue.priorityLabel, 50),
+          issue.assigneeId || null,
+          sanitize(issue.assigneeName, 100),
+          sanitize(issue.projectName, 200),
+          sanitize(issue.cycleName, 200),
+          JSON.stringify(issue.labels || []),
+          sanitize(issue.url, 500),
+          issue.createdAt || null,
+          issue.updatedAt || null,
+        );
+      }
+    }
+  });
+  tx();
+}
+
+export function getLinearIssuesNormalized(db: Database.Database, project?: string | null, state?: string | null) {
+  let sql = `SELECT i.*, s.name as state_name, s.type as state_type, s.color as state_color FROM linear_issues i LEFT JOIN linear_states s ON i.state_id = s.id WHERE 1=1`;
+  const params: any[] = [];
+  if (project) { sql += ` AND i.project_name = ?`; params.push(project); }
+  if (state) { sql += ` AND s.type = ?`; params.push(KANBAN_TO_STATE_TYPE[state] || state); }
+  sql += ` ORDER BY i.priority ASC, i.updated_at DESC`;
+  const rows = db.prepare(sql).all(...params) as any[];
+  return rows.map((r) => ({
+    ...r,
+    labels: r.labels ? JSON.parse(r.labels) : [],
+    kanbanColumn: KANBAN_STATE_MAP[r.state_type] || 'TODO',
+  }));
+}
+
+export function getLinearStatesNormalized(db: Database.Database) {
+  const rows = db.prepare(`SELECT * FROM linear_states ORDER BY position, name`).all() as any[];
+  return rows.map((r) => ({
+    ...r,
+    kanbanColumn: KANBAN_STATE_MAP[r.type] || 'TODO',
+  }));
+}
+
+export function moveLinearIssue(db: Database.Database, issueId: string, kanbanColumn: string): { ok: boolean; previousState: string; newState: string } {
+  const validColumns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
+  if (!validColumns.includes(kanbanColumn)) throw Object.assign(new Error(`Invalid kanban column: ${kanbanColumn}`), { status: 400 });
+
+  const issue = db.prepare(`SELECT i.*, s.name as state_name, s.type as state_type FROM linear_issues i LEFT JOIN linear_states s ON i.state_id = s.id WHERE i.id = ?`).get(issueId) as any;
+  if (!issue) throw Object.assign(new Error('Issue not found'), { status: 404 });
+
+  const targetType = KANBAN_TO_STATE_TYPE[kanbanColumn];
+  const targetState = db.prepare(`SELECT id, name FROM linear_states WHERE type = ? LIMIT 1`).get(targetType) as any;
+
+  if (!targetState) {
+    // Create a default state for this type
+    const defaultNames: Record<string, string> = { backlog: 'Todo', started: 'In Progress', completed: 'Done', cancelled: 'Cancelled' };
+    const stateId = `state-${targetType}`;
+    db.prepare(`INSERT OR IGNORE INTO linear_states (id, name, type, color, position) VALUES (?, ?, ?, ?, ?)`).run(stateId, defaultNames[targetType] || kanbanColumn, targetType, '#6b7280', 0);
+    db.prepare(`UPDATE linear_issues SET state_id = ?, updated_at = datetime('now'), synced_at = datetime('now') WHERE id = ?`).run(stateId, issueId);
+    return { ok: true, previousState: issue.state_name || 'Unknown', newState: defaultNames[targetType] || kanbanColumn };
+  }
+
+  db.prepare(`UPDATE linear_issues SET state_id = ?, updated_at = datetime('now'), synced_at = datetime('now') WHERE id = ?`).run(targetState.id, issueId);
+  return { ok: true, previousState: issue.state_name || 'Unknown', newState: targetState.name };
+}
+
+export function getLinearNormalizedSyncStatus(db: Database.Database) {
+  const issueCount = (db.prepare(`SELECT COUNT(*) as c FROM linear_issues`).get() as any).c;
+  const stateCount = (db.prepare(`SELECT COUNT(*) as c FROM linear_states`).get() as any).c;
+  const latestSync = db.prepare(`SELECT MAX(synced_at) as t FROM linear_issues`).get() as any;
+  return {
+    synced: issueCount > 0,
+    issueCount,
+    stateCount,
+    syncedAt: latestSync?.t || null,
+  };
+}

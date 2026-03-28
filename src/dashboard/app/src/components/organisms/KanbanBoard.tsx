@@ -17,10 +17,10 @@ interface ColConfig {
 }
 
 const COLUMNS: Record<string, ColConfig> = {
-  IN_PROGRESS: { label: 'In Progress', color: 'var(--blue)' },
   TODO: { label: 'To Do', color: '#6b7280' },
+  IN_PROGRESS: { label: 'In Progress', color: 'var(--blue)' },
   DONE: { label: 'Done', color: 'var(--accent)' },
-  BLOCKED: { label: 'Blocked', color: 'var(--red)' },
+  NOT_DONE: { label: 'Not Done', color: 'var(--red)' },
 };
 
 export function KanbanBoard({ tickets }: KanbanBoardProps) {

@@ -237,18 +237,18 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
         </div>
 
         {/* Status counts */}
-        {(['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED'] as const).map((status) => {
+        {(['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'] as const).map((status) => {
           const labels: Record<string, string> = {
             TODO: 'TODO',
             IN_PROGRESS: 'PROGRESS',
             DONE: 'DONE',
-            BLOCKED: 'BLOCKED',
+            NOT_DONE: 'NOT DONE',
           };
           const colors: Record<string, string> = {
             TODO: 'var(--text3)',
             IN_PROGRESS: 'var(--blue)',
             DONE: 'var(--accent)',
-            BLOCKED: 'var(--red)',
+            NOT_DONE: 'var(--red)',
           };
           return (
             <div

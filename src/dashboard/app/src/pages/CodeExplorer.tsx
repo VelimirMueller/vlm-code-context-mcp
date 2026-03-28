@@ -5,6 +5,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { FileTree } from '@/components/organisms/FileTree';
 import { DependencyGraph } from '@/components/organisms/DependencyGraph';
 import { SearchBar } from '@/components/molecules/SearchBar';
+import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { TabBar } from '@/components/molecules/TabBar';
 import { StatGroup } from '@/components/molecules/StatGroup';
 import { HeroText } from '@/components/molecules/HeroText';
@@ -18,6 +19,12 @@ const EXPLORER_TABS = [
   { id: 'detail', label: 'Detail' },
   { id: 'graph', label: 'Graph' },
   { id: 'changes', label: 'Changes' },
+];
+
+const CODE_TABS = [
+  { key: 'files', label: 'Explorer' },
+  { key: 'graph', label: 'Dependencies' },
+  { key: 'stats', label: 'Stats' },
 ];
 
 // ─── Detail tab ───────────────────────────────────────────────────────────────
@@ -232,8 +239,11 @@ export function CodeExplorer() {
   // Default to 'detail' tab on explorer page
   const explorerTab = ['detail', 'changes', 'graph'].includes(activeTab) ? activeTab : 'detail';
 
+  const codeTab = ['files', 'graph', 'stats'].includes(activeTab) ? activeTab : 'files';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <SubTabBar tabs={CODE_TABS} />
       {/* Topbar with stats + search */}
       <div
         className="topbar"
@@ -283,78 +293,138 @@ export function CodeExplorer() {
         />
       </div>
 
-      {/* Body: sidebar + main */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {/* Sidebar */}
-        <div
-          className="sidebar"
-          style={{
-            width: 300,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            borderRight: '1px solid var(--border)',
-            background: 'var(--surface)',
-            overflow: 'hidden',
-          }}
-        >
-          <div className="sidebar-head" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>Files</span>
-            <span
-              className="count"
-              style={{
-                fontSize: 10,
-                color: 'var(--text3)',
-                background: 'var(--surface3)',
-                padding: '2px 7px',
-                borderRadius: 6,
-                fontFamily: 'var(--mono)',
-                fontWeight: 500,
-              }}
-            >
-              {files.length}
-            </span>
+      {/* Body — switches based on code sub-tab */}
+      {codeTab === 'files' && (
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          {/* Sidebar */}
+          <div
+            className="sidebar"
+            style={{
+              width: 300,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              borderRight: '1px solid var(--border)',
+              background: 'var(--surface)',
+              overflow: 'hidden',
+            }}
+          >
+            <div className="sidebar-head" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>Files</span>
+              <span
+                className="count"
+                style={{
+                  fontSize: 10,
+                  color: 'var(--text3)',
+                  background: 'var(--surface3)',
+                  padding: '2px 7px',
+                  borderRadius: 6,
+                  fontFamily: 'var(--mono)',
+                  fontWeight: 500,
+                }}
+              >
+                {files.length}
+              </span>
+            </div>
+            <div className="sidebar-body" style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', minHeight: 0 }}>
+              <FileTree />
+            </div>
           </div>
-          <div className="sidebar-body" style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', minHeight: 0 }}>
-            <FileTree />
+
+          {/* Main panel */}
+          <div
+            className="main"
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              background: 'var(--bg)',
+              minWidth: 0,
+            }}
+          >
+            <TabBar
+              tabs={EXPLORER_TABS}
+              activeTab={explorerTab}
+              onTabChange={setTab}
+            />
+
+            <HeroText>
+              {'Tracking '}
+              <AnimatedNumber value={files.length} />
+              {' files across '}
+              <AnimatedNumber value={directories.length} />
+              {' directories — '}
+              <AnimatedNumber value={stats?.exports ?? 0} />
+              {' exports indexed'}
+            </HeroText>
+
+            <div style={{ flex: 1, overflowY: explorerTab === 'graph' ? 'hidden' : 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {explorerTab === 'detail' && <DetailTab />}
+              {explorerTab === 'changes' && <ChangesTab />}
+              {explorerTab === 'graph' && <DependencyGraph />}
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Main panel */}
-        <div
-          className="main"
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            background: 'var(--bg)',
-            minWidth: 0,
-          }}
-        >
-          <TabBar
-            tabs={EXPLORER_TABS}
-            activeTab={explorerTab}
-            onTabChange={setTab}
-          />
-
+      {codeTab === 'graph' && (
+        <div style={{ flex: 1, overflow: 'hidden' }}>
           <HeroText>
-            {'Tracking '}
+            {'Dependency graph — '}
             <AnimatedNumber value={files.length} />
-            {' files across '}
-            <AnimatedNumber value={directories.length} />
-            {' directories — '}
-            <AnimatedNumber value={stats?.exports ?? 0} />
-            {' exports indexed'}
+            {' files, '}
+            <AnimatedNumber value={stats?.dependencies ?? 0} />
+            {' connections'}
           </HeroText>
-
-          <div style={{ flex: 1, overflowY: explorerTab === 'graph' ? 'hidden' : 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {explorerTab === 'detail' && <DetailTab />}
-            {explorerTab === 'changes' && <ChangesTab />}
-            {explorerTab === 'graph' && <DependencyGraph />}
+          <div style={{ flex: 1, height: 'calc(100% - 40px)' }}>
+            <DependencyGraph />
           </div>
         </div>
-      </div>
+      )}
+
+      {codeTab === 'stats' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+          <HeroText>
+            {'Codebase stats — '}
+            <AnimatedNumber value={files.length} />
+            {' files indexed'}
+          </HeroText>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, padding: '0 20px' }}>
+            {[
+              { label: 'Files', value: files.length },
+              { label: 'Directories', value: directories.length },
+              { label: 'Exports', value: stats?.exports ?? 0 },
+              { label: 'Dependencies', value: stats?.dependencies ?? 0 },
+            ].map((s) => (
+              <div key={s.label} style={{ padding: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)' }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+          {stats?.topExtensions && (
+            <div style={{ padding: '20px 20px 0' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>File Types</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(stats.topExtensions as { extension: string; c: number }[]).map((ext) => {
+                  const pct = files.length > 0 ? (ext.c / files.length) * 100 : 0;
+                  const color = langColors[ext.extension] || 'var(--accent)';
+                  return (
+                    <div key={ext.extension} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 60, fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--text2)', fontWeight: 600 }}>{ext.extension}</div>
+                      <div style={{ flex: 1, height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 4 }} />
+                      </div>
+                      <div style={{ width: 40, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', textAlign: 'right' }}>{ext.c}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

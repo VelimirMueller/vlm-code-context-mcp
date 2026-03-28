@@ -23,8 +23,8 @@ type Tab = 'vision' | 'roadmap' | 'planning' | 'timeline' | 'insights';
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
   { id: 'roadmap', label: 'Roadmap' },
-  { id: 'planning', label: 'Planning' },
-  { id: 'timeline', label: 'Timeline' },
+  { id: 'planning', label: 'Sprint Planning' },
+  { id: 'timeline', label: 'Process Flow' },
   { id: 'insights', label: 'Insights' },
 ];
 
