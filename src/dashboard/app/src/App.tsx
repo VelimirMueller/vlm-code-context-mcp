@@ -6,7 +6,7 @@ import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { useMeStore } from '@/stores/meStore';
+import { useLinearStore } from '@/stores/linearStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
@@ -96,8 +96,8 @@ export function App() {
   const refreshFiles = useFileStore((s) => s.refresh);
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
-  const fetchMe = useMeStore((s) => s.fetchAll);
-  const fetchMeConfigured = useMeStore((s) => s.fetchConfigured);
+  const fetchLinearIssues = useLinearStore((s) => s.fetchIssues);
+  const fetchLinearSync = useLinearStore((s) => s.fetchSyncStatus);
 
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
@@ -108,8 +108,8 @@ export function App() {
       refreshFiles();
       fetchSprints();
       fetchAgents();
-      fetchMeConfigured();
-      fetchMe();
+      fetchLinearSync();
+      fetchLinearIssues();
       // Re-fetch tickets for the currently selected sprint so the board updates reactively
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
