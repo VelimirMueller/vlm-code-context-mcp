@@ -9,7 +9,9 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
+import { seedDefaults } from "../scrum/defaults.js";
 import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus } from "./linear.js";
+import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured } from "./github.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
 function validateEnum(value: string, allowed: string[], name: string) {
@@ -45,6 +47,7 @@ initSchema(writeDb);
 initScrumSchema(writeDb);
 runMigrations(writeDb);
 initLinearSchema(writeDb);
+ensureGithubTables(writeDb);
 
 // Soft-delete migration: add deleted_at columns if missing
 for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
@@ -62,11 +65,16 @@ for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
   }
 }
 
-// Import scrum data from .claude/
+// Seed factory defaults into empty tables (never overwrites existing data)
+const seeded = seedDefaults(writeDb);
+if (seeded.agents + seeded.skills > 0) {
+  console.log(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
+}
+// Legacy import for sprint history from .claude/ (read-only archive)
 const claudeDir = path.resolve(path.dirname(dbPath), ".claude");
 const scrumImport = importScrumData(writeDb, claudeDir);
-if (scrumImport.agents + scrumImport.sprints > 0) {
-  console.log(`[scrum] Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets, ${scrumImport.skills} skills`);
+if (scrumImport.sprints > 0) {
+  console.log(`[scrum] Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive`);
 }
 
 // Rebuild marketing stats on startup so cached values are fresh
@@ -1310,6 +1318,83 @@ const server = http.createServer(async (req, res) => {
       }
       else if (url.pathname === "/api/linear/sync/status") {
         data = apiLinearSyncStatus();
+      }
+      // ── GitHub API ────────────────────────────────────────────────────
+      else if (url.pathname === "/api/github/configured") {
+        data = { configured: isGithubConfigured(), ...getGithubSyncStatus(writeDb) };
+      }
+      else if (url.pathname === "/api/github/repos") {
+        data = getGithubRepos(writeDb);
+      }
+      else if (url.pathname === "/api/github/issues") {
+        const repoId = url.searchParams.get("repo_id");
+        data = getGithubIssues(writeDb, repoId ? Number(repoId) : undefined);
+      }
+      else if (url.pathname === "/api/github/prs") {
+        const repoId = url.searchParams.get("repo_id");
+        data = getGithubPRs(writeDb, repoId ? Number(repoId) : undefined);
+      }
+      else if (url.pathname === "/api/github/commits") {
+        const repoId = url.searchParams.get("repo_id");
+        data = getGithubCommits(writeDb, repoId ? Number(repoId) : undefined);
+      }
+      else if (url.pathname === "/api/github/sync/status") {
+        data = getGithubSyncStatus(writeDb);
+      }
+      else if (url.pathname === "/api/github/sync" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
+        const body = await readBody(req);
+        data = syncGithubData(writeDb, body);
+        notifyClients();
+      }
+      else if (url.pathname === "/api/sprint-process/markdown") {
+        // Auto-generate sprint process as markdown from DB config
+        const processRow = writeDb.prepare("SELECT content FROM skills WHERE name = 'SPRINT_PROCESS_JSON'").get() as any;
+        if (processRow?.content) {
+          try {
+            const config = JSON.parse(processRow.content);
+            const lines = ["# Sprint Process (Auto-Generated from DB)\n"];
+            for (const phase of config.phases || []) {
+              lines.push(`## ${phase.name} (${phase.duration || "TBD"})`);
+              if (phase.ceremonies?.length) lines.push(`**Ceremonies:** ${phase.ceremonies.join(", ")}`);
+              if (phase.criteria?.length) { lines.push("**Gate Criteria:**"); phase.criteria.forEach((c: string) => lines.push(`- ${c}`)); }
+              lines.push("");
+            }
+            data = { markdown: lines.join("\n") };
+          } catch { data = { markdown: "Error parsing sprint process config" }; }
+        } else { data = { markdown: "No sprint process config found. Use reset_sprint_process MCP tool." }; }
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/gates$/)) {
+        // Gate status for a sprint — used by dashboard UI
+        const sid = Number(url.pathname.split("/")[3]);
+        const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sid) as any;
+        if (!sprint) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
+        const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sid) as any[];
+        const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sid) as any).c;
+
+        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+        const nextPhase = TRANSITIONS[sprint.status] || null;
+        const gates: { gate: string; passed: boolean; detail: string }[] = [];
+
+        if (nextPhase === "implementation") {
+          gates.push({ gate: "tickets_assigned", passed: tickets.length > 0, detail: `${tickets.length} tickets` });
+        }
+        if (nextPhase === "qa" || sprint.status === "implementation") {
+          const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+          gates.push({ gate: "all_tickets_done", passed: undone.length === 0, detail: `${undone.length} undone` });
+        }
+        if (nextPhase === "closed" || sprint.status === "review") {
+          const noQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
+          gates.push({ gate: "qa_verified", passed: noQA.length === 0, detail: `${noQA.length} unverified` });
+          gates.push({ gate: "velocity_set", passed: !!sprint.velocity_completed, detail: sprint.velocity_completed ? `${sprint.velocity_completed}pt` : "not set" });
+        }
+        if (nextPhase === "rest" || sprint.status === "closed") {
+          gates.push({ gate: "retro_findings", passed: retroCount > 0, detail: `${retroCount} findings` });
+        }
+
+        data = { sprint_id: sid, phase: sprint.status, next_phase: nextPhase, gates, all_passed: gates.every(g => g.passed) };
       }
       else if (url.pathname === "/api/sprint-process" && req.method === "GET") {
         data = apiGetSprintProcess();

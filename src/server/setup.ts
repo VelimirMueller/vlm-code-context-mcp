@@ -7,6 +7,7 @@ import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
+import { seedDefaults } from "../scrum/defaults.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname);
@@ -138,9 +139,14 @@ if (existingScrumDefaults.length === 0) {
   }
 }
 
-// Import scrum data
+// Seed factory defaults into empty tables
+const seeded = seedDefaults(db);
+if (seeded.agents + seeded.skills > 0) {
+  console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
+}
+// Legacy import for sprint history
 const scrumImport = importScrumData(db, claudeDir);
-console.log(`  Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.skills} skills\n`);
+console.log(`  Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive\n`);
 
 // ─── First-startup wizard: auto-create PRODUCT_VISION and first milestone ────
 {

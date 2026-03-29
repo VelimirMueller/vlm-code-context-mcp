@@ -4,47 +4,18 @@ import path from "path";
 
 /**
  * Import scrum data from .claude/ directory into the SQLite database.
- * Reads agents, skills, sprints (with tickets, retro findings, bugs, blockers).
+ *
+ * NOTE: Agents and skills are NO LONGER imported from files.
+ * They are seeded from TypeScript factory defaults in defaults.ts.
+ * This function only imports sprint history (read-only archive).
  */
 export function importScrumData(db: Database.Database, claudeDir: string): { agents: number; sprints: number; tickets: number; skills: number } {
   if (!fs.existsSync(claudeDir)) return { agents: 0, sprints: 0, tickets: 0, skills: 0 };
 
-  let agentCount = 0, sprintCount = 0, ticketCount = 0, skillCount = 0;
+  let sprintCount = 0, ticketCount = 0;
 
-  // ─── Import agents ────────────────────────────────────────────────────────
-  const agentsDir = path.join(claudeDir, "agents");
-  if (fs.existsSync(agentsDir)) {
-    const upsertAgent = db.prepare(`
-      INSERT OR REPLACE INTO agents (role, name, description, model, tools, system_prompt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const file of fs.readdirSync(agentsDir)) {
-      if (!file.endsWith(".md")) continue;
-      try {
-        const content = fs.readFileSync(path.join(agentsDir, file), "utf-8");
-        const parsed = parseAgentFrontmatter(content);
-        if (parsed) {
-          upsertAgent.run(parsed.role || file.replace(".md", ""), parsed.name || file.replace(".md", ""), parsed.description || null, parsed.model || null, parsed.tools || null, parsed.body || null);
-          agentCount++;
-        }
-      } catch (e) { console.warn(`[scrum-import] skip agent ${file}: ${(e as Error).message}`); }
-    }
-  }
-
-  // ─── Import skills ────────────────────────────────────────────────────────
-  const skillsDir = path.join(claudeDir, "skills");
-  if (fs.existsSync(skillsDir)) {
-    const upsertSkill = db.prepare(`INSERT OR REPLACE INTO skills (name, content, owner_role) VALUES (?, ?, ?)`);
-    for (const file of fs.readdirSync(skillsDir)) {
-      if (!file.endsWith(".md")) continue;
-      try {
-        const content = fs.readFileSync(path.join(skillsDir, file), "utf-8");
-        upsertSkill.run(file.replace(".md", ""), content, null);
-        skillCount++;
-      } catch (e) { console.warn(`[scrum-import] skip skill ${file}: ${(e as Error).message}`); }
-    }
-  }
+  // Agents and skills are now managed via seedDefaults() in defaults.ts
+  // Files in .claude/agents/ and .claude/skills/ are ignored at runtime
 
   // ─── Import sprints ───────────────────────────────────────────────────────
   const scrumDir = path.join(claudeDir, "scrum");
@@ -188,7 +159,7 @@ export function importScrumData(db: Database.Database, claudeDir: string): { age
     }
   }
 
-  return { agents: agentCount, sprints: sprintCount, tickets: ticketCount, skills: skillCount };
+  return { agents: 0, sprints: sprintCount, tickets: ticketCount, skills: 0 };
 }
 
 function parseAgentFrontmatter(content: string): { role?: string; name?: string; description?: string; model?: string; tools?: string; body?: string } | null {

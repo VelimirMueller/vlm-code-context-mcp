@@ -11,3 +11,5 @@ export type { AgentStore } from './agentStore';
 export type { PlanningStore, CreateMilestoneInput, UpdateMilestoneInput, PlanSprintInput } from './planningStore';
 export type { UIStore } from './uiStore';
 export type { Toast } from './toastStore';
+export { useGithubStore } from './githubStore';
+export type { GithubStore } from './githubStore';

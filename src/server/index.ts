@@ -8,6 +8,7 @@ import { indexDirectory } from "./indexer.js";
 import { initScrumSchema } from "../scrum/schema.js";
 import { registerScrumTools } from "../scrum/tools.js";
 import { importScrumData } from "../scrum/import.js";
+import { seedDefaults } from "../scrum/defaults.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
@@ -18,11 +19,16 @@ db.pragma("foreign_keys = ON");
 initSchema(db);
 initScrumSchema(db);
 
-// Import scrum data from .claude/ if present
+// Seed factory defaults into empty tables (never overwrites existing data)
+const seeded = seedDefaults(db);
+if (seeded.agents + seeded.skills > 0) {
+  console.error(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
+}
+// Legacy import for sprint history from .claude/ (read-only archive)
 const claudeDir = path.resolve(path.dirname(DB_PATH), ".claude");
 const scrumImport = importScrumData(db, claudeDir);
-if (scrumImport.agents + scrumImport.sprints > 0) {
-  console.error(`[scrum] Imported ${scrumImport.agents} agents, ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets, ${scrumImport.skills} skills`);
+if (scrumImport.sprints > 0) {
+  console.error(`[scrum] Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive`);
 }
 
 const server = new McpServer({ name: "code-context", version: "1.0.0" });
