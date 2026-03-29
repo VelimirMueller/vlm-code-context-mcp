@@ -6,3 +6,4 @@ export { BentoGrid } from './BentoGrid';
 export { LandingAnimation } from './LandingAnimation';
 export { LinearIssueGroup } from './LinearIssueGroup';
 export { ProcessFlow } from './ProcessFlow';
+export { GithubBoard } from './GithubBoard';

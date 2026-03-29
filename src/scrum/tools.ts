@@ -13,7 +13,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {},
     async () => {
       const agents = db.prepare(`SELECT role, name, description, model FROM agents ORDER BY role`).all() as any[];
-      if (agents.length === 0) return { content: [{ type: "text" as const, text: "No agents found. Import from .claude/agents/ first." }] };
+      if (agents.length === 0) return { content: [{ type: "text" as const, text: "No agents found. Run reset_agents to seed factory defaults." }] };
       const text = agents.map(a => `**${a.name}** (${a.role}) — ${a.description || "No description"}\nModel: ${a.model || "default"}`).join("\n\n");
       return { content: [{ type: "text" as const, text: `# Agents (${agents.length})\n\n${text}` }] };
     }
@@ -186,7 +186,44 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       milestone_id: z.number().optional().describe("Milestone ID to associate with"),
     },
     async ({ sprint_id, status, goal, velocity_committed, velocity_completed, milestone_id }) => {
+      const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
+      if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
+
+      // ─── Phase transition gates ─────────────────────────────────
+      if (status) {
+        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "refactoring", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+        const allowed = TRANSITIONS[sprint.status];
+        // Allow skip refactoring (qa → retro) since it's optional
+        const isValidTransition = status === allowed || (sprint.status === "qa" && status === "retro");
+        if (!isValidTransition) {
+          return { content: [{ type: "text" as const, text: `Cannot transition ${sprint.status} → ${status}. Expected: ${allowed}` }], isError: true };
+        }
+
+        const gates: string[] = [];
+        const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
+
+        if (status === "qa") {
+          const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+          if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
+        }
+        if (status === "closed") {
+          const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
+          if (doneNoQA.length > 0) gates.push(`${doneNoQA.length} DONE tickets not QA verified: ${doneNoQA.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
+          if (!velocity_completed && !sprint.velocity_completed) gates.push("velocity_completed not set — pass it with this update");
+        }
+        if (status === "rest") {
+          const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint_id) as any).c;
+          if (retroCount === 0) gates.push("No retro findings — add at least 1 finding before closing to rest");
+        }
+
+        if (gates.length > 0) {
+          return { content: [{ type: "text" as const, text: `Gate blocked for sprint ${sprint.name} (${sprint.status} → ${status}):\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
+        }
+      }
+
+      // ─── Apply updates ──────────────────────────────────────────
       const sets: string[] = []; const vals: any[] = [];
+      const oldStatus = sprint.status;
       if (status) { sets.push("status=?"); vals.push(status); }
       if (goal) { sets.push("goal=?"); vals.push(goal); }
       if (milestone_id !== undefined) { sets.push("milestone_id=?"); vals.push(milestone_id); }
@@ -196,6 +233,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sets.push("updated_at=datetime('now')");
       vals.push(sprint_id);
       db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+      // ─── Event trail ────────────────────────────────────────────
+      if (status && status !== oldStatus) {
+        try {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, oldStatus, status);
+        } catch {}
+      }
 
       // M12-015: Auto-generate retro analysis when sprint is closed
       let retroNote = "";
@@ -236,6 +280,89 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     }
   );
 
+  // ─── Ceremony Tool: advance_sprint ──────────────────────────────────────────
+  server.tool(
+    "advance_sprint",
+    "Advance sprint to the next phase. Checks all gates, advances if they pass, returns summary + next actions. If gates fail, returns what needs to be fixed.",
+    {
+      sprint_id: z.number().describe("Sprint ID"),
+      velocity_completed: z.number().optional().describe("Velocity completed (required when advancing to closed)"),
+    },
+    async ({ sprint_id, velocity_completed }) => {
+      const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
+      if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
+
+      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+      const nextPhase = TRANSITIONS[sprint.status];
+      if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
+
+      const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
+      const gates: string[] = [];
+
+      // Gate checks per phase
+      if (nextPhase === "implementation") {
+        if (tickets.length === 0) gates.push("No tickets assigned to this sprint");
+      }
+      if (nextPhase === "qa") {
+        const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+        if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
+      }
+      if (nextPhase === "closed" || nextPhase === "review") {
+        const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
+        if (nextPhase === "closed" && doneNoQA.length > 0) gates.push(`${doneNoQA.length} DONE tickets not QA verified: ${doneNoQA.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
+        if (nextPhase === "closed" && !velocity_completed && !sprint.velocity_completed) gates.push("velocity_completed required — pass it with this call");
+      }
+      if (nextPhase === "rest") {
+        const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint_id) as any).c;
+        if (retroCount === 0) gates.push("No retro findings — use add_retro_finding before advancing to rest");
+      }
+
+      if (gates.length > 0) {
+        return { content: [{ type: "text" as const, text: `Cannot advance "${sprint.name}" from ${sprint.status} → ${nextPhase}:\n${gates.map(g => `- ${g}`).join("\n")}\n\nFix these blockers and try again.` }], isError: true };
+      }
+
+      // Advance the sprint
+      const sets = ["status=?", "updated_at=datetime('now')"];
+      const vals: any[] = [nextPhase];
+      if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
+      vals.push(sprint_id);
+      db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+      // Event trail
+      try {
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
+      } catch {}
+
+      // Auto retro analysis on close
+      let retroNote = "";
+      if (nextPhase === "closed") {
+        try {
+          const totalTickets = tickets.length;
+          const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
+          const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+          const pts = velocity_completed || sprint.velocity_completed || tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+          const summary = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). Velocity: ${pts}pt completed of ${sprint.velocity_committed || 0}pt committed.`;
+          db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
+          retroNote = "\nAuto retro analysis generated.";
+        } catch {}
+      }
+
+      // Build next-action guidance
+      const NEXT_ACTIONS: Record<string, string> = {
+        kickoff: "Define sprint goal, estimate tickets, get team commitment.",
+        planning: "Break tickets into subtasks, assign agents, map dependencies.",
+        implementation: "Agents work on tickets. Update ticket status via update_ticket as work progresses.",
+        qa: "QA verifies each DONE ticket. Use update_ticket with qa_verified=true. Security review runs alongside.",
+        retro: "Each role adds retro findings via add_retro_finding. Identify at least 1 actionable change.",
+        review: "Write sprint summary, update milestone progress, record velocity.",
+        closed: "Sprint closed. Advance to rest when ready for next sprint.",
+        rest: "Sprint complete. Create next sprint when ready.",
+      };
+
+      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
+    }
+  );
+
   server.tool(
     "create_ticket",
     "Create a new ticket in a sprint",
@@ -271,7 +398,27 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       notes: z.string().optional(),
     },
     async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes }) => {
+      const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
+      if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
+
+      // ─── Gate enforcement ───────────────────────────────────────
+      const gates: string[] = [];
+
+      if (status === "DONE") {
+        if (!ticket.assigned_to && !assigned_to) gates.push("Ticket has no assignee — assign before marking DONE");
+        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+      }
+      if (status === "IN_PROGRESS") {
+        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+      }
+
+      if (gates.length > 0) {
+        return { content: [{ type: "text" as const, text: `Gate blocked for ticket #${ticket_id}:\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
+      }
+
+      // ─── Apply updates ──────────────────────────────────────────
       const sets: string[] = []; const vals: any[] = [];
+      const oldStatus = ticket.status;
       if (status) { sets.push("status=?"); vals.push(status); }
       if (assigned_to) { sets.push("assigned_to=?"); vals.push(assigned_to); }
       if (qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(qa_verified ? 1 : 0); }
@@ -281,7 +428,20 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
       db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
-      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated.` }] };
+
+      // ─── Event trail ────────────────────────────────────────────
+      if (status && status !== oldStatus) {
+        try {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(ticket_id, oldStatus, status);
+        } catch {}
+      }
+      if (qa_verified !== undefined) {
+        try {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', 'qa_verified', ?, ?, 'mcp')`).run(ticket_id, ticket.qa_verified ? 'true' : 'false', qa_verified ? 'true' : 'false');
+        } catch {}
+      }
+
+      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
     }
   );
 
@@ -347,13 +507,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "sync_scrum_data",
-    "Re-import scrum data from .claude/ directory into the database",
-    { claude_dir: z.string().describe("Path to the .claude directory") },
-    async ({ claude_dir }) => {
+    "Re-seed scrum data from factory defaults (agents + skills). Does not overwrite existing data — only fills empty tables. Use reset_agents/reset_skills for full reset.",
+    {},
+    async () => {
       try {
-        const { importScrumData: doImport } = await import("./import.js");
-        const result = doImport(db, claude_dir);
-        return { content: [{ type: "text" as const, text: `Synced: ${result.agents} agents, ${result.sprints} sprints, ${result.tickets} tickets, ${result.skills} skills` }] };
+        const { seedDefaults } = await import("./defaults.js");
+        const result = seedDefaults(db);
+        return { content: [{ type: "text" as const, text: `Seed check: ${result.agents} agents seeded, ${result.skills} skills seeded (0 means tables already had data)` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Sync error: ${e.message}` }], isError: true };
       }
@@ -532,6 +692,157 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         return { content: [{ type: "text" as const, text: `Sprint "${name}" created (id: ${sprintId}) with ${ticket_ids.length} tickets assigned.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ─── Sprint Playbook ───────────────────────────────────────────────────────
+  server.tool(
+    "get_sprint_playbook",
+    "Get the current sprint status and what to do next. Returns phase, ticket summary, gate status, blockers, and next actions. The 'what do I do now?' tool.",
+    {
+      sprint_id: z.number().optional().describe("Sprint ID (default: latest active sprint)"),
+    },
+    async ({ sprint_id }) => {
+      let sprint: any;
+      if (sprint_id) {
+        sprint = db.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprint_id);
+      } else {
+        sprint = db.prepare(`SELECT * FROM sprints WHERE status NOT IN ('closed', 'rest') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`).get();
+      }
+      if (!sprint) return { content: [{ type: "text" as const, text: "No active sprint found." }] };
+
+      const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint.id) as any[];
+      const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
+      const blockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprint.id) as any).c;
+
+      const byStatus: Record<string, number> = {};
+      for (const t of tickets) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+
+      const doneCount = tickets.filter(t => t.status === "DONE").length;
+      const qaVerified = tickets.filter(t => t.qa_verified).length;
+      const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+      const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+
+      // Gate check for next phase
+      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+      const nextPhase = TRANSITIONS[sprint.status] || "done";
+      const gates: string[] = [];
+
+      if (nextPhase === "implementation" && tickets.length === 0) gates.push("No tickets assigned");
+      if (nextPhase === "qa") {
+        const undone = tickets.filter(t => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+        if (undone.length > 0) gates.push(`${undone.length} tickets not done: ${undone.map(t => t.ticket_ref || `#${t.id}`).join(", ")}`);
+      }
+      if (nextPhase === "closed") {
+        const noQA = tickets.filter(t => t.status === "DONE" && !t.qa_verified);
+        if (noQA.length > 0) gates.push(`${noQA.length} tickets not QA verified`);
+        if (!sprint.velocity_completed) gates.push("velocity_completed not set");
+      }
+      if (nextPhase === "rest" && retroCount === 0) gates.push("No retro findings");
+
+      const ACTIONS: Record<string, string[]> = {
+        preparation: ["Review backlog", "PO grooms tickets", "Check team capacity"],
+        kickoff: ["Define sprint goal", "Estimate tickets", "Get team commitment"],
+        planning: ["Break tickets into subtasks", "Assign agents", "Map dependencies", "Use advance_sprint to start implementation"],
+        implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Use advance_sprint when all tickets are done"],
+        qa: ["QA verifies each DONE ticket", "Use update_ticket with qa_verified=true", "Security review alongside QA", "Use advance_sprint when all verified"],
+        refactoring: ["Optional cleanup", "No new features", "Use advance_sprint to proceed to retro"],
+        retro: ["Add retro findings via add_retro_finding", "Each role contributes", "Use advance_sprint when findings are logged"],
+        review: ["Write sprint summary", "Update milestone progress", "Record velocity", "Use advance_sprint to close"],
+        closed: ["Sprint closed", "Use advance_sprint to move to rest"],
+      };
+
+      const lines = [
+        `# Sprint Playbook: ${sprint.name}`,
+        `**Phase:** ${sprint.status} → next: ${nextPhase}`,
+        `**Progress:** ${donePts}/${totalPts}pt | ${doneCount}/${tickets.length} tickets done | ${qaVerified} QA verified`,
+        blockerCount > 0 ? `**Blockers:** ${blockerCount} open` : null,
+        ``,
+        `## Tickets`,
+        ...Object.entries(byStatus).map(([s, c]) => `  ${s}: ${c}`),
+        ``,
+        `## Gate Status for ${sprint.status} → ${nextPhase}`,
+        gates.length === 0 ? `  All gates pass — ready to advance` : gates.map(g => `  BLOCKED: ${g}`).join("\n"),
+        ``,
+        `## What To Do Now`,
+        ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
+      ];
+
+      return { content: [{ type: "text" as const, text: lines.filter(l => l !== null).join("\n") }] };
+    }
+  );
+
+  // ─── Start Sprint (full ceremony) ──────────────────────────────────────────
+  server.tool(
+    "start_sprint",
+    "Create a sprint with tickets in one call. Creates the sprint, creates tickets from provided list, assigns agents, links to milestone/epic, and returns the full sprint playbook for what to do next.",
+    {
+      name: z.string().describe("Sprint name (e.g. 'Sprint 58 — Feature X')"),
+      goal: z.string().describe("Sprint goal — one sentence, measurable"),
+      milestone_id: z.number().optional().describe("Milestone ID to link to"),
+      epic_id: z.number().optional().describe("Epic ID to link tickets to"),
+      velocity: z.number().optional().describe("Committed velocity in story points"),
+      start_date: z.string().optional().describe("Start date (ISO)"),
+      end_date: z.string().optional().describe("End date (ISO)"),
+      tickets: z.array(z.object({
+        title: z.string(),
+        description: z.string().optional(),
+        priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+        assigned_to: z.string().optional(),
+        story_points: z.number().optional(),
+      })).describe("Tickets to create and assign to this sprint"),
+    },
+    async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets }) => {
+      try {
+        // Create the sprint
+        const sprintResult = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date, milestone_id) VALUES (?, ?, 'planning', ?, ?, ?, ?)`).run(
+          name, goal, velocity || 0, start_date || null, end_date || null, milestone_id || null
+        );
+        const sprintId = Number(sprintResult.lastInsertRowid);
+
+        // Create tickets
+        const ticketStmt = db.prepare(`INSERT INTO tickets (title, description, priority, assigned_to, story_points, sprint_id, epic_id, milestone_id, ticket_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const maxRef = (db.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any)?.m ?? 0;
+        const createdTickets: string[] = [];
+
+        for (let i = 0; i < tickets.length; i++) {
+          const t = tickets[i];
+          const ref = `T-${maxRef + i + 1}`;
+          ticketStmt.run(
+            t.title, t.description || null, t.priority || "P1",
+            t.assigned_to || null, t.story_points || 0,
+            sprintId, epic_id || null, milestone_id || null, ref
+          );
+          createdTickets.push(`${ref}: ${t.title} (${t.story_points || 0}pt → ${t.assigned_to || "unassigned"})`);
+        }
+
+        // Log event
+        try {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'created', 'status', NULL, 'planning', 'mcp')`).run(sprintId);
+        } catch {}
+
+        const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
+
+        return { content: [{ type: "text" as const, text: [
+          `# Sprint Created: ${name} (id: ${sprintId})`,
+          `Goal: ${goal}`,
+          `Velocity: ${totalPts}pt committed`,
+          milestone_id ? `Milestone: #${milestone_id}` : null,
+          epic_id ? `Epic: #${epic_id}` : null,
+          ``,
+          `## Tickets (${tickets.length})`,
+          ...createdTickets,
+          ``,
+          `## Next Steps`,
+          `1. Sprint is in \`planning\` phase`,
+          `2. Review tickets, adjust assignments if needed`,
+          `3. Use \`advance_sprint(${sprintId})\` to move to implementation`,
+          `4. Update tickets via \`update_ticket\` as work progresses`,
+          `5. Use \`advance_sprint\` to move through qa → retro → review → closed`,
+        ].filter(Boolean).join("\n") }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error creating sprint: ${e.message}` }], isError: true };
       }
     }
   );
@@ -856,9 +1167,9 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       const checks = [
         { name: "Database initialized", check: () => { try { db.prepare("SELECT 1 FROM files LIMIT 1").get(); return true; } catch { return false; } }, fix: "Run: code-context-mcp setup ." },
         { name: "Files indexed", check: () => (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c > 0, fix: "Run: code-context-mcp setup . (or index_directory tool)" },
-        { name: "Agents configured", check: () => (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c > 0, fix: "Create .claude/agents/ with agent .md files, then run sync_scrum_data" },
-        { name: "Sprint process loaded", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='SPRINT_PROCESS'").get() as any; return s.c > 0; }, fix: "Create .claude/skills/SPRINT_PROCESS.md" },
-        { name: "Product vision exists", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='PRODUCT_VISION'").get() as any; return s.c > 0; }, fix: "Create .claude/skills/PRODUCT_VISION.md or use update_vision tool" },
+        { name: "Agents configured", check: () => (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c > 0, fix: "Run reset_agents to seed factory defaults" },
+        { name: "Sprint process loaded", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name IN ('SPRINT_PROCESS','SPRINT_PROCESS_JSON')").get() as any; return s.c > 0; }, fix: "Run reset_sprint_process to seed factory defaults" },
+        { name: "Product vision exists", check: () => { const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='PRODUCT_VISION'").get() as any; return s.c > 0; }, fix: "Use update_vision tool to set the product vision" },
         { name: "Milestones defined", check: () => { const m = db.prepare("SELECT COUNT(*) as c FROM milestones").get() as any; const s = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='MILESTONES'").get() as any; return m.c > 0 || s.c > 0; }, fix: "Create milestones with create_milestone tool" },
         { name: "At least one sprint", check: () => (db.prepare("SELECT COUNT(*) as c FROM sprints").get() as any).c > 0, fix: "Create a sprint with create_sprint or plan_sprint tool" },
       ];
@@ -885,29 +1196,22 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       const steps: string[] = [];
       const projectDir = project_path || process.cwd();
 
-      // Step 1: Check agents
+      // Step 1: Check agents — seed from factory defaults if empty
       const agentCount = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
       if (agentCount === 0) {
-        // Try to import from .claude/agents/
-        const fs = await import("fs");
-        const path = await import("path");
-        const claudeDir = path.resolve(projectDir, ".claude");
-        const agentsDir = path.join(claudeDir, "agents");
-        if (fs.existsSync(agentsDir)) {
-          const { importScrumData } = await import("../scrum/import.js");
-          const result = importScrumData(db, claudeDir);
-          steps.push(`Imported ${result.agents} agents, ${result.sprints} sprints, ${result.skills} skills`);
-        } else {
-          steps.push("⚠️ No .claude/agents/ found — run setup first to create templates");
-        }
+        const { seedDefaults } = await import("./defaults.js");
+        const result = seedDefaults(db);
+        steps.push(`Seeded ${result.agents} agents, ${result.skills} skills from factory defaults`);
       } else {
         steps.push(`✅ ${agentCount} agents already configured`);
       }
 
       // Step 2: Check sprint process
-      const sprintProcess = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name='SPRINT_PROCESS'").get() as any;
+      const sprintProcess = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name IN ('SPRINT_PROCESS','SPRINT_PROCESS_JSON')").get() as any;
       if (sprintProcess.c === 0) {
-        steps.push("⚠️ No sprint process loaded — create .claude/skills/SPRINT_PROCESS.md");
+        const { resetSprintProcess } = await import("./defaults.js");
+        resetSprintProcess(db);
+        steps.push("Seeded sprint process from factory defaults");
       } else {
         steps.push("✅ Sprint process loaded");
       }
@@ -1000,6 +1304,151 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           isError: true,
         };
       }
+    }
+  );
+
+  // ─── GitHub Sync ────────────────────────────────────────────────────────────
+  server.tool(
+    "sync_github_data",
+    "Sync GitHub repository data to the dashboard. Fetches issues, PRs, commits, and repo metadata from the GitHub REST API using GITHUB_TOKEN env var.",
+    {
+      owner: z.string().describe("Repository owner (user or org)"),
+      repo: z.string().describe("Repository name"),
+      since: z.string().optional().describe("ISO date to filter issues/PRs updated since (optional)"),
+      dashboardPort: z.number().optional().default(3333).describe("Dashboard server port (default 3333)"),
+    },
+    async (params) => {
+      let token = process.env.GITHUB_TOKEN;
+      if (!token) {
+        // Fall back to gh CLI token
+        try {
+          const { execSync } = await import("child_process");
+          token = execSync("gh auth token", { encoding: "utf-8", timeout: 5000 }).trim();
+        } catch {}
+      }
+      if (!token) {
+        return { content: [{ type: "text" as const, text: "No GitHub token found. Set GITHUB_TOKEN env var or authenticate with `gh auth login`." }], isError: true };
+      }
+
+      const { owner, repo, since } = params;
+      const port = params.dashboardPort ?? 3333;
+      const headers: Record<string, string> = {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "vlm-mcp-server",
+      };
+
+      try {
+        // Fetch repo metadata
+        const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+        if (!repoRes.ok) {
+          const msg = repoRes.status === 401 ? "Invalid GITHUB_TOKEN" : repoRes.status === 404 ? `Repository ${owner}/${repo} not found` : `GitHub API error: ${repoRes.status}`;
+          return { content: [{ type: "text" as const, text: msg }], isError: true };
+        }
+        const repoData = await repoRes.json() as any;
+        const repoId = repoData.id;
+
+        const repos = [{
+          id: repoData.id, owner: repoData.owner?.login ?? owner, name: repoData.name,
+          full_name: repoData.full_name, description: repoData.description,
+          stars: repoData.stargazers_count ?? 0, forks: repoData.forks_count ?? 0,
+          language: repoData.language, default_branch: repoData.default_branch,
+          html_url: repoData.html_url, updated_at: repoData.updated_at,
+        }];
+
+        // Fetch open issues (excludes PRs)
+        const issueUrl = `https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=100${since ? `&since=${since}` : ""}`;
+        const issueRes = await fetch(issueUrl, { headers });
+        const issueData = issueRes.ok ? await issueRes.json() as any[] : [];
+        const issues = issueData.filter((i: any) => !i.pull_request).map((i: any) => ({
+          id: i.id, repo_id: repoId, number: i.number, title: i.title,
+          body: i.body, state: i.state, author: i.user?.login ?? "",
+          labels: (i.labels || []).map((l: any) => l.name),
+          assignees: (i.assignees || []).map((a: any) => a.login),
+          milestone: i.milestone?.title ?? null,
+          html_url: i.html_url, created_at: i.created_at, updated_at: i.updated_at,
+        }));
+
+        // Fetch open PRs
+        const prUrl = `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`;
+        const prRes = await fetch(prUrl, { headers });
+        const prData = prRes.ok ? await prRes.json() as any[] : [];
+        const pullRequests = prData.map((p: any) => ({
+          id: p.id, repo_id: repoId, number: p.number, title: p.title,
+          body: p.body, state: p.state, author: p.user?.login ?? "",
+          head_branch: p.head?.ref ?? "", base_branch: p.base?.ref ?? "",
+          mergeable: p.mergeable ?? null, review_status: null,
+          ci_status: null, draft: p.draft ?? false,
+          html_url: p.html_url, created_at: p.created_at, updated_at: p.updated_at,
+        }));
+
+        // Fetch recent commits (last 50)
+        const commitUrl = `https://api.github.com/repos/${owner}/${repo}/commits?per_page=50`;
+        const commitRes = await fetch(commitUrl, { headers });
+        const commitData = commitRes.ok ? await commitRes.json() as any[] : [];
+        const commits = commitData.map((c: any) => ({
+          sha: c.sha, repo_id: repoId, message: c.commit?.message ?? "",
+          author: c.commit?.author?.name ?? c.author?.login ?? "",
+          date: c.commit?.author?.date ?? "",
+        }));
+
+        // Sync to dashboard
+        const payload = { repos, issues, pullRequests, commits };
+        const syncRes = await fetch(`http://localhost:${port}/api/github/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!syncRes.ok) {
+          throw new Error(`Dashboard sync failed: ${syncRes.status}`);
+        }
+
+        const result = await syncRes.json() as any;
+        return {
+          content: [{ type: "text" as const, text: `GitHub data synced for ${owner}/${repo}: ${repos.length} repo, ${issues.length} issues, ${pullRequests.length} PRs, ${commits.length} commits` }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: `GitHub sync failed: ${err.message}. Is the dashboard running on port ${port}?` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ─── Factory Reset Tools ────────────────────────────────────────────────────
+  server.tool(
+    "reset_agents",
+    "Reset all agents to factory defaults. WARNING: This deletes all current agents and re-seeds from TypeScript defaults.",
+    {},
+    async () => {
+      const { resetAgents } = await import("./defaults.js");
+      const count = resetAgents(db);
+      return { content: [{ type: "text" as const, text: `Reset complete: ${count} agents restored to factory defaults.` }] };
+    }
+  );
+
+  server.tool(
+    "reset_skills",
+    "Reset all skills to factory defaults. WARNING: This deletes all current skills and re-seeds from TypeScript defaults.",
+    {},
+    async () => {
+      const { resetSkills } = await import("./defaults.js");
+      const count = resetSkills(db);
+      return { content: [{ type: "text" as const, text: `Reset complete: ${count} skills restored to factory defaults.` }] };
+    }
+  );
+
+  server.tool(
+    "reset_sprint_process",
+    "Reset sprint process configuration to factory defaults.",
+    {},
+    async () => {
+      const { resetSprintProcess } = await import("./defaults.js");
+      resetSprintProcess(db);
+      return { content: [{ type: "text" as const, text: `Sprint process reset to factory defaults.` }] };
     }
   );
 

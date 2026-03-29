@@ -3,13 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
-import { patch, put } from '@/lib/api';
+import { patch, put, get } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { BurndownChart } from './BurndownChart';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
 import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
 import type { RetroFinding } from '@/types';
+
+interface GateInfo { gate: string; passed: boolean; detail: string }
+interface GateStatus { sprint_id: number; phase: string; next_phase: string | null; gates: GateInfo[]; all_passed: boolean }
 
 interface SprintDetailProps {
   onNavigate?: (tab: string) => void;
@@ -170,6 +173,9 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           updatedAt={sprintDetail.updated_at}
         />
       </div>
+
+      {/* Gate Status Indicators */}
+      <GateStatusBar sprintId={sprintDetail.id} phase={sprintDetail.status} />
 
       {/* Sprint goal */}
       {sprintDetail.goal && (
@@ -346,11 +352,13 @@ function RetroInline() {
   const well = findings.filter((f: RetroFinding) => f.category === 'went_well');
   const wrong = findings.filter((f: RetroFinding) => f.category === 'went_wrong');
   const tryNext = findings.filter((f: RetroFinding) => f.category === 'try_next');
+  const auto = findings.filter((f: RetroFinding) => f.category === 'auto_analysis');
 
   const categories = [
     { items: well, label: 'Went Well', color: 'var(--accent)', dot: 'var(--accent)' },
     { items: wrong, label: 'Went Wrong', color: 'var(--red)', dot: 'var(--red)' },
     { items: tryNext, label: 'Try Next', color: 'var(--purple)', dot: 'var(--purple)' },
+    { items: auto, label: 'Auto Analysis', color: 'var(--blue)', dot: 'var(--blue)' },
   ];
 
   return (
@@ -398,6 +406,58 @@ function RetroInline() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function GateStatusBar({ sprintId, phase }: { sprintId: number; phase: string }) {
+  const [gateStatus, setGateStatus] = useState<GateStatus | null>(null);
+
+  useEffect(() => {
+    get<GateStatus>(`/api/sprint/${sprintId}/gates`)
+      .then(setGateStatus)
+      .catch(() => setGateStatus(null));
+  }, [sprintId, phase]);
+
+  if (!gateStatus || !gateStatus.gates.length) return null;
+
+  const GATE_LABELS: Record<string, string> = {
+    tickets_assigned: "Tickets Assigned",
+    all_tickets_done: "All Tickets Done",
+    qa_verified: "QA Verified",
+    velocity_set: "Velocity Recorded",
+    retro_findings: "Retro Findings",
+  };
+
+  return (
+    <div style={{ marginBottom: 14, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Gates for {phase} → {gateStatus.next_phase}
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '1px 8px', borderRadius: 10,
+          background: gateStatus.all_passed ? 'rgba(16,185,129,.15)' : 'rgba(239,68,68,.15)',
+          color: gateStatus.all_passed ? 'var(--accent)' : 'var(--red)',
+        }}>
+          {gateStatus.all_passed ? 'READY' : 'BLOCKED'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {gateStatus.gates.map((g) => (
+          <div key={g.gate} style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '3px 10px', borderRadius: 6, fontSize: 11,
+            background: g.passed ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)',
+            border: `1px solid ${g.passed ? 'rgba(16,185,129,.2)' : 'rgba(239,68,68,.2)'}`,
+            color: g.passed ? 'var(--accent)' : 'var(--red)',
+          }}>
+            <span>{g.passed ? '✓' : '✗'}</span>
+            <span style={{ fontWeight: 600 }}>{GATE_LABELS[g.gate] || g.gate}</span>
+            <span style={{ fontSize: 10, color: 'var(--text3)' }}>({g.detail})</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

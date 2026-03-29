@@ -7,3 +7,6 @@ export { HeroText } from './HeroText';
 export { QuickFilters } from './QuickFilters';
 export { InlineEditForm } from './InlineEditForm';
 export { TeamMemberForm } from './TeamMemberForm';
+export { GithubIssueCard } from './GithubIssueCard';
+export { GithubPRCard } from './GithubPRCard';
+export { GithubCommitItem } from './GithubCommitItem';
