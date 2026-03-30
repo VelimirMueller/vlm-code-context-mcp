@@ -11,7 +11,7 @@ import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus } from "./linear.js";
-import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured } from "./github.js";
+import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured, loadGithubConfig, fetchAndSyncGithub, startGithubAutoSync } from "./github.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
 function validateEnum(value: string, allowed: string[], name: string) {
@@ -100,11 +100,11 @@ try {
   const fs = require("fs");
   let lastWalSize = 0;
   try { lastWalSize = fs.statSync(walPath)?.size || 0; } catch {}
-  fs.watchFile(walPath, { interval: 500 }, (curr: any) => {
+  fs.watchFile(walPath, { interval: 200 }, (curr: any) => {
     if (curr.size !== lastWalSize) {
       lastWalSize = curr.size;
       if (dbWalDebounce) clearTimeout(dbWalDebounce);
-      dbWalDebounce = setTimeout(() => notifyClients(), 300);
+      dbWalDebounce = setTimeout(() => notifyClients(), 100);
     }
   });
 } catch {
@@ -416,6 +416,34 @@ function apiSprintRetro(sprintId: number) {
   } catch { return []; }
 }
 
+function apiSprintBlockers(sprintId: number) {
+  try {
+    return writeDb.prepare(`
+      SELECT b.id, b.sprint_id, b.ticket_id, b.description, b.reported_by,
+        b.escalated_to, b.status, b.resolved_at, b.created_at,
+        t.title as ticket_title
+      FROM blockers b
+      LEFT JOIN tickets t ON b.ticket_id = t.id
+      WHERE b.sprint_id = ? ORDER BY b.status DESC, b.created_at DESC
+    `).all(sprintId);
+  } catch { return []; }
+}
+
+function apiSprintBugs(sprintId: number) {
+  try {
+    return writeDb.prepare(`
+      SELECT bg.id, bg.sprint_id, bg.ticket_id, bg.severity, bg.description,
+        bg.steps_to_reproduce, bg.expected, bg.actual, bg.status, bg.created_at,
+        t.title as ticket_title
+      FROM bugs bg
+      LEFT JOIN tickets t ON bg.ticket_id = t.id
+      WHERE bg.sprint_id = ? ORDER BY
+        CASE bg.severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+        bg.status DESC, bg.created_at DESC
+    `).all(sprintId);
+  } catch { return []; }
+}
+
 function apiAllRetroFindings() {
   try {
     return writeDb.prepare(`
@@ -424,6 +452,46 @@ function apiAllRetroFindings() {
       FROM retro_findings rf
       JOIN sprints s ON rf.sprint_id = s.id AND s.deleted_at IS NULL
       ORDER BY s.created_at DESC, rf.category
+    `).all();
+  } catch { return []; }
+}
+
+function apiDiscoveries(sprintId?: number, status?: string, category?: string) {
+  try {
+    let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title, t.status as ticket_status
+      FROM discoveries d
+      JOIN sprints s ON d.discovery_sprint_id = s.id
+      LEFT JOIN tickets t ON d.implementation_ticket_id = t.id
+      WHERE 1=1`;
+    const params: any[] = [];
+    if (sprintId) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprintId); }
+    if (status) { sql += " AND d.status = ?"; params.push(status); }
+    if (category) { sql += " AND d.category = ?"; params.push(category); }
+    sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
+    return writeDb.prepare(sql).all(...params);
+  } catch { return []; }
+}
+
+function apiDiscoveryCoverage(sprintId?: number) {
+  try {
+    let sql = `SELECT status, COUNT(*) as count FROM discoveries WHERE 1=1`;
+    const params: any[] = [];
+    if (sprintId) { sql += " AND discovery_sprint_id = ?"; params.push(sprintId); }
+    sql += " GROUP BY status";
+    const rows = writeDb.prepare(sql).all(...params) as any[];
+    const total = rows.reduce((sum: number, r: any) => sum + r.count, 0);
+    const counts: Record<string, number> = { discovered: 0, planned: 0, implemented: 0, dropped: 0 };
+    rows.forEach((r: any) => { counts[r.status] = r.count; });
+    return { total, ...counts };
+  } catch { return { total: 0, discovered: 0, planned: 0, implemented: 0, dropped: 0 }; }
+}
+
+function apiDiscoverySprintList() {
+  try {
+    return writeDb.prepare(`
+      SELECT DISTINCT s.id, s.name FROM sprints s
+      JOIN discoveries d ON d.discovery_sprint_id = s.id
+      ORDER BY s.created_at DESC
     `).all();
   } catch { return []; }
 }
@@ -833,6 +901,17 @@ function apiUpdateTicket(id: number, body: any) {
   sets.push("updated_at=datetime('now')");
   vals.push(id);
   writeDb.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+  // Auto-promote linked discoveries when ticket moves to DONE
+  if (body.status === 'DONE') {
+    try {
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+        WHERE status = 'planned' AND implementation_ticket_id = ?
+      `).run(id);
+    } catch {}
+  }
+
   return { id, updated: true };
 }
 
@@ -1094,16 +1173,19 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/milestones" && req.method === "POST") {
         const body = await readBody(req);
         data = apiCreateMilestone(body);
+        notifyClients();
       }
       else if (url.pathname === "/api/milestones") data = apiMilestones();
       else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "PUT") {
         const mid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         data = apiMilestoneUpdate(mid, body);
+        notifyClients();
       }
       else if (url.pathname === "/api/vision" && req.method === "PUT") {
         const body = await readBody(req);
         data = apiVisionUpdate(body);
+        notifyClients();
       }
       else if (url.pathname === "/api/activity") {
         try {
@@ -1114,8 +1196,48 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
         data = apiPlanSprint(body);
+        notifyClients();
       }
       else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();
+      else if (url.pathname === "/api/discoveries/coverage") {
+        const sid = url.searchParams.get("sprint_id");
+        data = apiDiscoveryCoverage(sid ? Number(sid) : undefined);
+      }
+      else if (url.pathname === "/api/discoveries/sprints") data = apiDiscoverySprintList();
+      else if (url.pathname === "/api/discoveries") {
+        const sid = url.searchParams.get("sprint_id");
+        const st = url.searchParams.get("status");
+        const cat = url.searchParams.get("category");
+        data = apiDiscoveries(sid ? Number(sid) : undefined, st || undefined, cat || undefined);
+      }
+      else if (url.pathname.match(/^\/api\/discovery\/\d+\/link$/) && req.method === "POST") {
+        const did = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const discovery = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did) as any;
+        if (!discovery) { res.writeHead(404); res.end('{"error":"discovery not found"}'); return; }
+        const ticket = writeDb.prepare("SELECT id, title, status FROM tickets WHERE id = ?").get(body.ticket_id) as any;
+        if (!ticket) { res.writeHead(404); res.end('{"error":"ticket not found"}'); return; }
+        const newStatus = ticket.status === "DONE" ? "implemented" : "planned";
+        writeDb.prepare("UPDATE discoveries SET implementation_ticket_id = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(body.ticket_id, newStatus, did);
+        data = { ...discovery, implementation_ticket_id: body.ticket_id, status: newStatus, ticket_title: ticket.title };
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/discovery\/\d+$/) && req.method === "PATCH") {
+        const did = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const existing = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did) as any;
+        if (!existing) { res.writeHead(404); res.end('{"error":"discovery not found"}'); return; }
+        const sets: string[] = [];
+        const vals: any[] = [];
+        if (body.status) { sets.push("status = ?"); vals.push(body.status); }
+        if (body.priority) { sets.push("priority = ?"); vals.push(body.priority); }
+        if (body.drop_reason) { sets.push("drop_reason = ?"); vals.push(body.drop_reason); }
+        sets.push("updated_at = datetime('now')");
+        vals.push(did);
+        writeDb.prepare(`UPDATE discoveries SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+        data = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did);
+        notifyClients();
+      }
       else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
       else if (url.pathname === "/api/sprints") data = apiSprints();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/stuck$/) && req.method === "POST") {
@@ -1135,6 +1257,12 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/burndown$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiBurndown(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiSprintBlockers(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/)) {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiSprintBugs(sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintTickets(sid);
@@ -1171,6 +1299,7 @@ const server = http.createServer(async (req, res) => {
           writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, tid);
         }
         data = { ok: true };
+        notifyClients();
       }
       else if (url.pathname === "/api/epics" && req.method === "POST") {
         const body = await readBody(req);
@@ -1181,6 +1310,7 @@ const server = http.createServer(async (req, res) => {
           body.name, body.description || null, body.milestone_id || null, body.priority ?? 0, body.status || 'planned'
         );
         data = { id: result.lastInsertRowid, name: body.name };
+        notifyClients();
       }
       else if (url.pathname === "/api/epics") {
         const mid = url.searchParams.get("milestone_id");
@@ -1202,18 +1332,21 @@ const server = http.createServer(async (req, res) => {
         vals.push(eid);
         writeDb.prepare(`UPDATE epics SET ${sets.join(",")} WHERE id=?`).run(...vals);
         data = { id: eid, updated: true };
+        notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/milestone$/) && req.method === "PATCH") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         writeDb.prepare("UPDATE sprints SET milestone_id=?, updated_at=datetime('now') WHERE id=?").run(body.milestone_id ?? null, sid);
         data = { ok: true };
+        notifyClients();
       }
       else if (url.pathname.match(/^\/api\/ticket\/\d+\/epic$/) && req.method === "PATCH") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         writeDb.prepare("UPDATE tickets SET epic_id=?, updated_at=datetime('now') WHERE id=?").run(body.epic_id ?? null, tid);
         data = { ok: true };
+        notifyClients();
       }
       // ── Ticket CRUD endpoints ──────────────────────────────────────────
       else if (url.pathname === "/api/tickets" && req.method === "POST") {
@@ -1255,6 +1388,7 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/restore" && req.method === "POST") {
         const body = await readBody(req);
         data = await apiRestore(body);
+        notifyClients();
       }
       else if (url.pathname === "/api/project/status") data = apiProjectStatus();
       else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
@@ -1348,6 +1482,56 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         data = syncGithubData(writeDb, body);
         notifyClients();
+      }
+      else if (url.pathname === "/api/github/sync/trigger" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
+        const config = loadGithubConfig(dbPath);
+        if (!config) { res.writeHead(400); res.end('{"error":"No .github.local.json config found"}'); return; }
+        const result = await fetchAndSyncGithub(writeDb, config.owner, config.repo, config.token);
+        if (result.ok) notifyClients();
+        data = result;
+      }
+      else if (url.pathname === "/api/github/config") {
+        const config = loadGithubConfig(dbPath);
+        data = { configured: isGithubConfigured(), config: config ? { owner: config.owner, repo: config.repo, autoSync: config.autoSync, syncIntervalMinutes: config.syncIntervalMinutes } : null };
+      }
+      // ── Bridge API (pending_actions) ──────────────────────────────────
+      else if (url.pathname === "/api/bridge/actions" && req.method === "GET") {
+        const status = url.searchParams.get("status") ?? "pending";
+        data = writeDb.prepare(
+          "SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50"
+        ).all(status);
+      }
+      else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"bridge actions only from localhost"}'); return; }
+        const body = await readBody(req);
+        if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
+        const ALLOWED_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
+        if (!ALLOWED_ACTIONS.includes(body.action)) { res.writeHead(400); res.end(`{"error":"unknown action. Allowed: ${ALLOWED_ACTIONS.join(', ')}"}`); return; }
+        const stmt = writeDb.prepare(
+          `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+        const result = stmt.run(
+          body.action,
+          body.entity_type ?? null,
+          body.entity_id ?? null,
+          body.payload ? JSON.stringify(body.payload) : null,
+          body.source ?? "dashboard"
+        );
+        data = { ok: true, id: result.lastInsertRowid };
+        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(result.lastInsertRowid), change: { action: body.action } });
+      }
+      else if (url.pathname === "/api/bridge/status") {
+        const pending = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'pending'").get() as any).c;
+        const claimed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'claimed'").get() as any).c;
+        const completed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'completed'").get() as any).c;
+        const failed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'failed'").get() as any).c;
+        data = { pending, claimed, completed, failed };
       }
       else if (url.pathname === "/api/sprint-process/markdown") {
         // Auto-generate sprint process as markdown from DB config
@@ -1488,6 +1672,9 @@ server.listen(PORT, () => {
   } else {
     console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
   }
+
+  // Start GitHub auto-sync if .github.local.json exists
+  startGithubAutoSync(writeDb, dbPath, () => notifyClients());
 });
 
 // ─── HTML ────────────────────────────────────────────────────────────────────

@@ -293,3 +293,77 @@ export interface GithubSyncStatus {
   commitCount: number;
   syncedAt: string | null;
 }
+
+export interface Discovery {
+  id: number;
+  discovery_sprint_id: number;
+  finding: string;
+  category: string;
+  status: 'discovered' | 'planned' | 'implemented' | 'dropped';
+  priority: string;
+  implementation_ticket_id: number | null;
+  drop_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  sprint_name: string;
+  ticket_title: string | null;
+  ticket_status: string | null;
+}
+
+export interface BurndownMetric {
+  date: string;
+  remaining_points: number;
+  completed_points: number;
+  added_points: number;
+  removed_points: number;
+}
+
+export interface BurndownData {
+  sprint_name: string;
+  committed: number;
+  start_date: string | null;
+  end_date: string | null;
+  current: { remaining: number; completed: number; total: number };
+  metrics: BurndownMetric[];
+}
+
+export interface Blocker {
+  id: number;
+  sprint_id: number;
+  ticket_id: number | null;
+  description: string;
+  reported_by: string | null;
+  escalated_to: string | null;
+  status: 'open' | 'resolved';
+  resolved_at: string | null;
+  created_at: string;
+  ticket_title?: string | null;
+}
+
+export interface Bug {
+  id: number;
+  sprint_id: number;
+  ticket_id: number | null;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  description: string;
+  steps_to_reproduce: string | null;
+  expected: string | null;
+  actual: string | null;
+  status: 'open' | 'fixed' | 'deferred';
+  created_at: string;
+  ticket_title?: string | null;
+}
+
+export interface DiscoveryCoverage {
+  total: number;
+  discovered: number;
+  planned: number;
+  implemented: number;
+  dropped: number;
+}
+
+export interface DiscoverySprint {
+  id: number;
+  name: string;
+}

@@ -16,6 +16,7 @@ yarn-error.log*
 *.db-shm
 *.db-wal
 .env*.local
+.github.local.json
 .DS_Store
 .dist
 dist

@@ -1,5 +1,6 @@
 export { AnimatedNumber } from './AnimatedNumber';
 export { Button } from './Button';
+export { ErrorBoundary } from './ErrorBoundary';
 export { Skeleton } from './Skeleton';
 export { Toast } from './Toast';
 export { ToastContainer } from './ToastContainer';

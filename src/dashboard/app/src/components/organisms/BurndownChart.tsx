@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { get } from '@/lib/api';
+import { Skeleton } from '@/components/atoms/Skeleton';
 
 interface BurndownMetric {
   date: string;
@@ -32,7 +33,18 @@ export function BurndownChart({ sprintId }: BurndownChartProps) {
     get<BurndownData>(`/api/sprint/${sprintId}/burndown`).then(setData).catch(() => {});
   }, [sprintId]);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', marginBottom: 16, padding: '10px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Skeleton width={14} height={14} />
+          <Skeleton width={80} height={14} />
+          <Skeleton width={60} height={18} />
+        </div>
+        <Skeleton width="100%" height={100} />
+      </div>
+    );
+  }
 
   const { committed, current, metrics } = data;
   const total = committed || current.total;
