@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 
@@ -74,6 +74,7 @@ db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 initSchema(db);
 initScrumSchema(db);
+runMigrations(db);
 console.log("  Code-context schema ready.");
 console.log("  Scrum schema ready.\n");
 
