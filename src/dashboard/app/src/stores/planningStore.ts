@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { get, post, put } from '@/lib/api';
 import { parseMilestoneMarkdown } from '@/lib/utils';
-import type { Sprint, Ticket, Milestone } from '@/types';
+import type { Sprint, Ticket, Milestone, Discovery, DiscoveryCoverage, DiscoverySprint } from '@/types';
 
 export interface CreateMilestoneInput {
   title: string;
@@ -40,6 +40,16 @@ export interface PlanningStore {
   fetchGantt: () => Promise<void>;
   fetchBacklog: () => Promise<void>;
   planSprint: (data: PlanSprintInput) => Promise<{ id: number }>;
+
+  discoveries: Discovery[];
+  discoveryCoverage: DiscoveryCoverage | null;
+  discoverySprints: DiscoverySprint[];
+  discoveryFilters: { sprintId?: number; status?: string; category?: string };
+  fetchDiscoveries: () => Promise<void>;
+  fetchDiscoveryCoverage: (sprintId?: number) => Promise<void>;
+  fetchDiscoverySprints: () => Promise<void>;
+  setDiscoveryFilter: (filters: Partial<PlanningStore['discoveryFilters']>) => void;
+  linkDiscoveryToTicket: (discoveryId: number, ticketId: number) => Promise<void>;
 }
 
 export const usePlanningStore = create<PlanningStore>((set, getState) => ({
@@ -147,5 +157,45 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
     // Refresh gantt and backlog after planning
     await Promise.all([getState().fetchGantt(), getState().fetchBacklog()]);
     return result;
+  },
+
+  discoveries: [],
+  discoveryCoverage: null,
+  discoverySprints: [],
+  discoveryFilters: {},
+
+  fetchDiscoveries: async () => {
+    const filters = getState().discoveryFilters;
+    const params = new URLSearchParams();
+    if (filters.sprintId) params.set('sprint_id', String(filters.sprintId));
+    if (filters.status) params.set('status', filters.status);
+    if (filters.category) params.set('category', filters.category);
+    const qs = params.toString();
+    const discoveries = await get<Discovery[]>(`/api/discoveries${qs ? `?${qs}` : ''}`);
+    set({ discoveries: discoveries || [] });
+  },
+
+  fetchDiscoveryCoverage: async (sprintId?: number) => {
+    const qs = sprintId ? `?sprint_id=${sprintId}` : '';
+    const coverage = await get<DiscoveryCoverage>(`/api/discoveries/coverage${qs}`);
+    set({ discoveryCoverage: coverage });
+  },
+
+  fetchDiscoverySprints: async () => {
+    const sprints = await get<DiscoverySprint[]>('/api/discoveries/sprints');
+    set({ discoverySprints: sprints || [] });
+  },
+
+  setDiscoveryFilter: (filters) => {
+    set((s) => ({ discoveryFilters: { ...s.discoveryFilters, ...filters } }));
+    getState().fetchDiscoveries();
+    const sprintId = filters.sprintId ?? getState().discoveryFilters.sprintId;
+    getState().fetchDiscoveryCoverage(sprintId);
+  },
+
+  linkDiscoveryToTicket: async (discoveryId, ticketId) => {
+    await post(`/api/discovery/${discoveryId}/link`, { ticket_id: ticketId });
+    getState().fetchDiscoveries();
+    getState().fetchDiscoveryCoverage(getState().discoveryFilters.sprintId);
   },
 }));

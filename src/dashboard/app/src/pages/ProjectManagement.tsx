@@ -14,11 +14,12 @@ import { PlanningInsights } from '@/components/organisms/PlanningInsights';
 import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
 import { EpicList } from '@/components/organisms/EpicList';
+import { DiscoveryList } from '@/components/organisms/DiscoveryList';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'vision' | 'roadmap' | 'planning' | 'timeline' | 'insights';
+type Tab = 'vision' | 'roadmap' | 'planning' | 'timeline' | 'insights' | 'discoveries';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
@@ -26,6 +27,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'planning', label: 'Sprint Planning' },
   { id: 'timeline', label: 'Process Flow' },
   { id: 'insights', label: 'Insights' },
+  { id: 'discoveries', label: 'Discoveries' },
 ];
 
 export function ProjectManagement() {
@@ -243,6 +245,18 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <PlanningInsights />
+            </motion.div>
+          )}
+          {activeTab === 'discoveries' && (
+            <motion.div
+              key="discoveries"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <DiscoveryList />
             </motion.div>
           )}
         </AnimatePresence>

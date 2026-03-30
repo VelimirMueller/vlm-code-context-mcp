@@ -7,6 +7,7 @@ import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { useLinearStore } from '@/stores/linearStore';
+import { usePlanningStore } from '@/stores/planningStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
@@ -19,6 +20,8 @@ const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m 
 const Marketing = lazy(() => import('@/pages/Marketing').then(m => ({ default: m.Marketing })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
+import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
+import { ErrorBoundary } from '@/components/atoms/ErrorBoundary';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
 import { TopNav } from '@/components/molecules/TopNav';
 import { QuickActionsBar } from '@/components/molecules/QuickActionsBar';
@@ -101,6 +104,14 @@ export function App() {
 
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
+  const fetchRetro = useSprintStore((s) => s.fetchRetro);
+  const fetchBurndown = useSprintStore((s) => s.fetchBurndown);
+  const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
+  const fetchBugs = useSprintStore((s) => s.fetchBugs);
+  const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
+  const fetchBacklog = usePlanningStore((s) => s.fetchBacklog);
+  const fetchDiscoveries = usePlanningStore((s) => s.fetchDiscoveries);
+  const fetchDiscoveryCoverage = usePlanningStore((s) => s.fetchDiscoveryCoverage);
 
   useEventSource({
     onEvent: () => {
@@ -110,9 +121,17 @@ export function App() {
       fetchAgents();
       fetchLinearSync();
       fetchLinearIssues();
-      // Re-fetch tickets for the currently selected sprint so the board updates reactively
+      fetchMilestones();
+      fetchBacklog();
+      fetchDiscoveries();
+      fetchDiscoveryCoverage();
+      // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
+        fetchRetro(selectedSprintId);
+        fetchBurndown(selectedSprintId);
+        fetchBlockers(selectedSprintId);
+        fetchBugs(selectedSprintId);
       }
     },
   });
@@ -146,6 +165,7 @@ export function App() {
             Code Context <span className="logo-sub">MCP</span>
           </span>
         </div>
+        <BridgeStatusBadge />
       </header>
 
       {/* Top Navigation */}
@@ -174,14 +194,16 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            <Suspense fallback={<PageSkeleton />}>
-              {normalizedPage === 'dashboard' && <Dashboard />}
-              {normalizedPage === 'planning' && <ProjectManagement />}
-              {normalizedPage === 'code' && <CodeExplorer />}
-              {normalizedPage === 'team' && <Team />}
-              {normalizedPage === 'retro' && <Retro />}
-              {normalizedPage === 'marketing' && <Marketing />}
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<PageSkeleton />}>
+                {normalizedPage === 'dashboard' && <Dashboard />}
+                {normalizedPage === 'planning' && <ProjectManagement />}
+                {normalizedPage === 'code' && <CodeExplorer />}
+                {normalizedPage === 'team' && <Team />}
+                {normalizedPage === 'retro' && <Retro />}
+                {normalizedPage === 'marketing' && <Marketing />}
+              </Suspense>
+            </ErrorBoundary>
           </motion.div>
         </AnimatePresence>
       </main>

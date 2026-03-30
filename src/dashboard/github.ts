@@ -6,6 +6,8 @@
  */
 
 import type Database from "better-sqlite3";
+import fs from "fs";
+import path from "path";
 
 function sanitize(str: string | null | undefined, maxLen = 500): string | null {
   if (str == null) return null;
@@ -248,4 +250,167 @@ export function isGithubConfigured(): boolean {
     const token = execSync("gh auth token", { encoding: "utf-8", timeout: 3000 }).trim();
     return token.length > 0;
   } catch { return false; }
+}
+
+// ─── Local Config ──────────────────────────────────────────────────────────
+
+export interface GithubLocalConfig {
+  owner: string;
+  repo: string;
+  token?: string;
+  autoSync?: boolean;
+  syncIntervalMinutes?: number;
+}
+
+const CONFIG_FILENAME = ".github.local.json";
+
+function resolveConfigPath(dbPath: string): string {
+  return path.resolve(path.dirname(dbPath), CONFIG_FILENAME);
+}
+
+export function loadGithubConfig(dbPath: string): GithubLocalConfig | null {
+  const configPath = resolveConfigPath(dbPath);
+  try {
+    const raw = fs.readFileSync(configPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed.owner || !parsed.repo) return null;
+    return {
+      owner: String(parsed.owner),
+      repo: String(parsed.repo),
+      token: parsed.token ? String(parsed.token) : undefined,
+      autoSync: parsed.autoSync !== false,
+      syncIntervalMinutes: Math.max(1, Number(parsed.syncIntervalMinutes) || 5),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveGithubConfig(dbPath: string, config: GithubLocalConfig): void {
+  const configPath = resolveConfigPath(dbPath);
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+}
+
+// ─── Server-side GitHub fetch (reusable by auto-sync + trigger endpoint) ───
+
+function getGithubToken(configToken?: string): string | null {
+  if (configToken?.trim()) return configToken.trim();
+  if (process.env.GITHUB_TOKEN?.trim()) return process.env.GITHUB_TOKEN.trim();
+  try {
+    const { execFileSync } = require("child_process");
+    return execFileSync("gh", ["auth", "token"], { encoding: "utf-8", timeout: 5000 }).trim() || null;
+  } catch { return null; }
+}
+
+export async function fetchAndSyncGithub(
+  db: Database.Database,
+  owner: string,
+  repo: string,
+  configToken?: string,
+): Promise<{ ok: boolean; error?: string; counts?: Record<string, number> }> {
+  const token = getGithubToken(configToken);
+  if (!token) return { ok: false, error: "No GitHub token. Set GITHUB_TOKEN or run `gh auth login`." };
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "vlm-mcp-server",
+  };
+
+  try {
+    const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+    if (!repoRes.ok) {
+      const msg = repoRes.status === 401 ? "Invalid GITHUB_TOKEN" : repoRes.status === 404 ? `Repository ${owner}/${repo} not found` : `GitHub API error: ${repoRes.status}`;
+      return { ok: false, error: msg };
+    }
+    const repoData = await repoRes.json() as any;
+    const repoId = repoData.id;
+
+    const repos = [{
+      id: repoData.id, owner: repoData.owner?.login ?? owner, name: repoData.name,
+      full_name: repoData.full_name, description: repoData.description,
+      stars: repoData.stargazers_count ?? 0, forks: repoData.forks_count ?? 0,
+      language: repoData.language, default_branch: repoData.default_branch,
+      html_url: repoData.html_url, updated_at: repoData.updated_at,
+    }];
+
+    const issueRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=100`, { headers });
+    const issueData = issueRes.ok ? await issueRes.json() as any[] : [];
+    const issues = issueData.filter((i: any) => !i.pull_request).map((i: any) => ({
+      id: i.id, repo_id: repoId, number: i.number, title: i.title,
+      body: i.body, state: i.state, author: i.user?.login ?? "",
+      labels: (i.labels || []).map((l: any) => l.name),
+      assignees: (i.assignees || []).map((a: any) => a.login),
+      milestone: i.milestone?.title ?? null,
+      html_url: i.html_url, created_at: i.created_at, updated_at: i.updated_at,
+    }));
+
+    const prRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`, { headers });
+    const prData = prRes.ok ? await prRes.json() as any[] : [];
+    const pullRequests = prData.map((p: any) => ({
+      id: p.id, repo_id: repoId, number: p.number, title: p.title,
+      body: p.body, state: p.state, author: p.user?.login ?? "",
+      head_branch: p.head?.ref ?? "", base_branch: p.base?.ref ?? "",
+      mergeable: p.mergeable ?? null, review_status: null,
+      ci_status: null, draft: p.draft ?? false,
+      html_url: p.html_url, created_at: p.created_at, updated_at: p.updated_at,
+    }));
+
+    const commitRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=50`, { headers });
+    const commitData = commitRes.ok ? await commitRes.json() as any[] : [];
+    const commits = commitData.map((c: any) => ({
+      sha: c.sha, repo_id: repoId, message: c.commit?.message ?? "",
+      author: c.commit?.author?.name ?? c.author?.login ?? "",
+      date: c.commit?.author?.date ?? "",
+    }));
+
+    const result = syncGithubData(db, { repos, issues, pullRequests, commits });
+    return { ok: true, counts: result.counts };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ─── Auto-sync timer ───────────────────────────────────────────────────────
+
+let autoSyncTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startGithubAutoSync(
+  db: Database.Database,
+  dbPath: string,
+  onSync: () => void,
+): void {
+  stopGithubAutoSync();
+  const config = loadGithubConfig(dbPath);
+  if (!config?.autoSync) return;
+
+  const intervalMs = (config.syncIntervalMinutes ?? 5) * 60_000;
+  console.log(`[github] Auto-sync enabled for ${config.owner}/${config.repo} every ${config.syncIntervalMinutes ?? 5}m`);
+
+  // Immediate first sync
+  fetchAndSyncGithub(db, config.owner, config.repo, config.token).then((r) => {
+    if (r.ok) {
+      console.log(`[github] Initial sync: ${JSON.stringify(r.counts)}`);
+      onSync();
+    } else {
+      console.warn(`[github] Initial sync failed: ${r.error}`);
+    }
+  });
+
+  autoSyncTimer = setInterval(async () => {
+    const freshConfig = loadGithubConfig(dbPath);
+    if (!freshConfig?.autoSync) { stopGithubAutoSync(); return; }
+    const r = await fetchAndSyncGithub(db, freshConfig.owner, freshConfig.repo, freshConfig.token);
+    if (r.ok) {
+      console.log(`[github] Auto-sync: ${JSON.stringify(r.counts)}`);
+      onSync();
+    } else {
+      console.warn(`[github] Auto-sync failed: ${r.error}`);
+    }
+  }, intervalMs);
+}
+
+export function stopGithubAutoSync(): void {
+  if (autoSyncTimer) { clearInterval(autoSyncTimer); autoSyncTimer = null; }
 }
