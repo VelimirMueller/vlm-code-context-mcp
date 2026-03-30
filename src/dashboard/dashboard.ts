@@ -11,7 +11,7 @@ import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus } from "./linear.js";
-import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured } from "./github.js";
+import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured, loadGithubConfig, fetchAndSyncGithub, startGithubAutoSync } from "./github.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
 function validateEnum(value: string, allowed: string[], name: string) {
@@ -1483,6 +1483,51 @@ const server = http.createServer(async (req, res) => {
         data = syncGithubData(writeDb, body);
         notifyClients();
       }
+      else if (url.pathname === "/api/github/sync/trigger" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
+        const config = loadGithubConfig(dbPath);
+        if (!config) { res.writeHead(400); res.end('{"error":"No .github.local.json config found"}'); return; }
+        const result = await fetchAndSyncGithub(writeDb, config.owner, config.repo, config.token);
+        if (result.ok) notifyClients();
+        data = result;
+      }
+      else if (url.pathname === "/api/github/config") {
+        const config = loadGithubConfig(dbPath);
+        data = { configured: isGithubConfigured(), config: config ? { owner: config.owner, repo: config.repo, autoSync: config.autoSync, syncIntervalMinutes: config.syncIntervalMinutes } : null };
+      }
+      // ── Bridge API (pending_actions) ──────────────────────────────────
+      else if (url.pathname === "/api/bridge/actions" && req.method === "GET") {
+        const status = url.searchParams.get("status") ?? "pending";
+        data = writeDb.prepare(
+          "SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50"
+        ).all(status);
+      }
+      else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
+        const body = await readBody(req);
+        if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
+        const stmt = writeDb.prepare(
+          `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+        const result = stmt.run(
+          body.action,
+          body.entity_type ?? null,
+          body.entity_id ?? null,
+          body.payload ? JSON.stringify(body.payload) : null,
+          body.source ?? "dashboard"
+        );
+        data = { ok: true, id: result.lastInsertRowid };
+        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(result.lastInsertRowid), change: { action: body.action } });
+      }
+      else if (url.pathname === "/api/bridge/status") {
+        const pending = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'pending'").get() as any).c;
+        const claimed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'claimed'").get() as any).c;
+        const completed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'completed'").get() as any).c;
+        const failed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'failed'").get() as any).c;
+        data = { pending, claimed, completed, failed };
+      }
       else if (url.pathname === "/api/sprint-process/markdown") {
         // Auto-generate sprint process as markdown from DB config
         const processRow = writeDb.prepare("SELECT content FROM skills WHERE name = 'SPRINT_PROCESS_JSON'").get() as any;
@@ -1622,6 +1667,9 @@ server.listen(PORT, () => {
   } else {
     console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
   }
+
+  // Start GitHub auto-sync if .github.local.json exists
+  startGithubAutoSync(writeDb, dbPath, () => notifyClients());
 });
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
