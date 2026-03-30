@@ -394,6 +394,23 @@ export function runMigrations(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_discoveries_sprint ON discoveries(discovery_sprint_id);
       CREATE INDEX IF NOT EXISTS idx_discoveries_status ON discoveries(status);
     ` },
+    { version: 12, name: 'create_pending_actions_table', sql: `
+      CREATE TABLE IF NOT EXISTS pending_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id INTEGER,
+        payload TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'expired')),
+        source TEXT NOT NULL DEFAULT 'dashboard',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        claimed_at TEXT,
+        completed_at TEXT,
+        result TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions(status, created_at);
+    ` },
   ];
   for (const m of migrations) {
     if (m.version > current) {

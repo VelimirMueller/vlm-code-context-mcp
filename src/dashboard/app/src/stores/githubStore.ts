@@ -18,7 +18,7 @@ export interface GithubStore {
   fetchCommits: (repoId?: number) => Promise<void>;
   fetchSyncStatus: () => Promise<void>;
   fetchAll: (repoId?: number) => Promise<void>;
-  syncNow: (owner: string, repo: string) => Promise<void>;
+  syncNow: () => Promise<void>;
   setSelectedRepo: (id: number | null) => void;
 }
 
@@ -90,10 +90,10 @@ export const useGithubStore = create<GithubStore>((set, getState) => ({
     await Promise.all([s.fetchIssues(repoId), s.fetchPRs(repoId), s.fetchCommits(repoId)]);
   },
 
-  syncNow: async (owner, repo) => {
+  syncNow: async () => {
     set((s) => ({ loading: { ...s.loading, sync: true }, error: null }));
     try {
-      await post('/api/github/sync', { owner, repo });
+      await post('/api/github/sync/trigger', {});
       const state = getState();
       await Promise.all([state.fetchRepos(), state.fetchSyncStatus(), state.fetchAll(state.selectedRepoId ?? undefined)]);
     } catch (e) {
