@@ -221,6 +221,34 @@ mcpConfig.mcpServers["code-context"] = serverEntry;
 fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`  Wrote ${mcpConfigPath}\n`);
 
+// 5. Configure bridge hook (.claude/settings.json)
+console.log("[5/5] Configuring bridge hook...");
+const hookScript = "./" + path.relative(TARGET_DIR, path.resolve(__dirname, "../bridge/hook.js")).split(path.sep).join("/");
+const claudeSettingsDir = path.resolve(TARGET_DIR, ".claude");
+const claudeSettingsPath = path.join(claudeSettingsDir, "settings.json");
+if (!fs.existsSync(claudeSettingsDir)) fs.mkdirSync(claudeSettingsDir, { recursive: true });
+
+let claudeSettings: Record<string, any> = {};
+if (fs.existsSync(claudeSettingsPath)) {
+  try { claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, "utf-8")); } catch {}
+}
+if (!claudeSettings.hooks) claudeSettings.hooks = {};
+if (!claudeSettings.hooks.PreToolUse) claudeSettings.hooks.PreToolUse = [];
+
+// Add bridge hook if not already present
+const bridgeHookCmd = `node ${hookScript}`;
+const hasBridgeHook = claudeSettings.hooks.PreToolUse.some(
+  (h: any) => h.type === "command" && h.command?.includes("bridge/hook")
+);
+if (!hasBridgeHook) {
+  claudeSettings.hooks.PreToolUse.push({ type: "command", command: bridgeHookCmd });
+  fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2) + "\n");
+  console.log(`  Bridge hook added to ${claudeSettingsPath}`);
+} else {
+  console.log(`  Bridge hook already configured`);
+}
+console.log("");
+
 console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
 console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);

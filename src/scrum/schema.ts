@@ -27,6 +27,7 @@ export function initScrumSchema(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'preparation' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest')),
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
+      deleted_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -48,6 +49,7 @@ export function initScrumSchema(db: Database.Database): void {
       acceptance_criteria TEXT,
       dependencies TEXT,
       notes TEXT,
+      deleted_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
@@ -132,6 +134,7 @@ export function initScrumSchema(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'active', 'completed')),
       target_date TEXT,
       progress INTEGER NOT NULL DEFAULT 0,
+      deleted_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -154,6 +157,7 @@ export function initScrumSchema(db: Database.Database): void {
       milestone_id INTEGER REFERENCES milestones(id),
       color TEXT DEFAULT '#3b82f6',
       priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
+      deleted_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -410,6 +414,35 @@ export function runMigrations(db: Database.Database): void {
         error TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions(status, created_at);
+    ` },
+    { version: 13, name: 'create_workflow_orchestration_tables', sql: `
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        steps TEXT NOT NULL,
+        current_step INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'awaiting_agent', 'paused', 'completed', 'failed')),
+        context TEXT,
+        trigger_action_id INTEGER REFERENCES pending_actions(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+
+      CREATE TABLE IF NOT EXISTS workflow_step_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflow_runs(id),
+        step_index INTEGER NOT NULL,
+        agent_role TEXT,
+        action TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped')),
+        input TEXT,
+        output TEXT,
+        started_at TEXT,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_step_log_workflow ON workflow_step_log(workflow_id);
     ` },
   ];
   for (const m of migrations) {

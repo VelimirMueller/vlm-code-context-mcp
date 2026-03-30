@@ -1505,8 +1505,13 @@ const server = http.createServer(async (req, res) => {
         ).all(status);
       }
       else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"bridge actions only from localhost"}'); return; }
         const body = await readBody(req);
         if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
+        const ALLOWED_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
+        if (!ALLOWED_ACTIONS.includes(body.action)) { res.writeHead(400); res.end(`{"error":"unknown action. Allowed: ${ALLOWED_ACTIONS.join(', ')}"}`); return; }
         const stmt = writeDb.prepare(
           `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source)
            VALUES (?, ?, ?, ?, ?)`

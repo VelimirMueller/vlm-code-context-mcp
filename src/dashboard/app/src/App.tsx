@@ -20,6 +20,7 @@ const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m 
 const Marketing = lazy(() => import('@/pages/Marketing').then(m => ({ default: m.Marketing })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
+import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
 import { TopNav } from '@/components/molecules/TopNav';
@@ -164,6 +165,7 @@ export function App() {
             Code Context <span className="logo-sub">MCP</span>
           </span>
         </div>
+        <BridgeStatusBadge />
       </header>
 
       {/* Top Navigation */}

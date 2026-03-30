@@ -84,32 +84,39 @@ function main() {
        WHERE id IN (${ids.map(() => "?").join(",")})`
     ).run(...ids);
 
-    // Build context string
-    const lines = ["[DASHBOARD ACTION QUEUE] The dashboard has queued the following actions for you:"];
-    for (const action of pending) {
-      const parts = [`- Action: ${action.action}`];
-      if (action.entity_type) parts.push(`  Entity: ${action.entity_type} #${action.entity_id}`);
-      if (action.payload) {
-        try {
-          const p = JSON.parse(action.payload);
-          parts.push(`  Details: ${JSON.stringify(p)}`);
-        } catch {
-          parts.push(`  Details: ${action.payload}`);
-        }
-      }
-      parts.push(`  Source: ${action.source} at ${action.created_at}`);
-      lines.push(parts.join("\n"));
-    }
-    lines.push("");
-    lines.push("Execute these actions using the appropriate MCP tools, then mark them complete:");
-    lines.push(`Use: execute({sql: "UPDATE pending_actions SET status='completed', completed_at=datetime('now') WHERE id IN (${ids.join(",")})"})`);
+    // Mark actions complete directly (don't delegate SQL to Claude)
+    db.prepare(
+      `UPDATE pending_actions SET status = 'completed', completed_at = datetime('now')
+       WHERE id IN (${ids.map(() => "?").join(",")})`
+    ).run(...ids);
+
+    // Sanitize strings to prevent prompt injection
+    const sanitize = (s: string, maxLen = 200): string =>
+      s.replace(/[\x00-\x1f]/g, "").slice(0, maxLen);
+
+    // Build context string as structured JSON block (not free-form text)
+    const actionList = pending.map((a) => ({
+      id: a.id,
+      action: sanitize(a.action, 50),
+      entity_type: a.entity_type ? sanitize(a.entity_type, 30) : null,
+      entity_id: a.entity_id,
+      payload: a.payload ? (() => { try { return JSON.parse(a.payload!); } catch { return null; } })() : null,
+      created_at: a.created_at,
+    }));
+
+    const context = [
+      "[DASHBOARD ACTION QUEUE] Execute these actions using the appropriate MCP tools:",
+      "```json",
+      JSON.stringify(actionList, null, 2),
+      "```",
+    ].join("\n");
 
     db.close();
 
     // Output hook response with additionalContext
     const response = {
       hookSpecificOutput: {
-        additionalContext: lines.join("\n"),
+        additionalContext: context,
       },
     };
     process.stdout.write(JSON.stringify(response));
