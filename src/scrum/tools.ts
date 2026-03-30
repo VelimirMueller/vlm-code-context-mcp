@@ -3,6 +3,47 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 /**
+ * Shared gate checks used by both advance_sprint and get_sprint_playbook.
+ * Returns an array of gate-failure strings (empty = all gates pass).
+ */
+export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: string): string[] {
+  const gates: string[] = [];
+  const tickets = db.prepare('SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL').all(sprint.id) as any[];
+
+  if (nextPhase === "implementation") {
+    if (tickets.length === 0) gates.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
+    const unassigned = tickets.filter((t: any) => !t.assigned_to);
+    if (unassigned.length > 0) gates.push(`${unassigned.length} ticket(s) unassigned: ${unassigned.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to assign them.`);
+    const noPoints = tickets.filter((t: any) => t.story_points == null);
+    if (noPoints.length > 0) gates.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
+    if (!sprint.velocity_committed || sprint.velocity_committed <= 0) gates.push("velocity_committed not set. Use update_sprint to set committed velocity.");
+  }
+  if (nextPhase === "qa") {
+    const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+    if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to mark them DONE/BLOCKED/NOT_DONE.`);
+    const openBlockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprint.id) as any).c;
+    if (openBlockerCount > 0) gates.push(`${openBlockerCount} open blocker(s) — resolve before advancing to QA. Use resolve_blocker to close them.`);
+  }
+  if (nextPhase === "closed" || nextPhase === "review") {
+    const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
+    if (doneNoQA.length > 0) {
+      const ticketList = doneNoQA.map((t: any) => `${t.ticket_ref || '#' + t.id} ${t.title}`).join(", ");
+      gates.push(`Tickets need QA verification: ${ticketList}. Use update_ticket to verify them (qa_verified=true).`);
+    }
+  }
+  if (nextPhase === "retro") {
+    const inProgress = tickets.filter((t: any) => t.status === "IN_PROGRESS");
+    if (inProgress.length > 0) gates.push(`${inProgress.length} ticket(s) still IN_PROGRESS: ${inProgress.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Complete or mark as NOT_DONE before retro.`);
+  }
+  if (nextPhase === "rest") {
+    const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
+    if (retroCount === 0) gates.push("No retro findings — use add_retro_finding before advancing to rest.");
+  }
+
+  return gates;
+}
+
+/**
  * Register read-only MCP tools for the Scrum system.
  */
 export function registerScrumTools(server: McpServer, db: Database.Database): void {
@@ -191,11 +232,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       // ─── Phase transition gates ─────────────────────────────────
       if (status) {
-        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "refactoring", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
         const allowed = TRANSITIONS[sprint.status];
-        // Allow skip refactoring (qa → retro) since it's optional
-        const isValidTransition = status === allowed || (sprint.status === "qa" && status === "retro");
-        if (!isValidTransition) {
+        if (allowed !== status) {
           return { content: [{ type: "text" as const, text: `Cannot transition ${sprint.status} → ${status}. Expected: ${allowed}` }], isError: true };
         }
 
@@ -288,7 +327,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sprint_id: z.number().describe("Sprint ID"),
       velocity_completed: z.number().optional().describe("Velocity completed (required when advancing to closed)"),
     },
-    async ({ sprint_id, velocity_completed }) => {
+    async ({ sprint_id, velocity_completed: _velocity_completed }) => {
+      let velocity_completed = _velocity_completed;
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
@@ -297,28 +337,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
 
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
-      const gates: string[] = [];
 
-      // Gate checks per phase
-      if (nextPhase === "implementation") {
-        if (tickets.length === 0) gates.push("No tickets assigned to this sprint");
-      }
-      if (nextPhase === "qa") {
-        const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-        if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-      }
-      if (nextPhase === "closed" || nextPhase === "review") {
-        const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
-        if (nextPhase === "closed" && doneNoQA.length > 0) gates.push(`${doneNoQA.length} DONE tickets not QA verified: ${doneNoQA.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-        if (nextPhase === "closed" && !velocity_completed && !sprint.velocity_completed) gates.push("velocity_completed required — pass it with this call");
-      }
-      if (nextPhase === "rest") {
-        const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint_id) as any).c;
-        if (retroCount === 0) gates.push("No retro findings — use add_retro_finding before advancing to rest");
+      // Use shared gate checks
+      const gates = checkSprintGates(db, sprint, nextPhase);
+
+      // Auto-calculate velocity_completed from DONE tickets if not provided
+      if ((nextPhase === "closed") && !velocity_completed && !sprint.velocity_completed) {
+        const autoVelocity = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+        velocity_completed = autoVelocity;
       }
 
       if (gates.length > 0) {
-        return { content: [{ type: "text" as const, text: `Cannot advance "${sprint.name}" from ${sprint.status} → ${nextPhase}:\n${gates.map(g => `- ${g}`).join("\n")}\n\nFix these blockers and try again.` }], isError: true };
+        return { content: [{ type: "text" as const, text: `Cannot advance "${sprint.name}" from ${sprint.status} → ${nextPhase}:\n${gates.map(g => `- ${g}`).join("\n")}\n\nResolve these gates and call advance_sprint again.` }], isError: true };
       }
 
       // Advance the sprint
@@ -429,6 +459,16 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       vals.push(ticket_id);
       db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
 
+      // ─── Auto-promote linked discoveries when ticket moves to DONE ─
+      if (status === 'DONE') {
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+            WHERE status = 'planned' AND implementation_ticket_id = ?
+          `).run(ticket_id);
+        } catch {}
+      }
+
       // ─── Event trail ────────────────────────────────────────────
       if (status && status !== oldStatus) {
         try {
@@ -501,7 +541,21 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, severity, description, ticket_id, steps_to_reproduce, expected, actual }) => {
       db.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual) VALUES (?,?,?,?,?,?,?)`).run(sprint_id, ticket_id || null, severity, description, steps_to_reproduce || null, expected || null, actual || null);
-      return { content: [{ type: "text" as const, text: `Bug logged: [${severity}] ${description}` }] };
+
+      // T-3670: Auto-regress sprint to implementation when CRITICAL bug logged during QA
+      let regressionNote = "";
+      if (severity === "CRITICAL") {
+        const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
+        if (sprint && sprint.status === "qa") {
+          db.prepare(`UPDATE sprints SET status = 'implementation', updated_at = datetime('now') WHERE id = ? AND status = 'qa'`).run(sprint_id);
+          try {
+            db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', 'qa', 'implementation', 'mcp')`).run(sprint_id);
+          } catch {}
+          regressionNote = " Sprint regressed to implementation due to CRITICAL bug.";
+        }
+      }
+
+      return { content: [{ type: "text" as const, text: `Bug logged: [${severity}] ${description}${regressionNote}` }] };
     }
   );
 
@@ -724,22 +778,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
       const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
 
-      // Gate check for next phase
+      // Gate check for next phase (uses shared function)
       const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
       const nextPhase = TRANSITIONS[sprint.status] || "done";
-      const gates: string[] = [];
-
-      if (nextPhase === "implementation" && tickets.length === 0) gates.push("No tickets assigned");
-      if (nextPhase === "qa") {
-        const undone = tickets.filter(t => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-        if (undone.length > 0) gates.push(`${undone.length} tickets not done: ${undone.map(t => t.ticket_ref || `#${t.id}`).join(", ")}`);
-      }
-      if (nextPhase === "closed") {
-        const noQA = tickets.filter(t => t.status === "DONE" && !t.qa_verified);
-        if (noQA.length > 0) gates.push(`${noQA.length} tickets not QA verified`);
-        if (!sprint.velocity_completed) gates.push("velocity_completed not set");
-      }
-      if (nextPhase === "rest" && retroCount === 0) gates.push("No retro findings");
+      const gates = nextPhase !== "done" ? checkSprintGates(db, sprint, nextPhase) : [];
 
       const ACTIONS: Record<string, string[]> = {
         preparation: ["Review backlog", "PO grooms tickets", "Check team capacity"],
@@ -2190,6 +2232,180 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (rows.length === 0) return { content: [{ type: "text" as const, text: "No recent events." }] };
         const lines = rows.map((r: any) => `[${r.created_at}] ${r.action} ${r.entity_type}#${r.entity_id}${r.field_name ? ` (${r.field_name}: ${r.old_value || '—'} → ${r.new_value || '—'})` : ""}${r.actor ? ` by ${r.actor}` : ""}`);
         return { content: [{ type: "text" as const, text: `# Recent Events (${rows.length})\n\n${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Discovery Persistence & Coverage
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "create_discovery",
+    "Log a finding from a discovery sprint",
+    {
+      sprint_id: z.number().describe("Discovery sprint ID"),
+      finding: z.string().describe("The discovery finding text"),
+      category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Finding category (default: general)"),
+      priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("Priority (default: P1)"),
+      created_by: z.string().optional().describe("Agent role that created this finding"),
+    },
+    async ({ sprint_id, finding, category, priority, created_by }) => {
+      try {
+        const sprint = db.prepare("SELECT id, name, status FROM sprints WHERE id = ?").get(sprint_id) as any;
+        if (!sprint) return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} not found.` }] };
+        const cat = category || "general";
+        const pri = priority || "P1";
+        const result = db.prepare(
+          `INSERT INTO discoveries (discovery_sprint_id, finding, category, status, priority, created_by) VALUES (?, ?, ?, 'discovered', ?, ?)`
+        ).run(sprint_id, finding, cat, pri, created_by || null);
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'created', 'status', NULL, 'discovered', ?)`).run(result.lastInsertRowid, created_by || 'mcp');
+        return { content: [{ type: "text" as const, text: `Discovery #${result.lastInsertRowid} created in sprint "${sprint.name}" [${cat}] ${pri}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_discoveries",
+    "List discovery findings with optional filters",
+    {
+      sprint_id: z.number().optional().describe("Filter by discovery sprint"),
+      status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("Filter by status"),
+      category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Filter by category"),
+    },
+    async ({ sprint_id, status, category }) => {
+      try {
+        let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id LEFT JOIN tickets t ON d.implementation_ticket_id = t.id WHERE 1=1`;
+        const params: any[] = [];
+        if (sprint_id) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprint_id); }
+        if (status) { sql += " AND d.status = ?"; params.push(status); }
+        if (category) { sql += " AND d.category = ?"; params.push(category); }
+        sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
+        const rows = db.prepare(sql).all(...params) as any[];
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No discoveries found." }] };
+        const text = rows.map((d: any) => {
+          const ticket = d.ticket_title ? ` → T-${d.implementation_ticket_id}: ${d.ticket_title}` : "";
+          const drop = d.drop_reason ? ` (${d.drop_reason})` : "";
+          return `[${d.status.toUpperCase()}] ${d.priority} #${d.id}: ${d.finding}${ticket}${drop}\n  Sprint: ${d.sprint_name} | Category: ${d.category} | By: ${d.created_by || "—"}`;
+        }).join("\n\n");
+        return { content: [{ type: "text" as const, text: `# Discoveries (${rows.length})\n\n${text}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update_discovery",
+    "Update a discovery's status, priority, or drop reason",
+    {
+      discovery_id: z.number().describe("Discovery ID"),
+      status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("New status"),
+      priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("New priority"),
+      drop_reason: z.string().optional().describe("Why this discovery was dropped"),
+    },
+    async ({ discovery_id, status, priority, drop_reason }) => {
+      try {
+        const existing = db.prepare("SELECT * FROM discoveries WHERE id = ?").get(discovery_id) as any;
+        if (!existing) return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} not found.` }] };
+        const sets: string[] = [];
+        const vals: any[] = [];
+        if (status) { sets.push("status = ?"); vals.push(status); }
+        if (priority) { sets.push("priority = ?"); vals.push(priority); }
+        if (drop_reason) { sets.push("drop_reason = ?"); vals.push(drop_reason); }
+        sets.push("updated_at = datetime('now')");
+        if (sets.length === 1) return { content: [{ type: "text" as const, text: "No fields to update." }] };
+        vals.push(discovery_id);
+        db.prepare(`UPDATE discoveries SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+        if (status && status !== existing.status) {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, existing.status, status);
+        }
+        return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} updated.${status ? ` Status: ${existing.status} → ${status}` : ""}${priority ? ` Priority: ${priority}` : ""}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "link_discovery_to_ticket",
+    "Link a discovery finding to its implementation ticket — auto-sets status to planned (or implemented if ticket is DONE)",
+    {
+      discovery_id: z.number().describe("Discovery ID"),
+      ticket_id: z.number().describe("Implementation ticket ID"),
+    },
+    async ({ discovery_id, ticket_id }) => {
+      try {
+        const discovery = db.prepare("SELECT * FROM discoveries WHERE id = ?").get(discovery_id) as any;
+        if (!discovery) return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} not found.` }] };
+        const ticket = db.prepare("SELECT id, title, status FROM tickets WHERE id = ?").get(ticket_id) as any;
+        if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }] };
+        const newStatus = ticket.status === "DONE" ? "implemented" : "planned";
+        db.prepare("UPDATE discoveries SET implementation_ticket_id = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(ticket_id, newStatus, discovery_id);
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'updated', 'implementation_ticket_id', NULL, ?, 'mcp')`).run(discovery_id, String(ticket_id));
+        if (newStatus !== discovery.status) {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, discovery.status, newStatus);
+        }
+        return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} linked to ticket #${ticket_id} "${ticket.title}" — status: ${newStatus}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_discovery_coverage",
+    "Get coverage report for a discovery sprint — auto-promotes planned discoveries whose linked ticket is DONE",
+    {
+      sprint_id: z.number().optional().describe("Discovery sprint ID (omit for all sprints)"),
+    },
+    async ({ sprint_id }) => {
+      try {
+        // Auto-promote: planned discoveries whose ticket is now DONE
+        db.prepare(`
+          UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+          WHERE status = 'planned' AND implementation_ticket_id IS NOT NULL
+            AND implementation_ticket_id IN (SELECT id FROM tickets WHERE status = 'DONE')
+        `).run();
+
+        let sql = `SELECT d.status, COUNT(*) as count FROM discoveries d WHERE 1=1`;
+        const params: any[] = [];
+        if (sprint_id) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprint_id); }
+        sql += " GROUP BY d.status";
+        const rows = db.prepare(sql).all(...params) as any[];
+        const total = rows.reduce((sum: number, r: any) => sum + r.count, 0);
+        if (total === 0) return { content: [{ type: "text" as const, text: sprint_id ? `No discoveries in sprint ${sprint_id}.` : "No discoveries found." }] };
+
+        const counts: Record<string, number> = { discovered: 0, planned: 0, implemented: 0, dropped: 0 };
+        rows.forEach((r: any) => { counts[r.status] = r.count; });
+        const pct = (n: number) => total > 0 ? Math.round(n / total * 100) : 0;
+
+        // Per-sprint breakdown if no filter
+        let breakdown = "";
+        if (!sprint_id) {
+          const sprintRows = db.prepare(`
+            SELECT s.id, s.name, d.status, COUNT(*) as count
+            FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id
+            GROUP BY s.id, d.status ORDER BY s.created_at DESC
+          `).all() as any[];
+          const sprintMap = new Map<number, { name: string; counts: Record<string, number>; total: number }>();
+          sprintRows.forEach((r: any) => {
+            if (!sprintMap.has(r.id)) sprintMap.set(r.id, { name: r.name, counts: { discovered: 0, planned: 0, implemented: 0, dropped: 0 }, total: 0 });
+            const entry = sprintMap.get(r.id)!;
+            entry.counts[r.status] = r.count;
+            entry.total += r.count;
+          });
+          breakdown = "\n\n## Per Sprint\n" + [...sprintMap.entries()].map(([, v]) =>
+            `**${v.name}** (${v.total}): ${v.counts.implemented} implemented, ${v.counts.planned} planned, ${v.counts.discovered} undecided, ${v.counts.dropped} dropped`
+          ).join("\n");
+        }
+
+        const text = `# Discovery Coverage\n\nTotal: ${total} discoveries\n\n| Status | Count | % |\n|--------|-------|---|\n| Implemented | ${counts.implemented} | ${pct(counts.implemented)}% |\n| Planned | ${counts.planned} | ${pct(counts.planned)}% |\n| Discovered | ${counts.discovered} | ${pct(counts.discovered)}% |\n| Dropped | ${counts.dropped} | ${pct(counts.dropped)}% |${breakdown}`;
+        return { content: [{ type: "text" as const, text }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

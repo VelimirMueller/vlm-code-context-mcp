@@ -12,13 +12,20 @@ import path from "path";
 export function importScrumData(db: Database.Database, claudeDir: string): { agents: number; sprints: number; tickets: number; skills: number } {
   if (!fs.existsSync(claudeDir)) return { agents: 0, sprints: 0, tickets: 0, skills: 0 };
 
+  // Legacy sprint folders have been migrated to SQLite and deleted.
+  // Only import if .claude/scrum/ still has sprint directories.
+  const scrumDir = path.join(claudeDir, "scrum");
+  if (!fs.existsSync(scrumDir)) return { agents: 0, sprints: 0, tickets: 0, skills: 0 };
+
+  const dirs = fs.readdirSync(scrumDir).filter(d => {
+    const p = path.join(scrumDir, d);
+    return fs.statSync(p).isDirectory() && d !== "default";
+  });
+  if (dirs.length === 0) return { agents: 0, sprints: 0, tickets: 0, skills: 0 };
+
   let sprintCount = 0, ticketCount = 0;
 
-  // Agents and skills are now managed via seedDefaults() in defaults.ts
-  // Files in .claude/agents/ and .claude/skills/ are ignored at runtime
-
   // ─── Import sprints ───────────────────────────────────────────────────────
-  const scrumDir = path.join(claudeDir, "scrum");
   if (fs.existsSync(scrumDir)) {
     const upsertSprint = db.prepare(`
       INSERT INTO sprints (name, goal, status, velocity_committed, velocity_completed)
@@ -162,31 +169,6 @@ export function importScrumData(db: Database.Database, claudeDir: string): { age
   return { agents: 0, sprints: sprintCount, tickets: ticketCount, skills: 0 };
 }
 
-function parseAgentFrontmatter(content: string): { role?: string; name?: string; description?: string; model?: string; tools?: string; body?: string } | null {
-  const parts = content.split("---");
-  if (parts.length < 2) return null;
-  const fm = parts[1].trim();
-  // If no closing ---, body starts after the frontmatter lines end (first blank line or non-key:value line)
-  const body = parts.length >= 3 ? parts.slice(2).join("---").trim() : (() => {
-    const lines = fm.split("\n");
-    const bodyStart = lines.findIndex(l => !l.match(/^\w[\w-]*:/) && l.trim() !== "");
-    return bodyStart >= 0 ? lines.slice(bodyStart).join("\n").trim() : "";
-  })();
-
-  const result: any = { body };
-  for (const line of fm.split("\n")) {
-    const m = line.match(/^(\w[\w-]*):\s*(.+)/);
-    if (m) {
-      const key = m[1].toLowerCase();
-      const val = m[2].trim();
-      if (key === "name") result.role = val; // "name" in frontmatter is the role identifier
-      if (key === "description") { result.description = val; result.name = val.split(".")[0].trim(); }
-      if (key === "model") result.model = val;
-      if (key === "tools") result.tools = val;
-    }
-  }
-  return result.role ? result : null;
-}
 
 function extractField(block: string, field: string): string | null {
   const re = new RegExp(`\\*\\*${field}\\*\\*:\\s*(.+)`, "i");

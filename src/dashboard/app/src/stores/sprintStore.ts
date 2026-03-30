@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { get } from '@/lib/api';
-import type { Sprint, Ticket, RetroFinding, MilestoneSprintGroup } from '@/types';
+import type { Sprint, Ticket, RetroFinding, MilestoneSprintGroup, BurndownData, Blocker, Bug } from '@/types';
 
 export type TicketFilter = 'all' | 'mine' | 'blocked' | 'qaPending' | 'unassigned';
 
@@ -16,6 +16,9 @@ export interface SprintStore {
   tickets: Ticket[];
   retroFindings: RetroFinding[];
   selectedRetroFindings: RetroFinding[];
+  burndown: BurndownData | null;
+  blockers: Blocker[];
+  bugs: Bug[];
   loading: { sprints: boolean; detail: boolean; grouped: boolean };
   error: { sprints: string | null; detail: string | null };
   ticketFilter: TicketFilter;
@@ -26,6 +29,9 @@ export interface SprintStore {
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
   fetchRetro: (sprintId: number) => Promise<void>;
+  fetchBurndown: (sprintId: number) => Promise<void>;
+  fetchBlockers: (sprintId: number) => Promise<void>;
+  fetchBugs: (sprintId: number) => Promise<void>;
   setTicketFilter: (filter: TicketFilter) => void;
   setCurrentUserName: (name: string) => void;
   getFilteredTickets: () => Ticket[];
@@ -45,6 +51,9 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   tickets: [],
   retroFindings: [],
   selectedRetroFindings: [],
+  burndown: null,
+  blockers: [],
+  bugs: [],
   loading: { sprints: false, detail: false, grouped: false },
   error: { sprints: null, detail: null },
   ticketFilter: 'all',
@@ -116,6 +125,33 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set({ retroFindings: Array.isArray(retroFindings) ? retroFindings : [] });
     } catch {
       // Silently fail
+    }
+  },
+
+  fetchBurndown: async (sprintId: number) => {
+    try {
+      const burndown = await get<BurndownData>(`/api/sprint/${sprintId}/burndown`);
+      set({ burndown: burndown ?? null });
+    } catch {
+      set({ burndown: null });
+    }
+  },
+
+  fetchBlockers: async (sprintId: number) => {
+    try {
+      const blockers = await get<Blocker[]>(`/api/sprint/${sprintId}/blockers`);
+      set({ blockers: Array.isArray(blockers) ? blockers : [] });
+    } catch {
+      set({ blockers: [] });
+    }
+  },
+
+  fetchBugs: async (sprintId: number) => {
+    try {
+      const bugs = await get<Bug[]>(`/api/sprint/${sprintId}/bugs`);
+      set({ bugs: Array.isArray(bugs) ? bugs : [] });
+    } catch {
+      set({ bugs: [] });
     }
   },
 

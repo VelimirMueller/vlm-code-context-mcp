@@ -5,7 +5,7 @@ import { z } from "zod";
 import path from "path";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { registerScrumTools } from "../scrum/tools.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
@@ -18,6 +18,7 @@ db.pragma("foreign_keys = ON");
 
 initSchema(db);
 initScrumSchema(db);
+runMigrations(db);
 
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(db);

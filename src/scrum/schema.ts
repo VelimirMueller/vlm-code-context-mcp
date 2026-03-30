@@ -213,7 +213,7 @@ export function initScrumSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS event_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug')),
+      entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug', 'discovery')),
       entity_id INTEGER NOT NULL,
       action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed')),
       field_name TEXT,
@@ -377,6 +377,23 @@ export function runMigrations(db: Database.Database): void {
       ORDER BY s.created_at DESC;
     ` },
     { version: 10, name: 'create_linear_normalized_tables', sql: `SELECT 1` }, // tables created in initScrumSchema
+    { version: 11, name: 'create_discoveries_table', sql: `
+      CREATE TABLE IF NOT EXISTS discoveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discovery_sprint_id INTEGER NOT NULL REFERENCES sprints(id),
+        finding TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'general' CHECK (category IN ('architecture', 'ux', 'performance', 'testing', 'integration', 'general')),
+        status TEXT NOT NULL DEFAULT 'discovered' CHECK (status IN ('discovered', 'planned', 'implemented', 'dropped')),
+        priority TEXT DEFAULT 'P1' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+        implementation_ticket_id INTEGER REFERENCES tickets(id),
+        drop_reason TEXT,
+        created_by TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_discoveries_sprint ON discoveries(discovery_sprint_id);
+      CREATE INDEX IF NOT EXISTS idx_discoveries_status ON discoveries(status);
+    ` },
   ];
   for (const m of migrations) {
     if (m.version > current) {
