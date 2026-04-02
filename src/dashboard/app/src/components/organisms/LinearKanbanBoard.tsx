@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useLinearStore } from '@/stores/linearStore';
 import { LinearKanbanCard } from '@/components/molecules/LinearKanbanCard';
+import { SyncButton } from '@/components/atoms/SyncButton';
 import type { KanbanColumn, NormalizedLinearIssue } from '@/types';
 
 interface ColConfig {
@@ -22,6 +23,7 @@ export function LinearKanbanBoard() {
   const fetchStates = useLinearStore((s) => s.fetchStates);
   const fetchSyncStatus = useLinearStore((s) => s.fetchSyncStatus);
   const moveIssue = useLinearStore((s) => s.moveIssue);
+  const syncNow = useLinearStore((s) => s.syncNow);
   const syncStatus = useLinearStore((s) => s.syncStatus);
   const loading = useLinearStore((s) => s.loading);
   const error = useLinearStore((s) => s.error);
@@ -115,20 +117,13 @@ export function LinearKanbanBoard() {
           </span>
         </div>
 
-        {/* Sync status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text3)' }}>
-          {loading.issues && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', animation: 'pulse 1s ease-in-out infinite' }} />
-              Loading…
-            </span>
-          )}
-          {syncStatus?.syncedAt && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>
-              Synced {new Date(syncStatus.syncedAt + 'Z').toLocaleTimeString()}
-            </span>
-          )}
-        </div>
+        {/* Sync button */}
+        <SyncButton
+          onSync={syncNow}
+          loading={loading.sync}
+          lastSyncedAt={syncStatus?.syncedAt}
+          label="Sync"
+        />
       </div>
 
       {error && (
