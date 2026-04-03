@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { cardHover, listItemVariants } from '@/lib/motion';
 import { getPhaseStyle } from '@/lib/phases';
+import { useBridgeStore } from '@/stores/bridgeStore';
 import type { Sprint } from '@/types';
 import { StatusBadge, RetroDoneBadge, QaVerifiedBadge, QaPendingBadge, VelocityMetBadge, VelocityLowBadge } from '@/components/atoms';
 
@@ -12,6 +13,7 @@ interface SprintCardProps {
 }
 
 export function SprintCard({ sprint, selected, onClick, showStatusBadges = true }: SprintCardProps) {
+  const queueAction = useBridgeStore((s) => s.queueAction);
   const pct =
     sprint.ticket_count > 0
       ? Math.round((sprint.done_count / sprint.ticket_count) * 100)
@@ -130,6 +132,26 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
           }}
         />
       </div>
+
+      {/* Bridge action buttons */}
+      {!['closed', 'rest'].includes(sprint.status) && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); queueAction('advance_sprint', 'sprint', sprint.id, { current_phase: sprint.status }); }}
+            style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--blue)', cursor: 'pointer' }}
+          >
+            Advance
+          </button>
+          {sprint.status === 'retro' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); queueAction('run_retro', 'sprint', sprint.id); }}
+              style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer' }}
+            >
+              Run Retro
+            </button>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }
