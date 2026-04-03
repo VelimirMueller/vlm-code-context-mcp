@@ -1,12 +1,15 @@
 /**
  * Linear integration layer.
  *
- * The dashboard cannot call Linear MCP tools directly (OAuth tokens are
- * managed by the Claude session).  Instead, data is pushed into SQLite
- * via POST /api/me/sync (called from Claude or a hook) and read back
- * by the frontend through GET /api/me/* endpoints.
+ * Two sync paths:
+ * 1. Direct sync — fetchAndSyncLinear() calls Linear REST API using a stored
+ *    API key from .linear.local.json (like GitHub integration). Used by the
+ *    dashboard sync button via /api/linear/sync/trigger.
+ * 2. Push sync — POST /api/me/sync accepts pre-fetched payload from Claude
+ *    MCP tools (legacy path, still supported).
  *
- * If no synced data exists yet, the Me tab shows a "sync required" prompt.
+ * Data is stored in both linear_cache (legacy) and normalized tables
+ * (linear_issues, linear_states) for the kanban board.
  */
 
 import fs from "fs";
@@ -99,6 +102,221 @@ export function isLinearConfigured(): boolean {
   } catch {
     return false;
   }
+}
+
+// ─── Direct sync config (.linear.local.json) ──────────────────────────────
+
+export interface LinearConfig {
+  apiKey: string;
+  teamId?: string;
+  autoSync?: boolean;
+  syncIntervalMinutes?: number;
+}
+
+export function loadLinearConfig(dbPath: string): LinearConfig | null {
+  // Look for .linear.local.json next to the DB, or in project root
+  const candidates = [
+    path.join(path.dirname(dbPath), ".linear.local.json"),
+    path.join(PROJECT_ROOT, ".linear.local.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      const raw = fs.readFileSync(p, "utf-8");
+      const cfg = JSON.parse(raw) as LinearConfig;
+      if (cfg.apiKey?.trim()) return cfg;
+    } catch { /* skip */ }
+  }
+  return null;
+}
+
+function getLinearToken(configKey?: string): string | null {
+  if (configKey?.trim()) return configKey.trim();
+  if (process.env.LINEAR_API_KEY?.trim()) return process.env.LINEAR_API_KEY.trim();
+  return null;
+}
+
+export function isLinearDirectSyncConfigured(dbPath: string): boolean {
+  return !!loadLinearConfig(dbPath);
+}
+
+export async function fetchAndSyncLinear(
+  db: Database.Database,
+  dbPath: string,
+  configApiKey?: string,
+): Promise<{ ok: boolean; error?: string; counts?: Record<string, number> }> {
+  const config = loadLinearConfig(dbPath);
+  const token = getLinearToken(configApiKey ?? config?.apiKey);
+  if (!token) return { ok: false, error: "No Linear API key. Create .linear.local.json with {\"apiKey\": \"lin_api_...\"} or set LINEAR_API_KEY env var." };
+
+  const headers: Record<string, string> = {
+    Authorization: token,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Fetch issues with state, project, assignee info via Linear GraphQL API
+    const issueQuery = `{
+      issues(first: 250, orderBy: updatedAt) {
+        nodes {
+          id identifier title description priority priorityLabel url
+          createdAt updatedAt
+          state { id name type color position }
+          project { name }
+          assignee { id name }
+          labels { nodes { id name color } }
+          cycle { name }
+        }
+      }
+    }`;
+
+    const issueRes = await fetch("https://api.linear.app/graphql", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: issueQuery }),
+    });
+    if (!issueRes.ok) {
+      const msg = issueRes.status === 401 ? "Invalid Linear API key"
+        : `Linear API error: ${issueRes.status}`;
+      return { ok: false, error: msg };
+    }
+    const issueData = await issueRes.json() as any;
+    if (issueData.errors?.length) {
+      console.error("[linear] GraphQL error:", issueData.errors[0].message);
+      return { ok: false, error: "Failed to fetch Linear data" };
+    }
+
+    const rawIssues = issueData.data?.issues?.nodes ?? [];
+
+    // Transform to our LinearIssue shape for legacy cache
+    const issues: LinearIssue[] = rawIssues.map((i: any) => ({
+      id: i.id,
+      identifier: i.identifier,
+      title: i.title,
+      description: i.description,
+      priority: i.priority,
+      priorityLabel: i.priorityLabel,
+      status: i.state?.name ?? "Unknown",
+      statusColor: i.state?.color ?? "#6b7280",
+      labels: (i.labels?.nodes ?? []).map((l: any) => l.name),
+      projectName: i.project?.name ?? null,
+      assigneeId: i.assignee?.id ?? "",
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+      url: i.url ?? null,
+    }));
+
+    // Build enriched issues for normalized sync (includes state ID, assignee name, etc.)
+    const enrichedIssues = rawIssues.map((i: any) => ({
+      id: i.id,
+      identifier: i.identifier,
+      title: i.title,
+      description: i.description,
+      priority: i.priority,
+      priorityLabel: i.priorityLabel,
+      status: i.state?.name ?? "Unknown",
+      statusId: i.state?.id,
+      statusColor: i.state?.color ?? "#6b7280",
+      labels: (i.labels?.nodes ?? []).map((l: any) => l.name),
+      projectName: i.project?.name ?? null,
+      assigneeId: i.assignee?.id ?? "",
+      assigneeName: i.assignee?.name ?? null,
+      cycleName: i.cycle?.name ?? null,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+      url: i.url ?? null,
+    }));
+
+    // Fetch projects
+    const projectQuery = `{
+      projects(first: 50) {
+        nodes { id name state progress lead { name } targetDate }
+      }
+    }`;
+    const projRes = await fetch("https://api.linear.app/graphql", {
+      method: "POST", headers,
+      body: JSON.stringify({ query: projectQuery }),
+    });
+    const projData = projRes.ok ? await projRes.json() as any : { data: { projects: { nodes: [] } } };
+    const projects: LinearProject[] = (projData.data?.projects?.nodes ?? []).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      status: p.state ?? "unknown",
+      progress: p.progress ?? 0,
+      leadName: p.lead?.name ?? null,
+      targetDate: p.targetDate ?? null,
+    }));
+
+    // Fetch viewer (current user)
+    const viewerQuery = `{ viewer { id name email avatarUrl } }`;
+    const viewerRes = await fetch("https://api.linear.app/graphql", {
+      method: "POST", headers,
+      body: JSON.stringify({ query: viewerQuery }),
+    });
+    const viewerData = viewerRes.ok ? await viewerRes.json() as any : null;
+    const user: LinearUser | undefined = viewerData?.data?.viewer
+      ? { id: viewerData.data.viewer.id, name: viewerData.data.viewer.name, email: viewerData.data.viewer.email, avatarUrl: viewerData.data.viewer.avatarUrl }
+      : undefined;
+
+    // Write to legacy cache
+    syncLinearData(db, { user, issues, projects });
+
+    // Write to normalized tables
+    try { syncLinearNormalized(db, { issues: enrichedIssues }); } catch { /* non-fatal */ }
+
+    return {
+      ok: true,
+      counts: {
+        issues: issues.length,
+        projects: projects.length,
+      },
+    };
+  } catch (err: any) {
+    console.error("[linear] Sync failed:", err.message);
+    return { ok: false, error: "Linear sync failed" };
+  }
+}
+
+// ─── Auto-sync timer ───────────────────────────────────────────────────────
+
+let linearAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startLinearAutoSync(
+  db: Database.Database,
+  dbPath: string,
+  onSync: () => void,
+): void {
+  stopLinearAutoSync();
+  const config = loadLinearConfig(dbPath);
+  if (!config?.autoSync) return;
+
+  const intervalMs = (config.syncIntervalMinutes ?? 5) * 60_000;
+  console.log(`[linear] Auto-sync enabled every ${config.syncIntervalMinutes ?? 5}m`);
+
+  // Initial sync
+  fetchAndSyncLinear(db, dbPath).then((r) => {
+    if (r.ok) {
+      console.log(`[linear] Initial sync: ${JSON.stringify(r.counts)}`);
+      onSync();
+    } else {
+      console.warn(`[linear] Initial sync failed: ${r.error}`);
+    }
+  });
+
+  linearAutoSyncTimer = setInterval(async () => {
+    const freshConfig = loadLinearConfig(dbPath);
+    if (!freshConfig?.autoSync) { stopLinearAutoSync(); return; }
+    const r = await fetchAndSyncLinear(db, dbPath);
+    if (r.ok) {
+      console.log(`[linear] Auto-sync: ${JSON.stringify(r.counts)}`);
+      onSync();
+    } else {
+      console.warn(`[linear] Auto-sync failed: ${r.error}`);
+    }
+  }, intervalMs);
+}
+
+export function stopLinearAutoSync(): void {
+  if (linearAutoSyncTimer) { clearInterval(linearAutoSyncTimer); linearAutoSyncTimer = null; }
 }
 
 // ─── SQLite cache ───────────────────────────────────────────────────────────
