@@ -169,7 +169,7 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
     const params = new URLSearchParams();
     if (filters.sprintId) params.set('sprint_id', String(filters.sprintId));
     if (filters.status && filters.status !== 'active') params.set('status', filters.status);
-    if (filters.status === 'active') params.set('exclude_status', 'dropped');
+    if (filters.status === 'active') params.set('exclude_status', 'dropped,implemented');
     if (filters.category) params.set('category', filters.category);
     const qs = params.toString();
     const discoveries = await get<Discovery[]>(`/api/discoveries${qs ? `?${qs}` : ''}`);

@@ -775,7 +775,11 @@ function apiDiscoveries(sprintId?: number, status?: string, category?: string, e
     const params: any[] = [];
     if (sprintId) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprintId); }
     if (status) { sql += " AND d.status = ?"; params.push(status); }
-    if (excludeStatus) { sql += " AND d.status != ?"; params.push(excludeStatus); }
+    if (excludeStatus) {
+      const excluded = excludeStatus.split(",").map(s => s.trim()).filter(Boolean);
+      sql += ` AND d.status NOT IN (${excluded.map(() => "?").join(",")})`;
+      params.push(...excluded);
+    }
     if (category) { sql += " AND d.category = ?"; params.push(category); }
     sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
     return writeDb.prepare(sql).all(...params);
