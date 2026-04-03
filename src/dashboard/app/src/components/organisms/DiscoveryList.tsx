@@ -6,7 +6,7 @@ import { DiscoveryRow } from '@/components/molecules/DiscoveryRow';
 import { Skeleton } from '@/components/atoms/Skeleton';
 import type { Discovery } from '@/types';
 
-const STATUS_OPTIONS = ['all', 'discovered', 'planned', 'implemented', 'dropped'] as const;
+const STATUS_OPTIONS = ['active', 'all', 'discovered', 'planned', 'implemented', 'dropped'] as const;
 const CATEGORY_OPTIONS = ['all', 'architecture', 'ux', 'performance', 'testing', 'integration', 'general'] as const;
 
 interface Props {
@@ -78,11 +78,15 @@ export function DiscoveryList({ onClickTicket }: Props) {
           {discoverySprints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <select
-          value={filters.status || 'all'}
-          onChange={(e) => setFilter({ status: e.target.value === 'all' ? undefined : e.target.value })}
+          value={filters.status || 'active'}
+          onChange={(e) => setFilter({ status: e.target.value })}
           style={selectStyle}
         >
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s === 'all' ? 'All statuses' : s}</option>)}
+          {STATUS_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              {s === 'active' ? 'Active (no dropped)' : s === 'all' ? 'All statuses' : s}
+            </option>
+          ))}
         </select>
         <select
           value={filters.category || 'all'}

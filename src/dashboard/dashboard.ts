@@ -456,7 +456,7 @@ function apiAllRetroFindings() {
   } catch { return []; }
 }
 
-function apiDiscoveries(sprintId?: number, status?: string, category?: string) {
+function apiDiscoveries(sprintId?: number, status?: string, category?: string, excludeStatus?: string) {
   try {
     let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title, t.status as ticket_status
       FROM discoveries d
@@ -466,6 +466,7 @@ function apiDiscoveries(sprintId?: number, status?: string, category?: string) {
     const params: any[] = [];
     if (sprintId) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprintId); }
     if (status) { sql += " AND d.status = ?"; params.push(status); }
+    if (excludeStatus) { sql += " AND d.status != ?"; params.push(excludeStatus); }
     if (category) { sql += " AND d.category = ?"; params.push(category); }
     sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
     return writeDb.prepare(sql).all(...params);
@@ -1208,7 +1209,8 @@ const server = http.createServer(async (req, res) => {
         const sid = url.searchParams.get("sprint_id");
         const st = url.searchParams.get("status");
         const cat = url.searchParams.get("category");
-        data = apiDiscoveries(sid ? Number(sid) : undefined, st || undefined, cat || undefined);
+        const excl = url.searchParams.get("exclude_status");
+        data = apiDiscoveries(sid ? Number(sid) : undefined, st || undefined, cat || undefined, excl || undefined);
       }
       else if (url.pathname.match(/^\/api\/discovery\/\d+\/link$/) && req.method === "POST") {
         const did = Number(url.pathname.split("/")[3]);
@@ -1452,6 +1454,17 @@ const server = http.createServer(async (req, res) => {
       }
       else if (url.pathname === "/api/linear/sync/status") {
         data = apiLinearSyncStatus();
+      }
+      else if (url.pathname === "/api/linear/sync/trigger" && req.method === "POST") {
+        const remoteAddr = req.socket.remoteAddress ?? "";
+        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
+        // Queue a bridge action — Claude's hook picks it up and runs sync_linear_data via MCP (OAuth)
+        writeDb.prepare(
+          `INSERT INTO pending_actions (action, entity_type, payload, source) VALUES (?, ?, ?, ?)`
+        ).run("sync_linear", "linear", JSON.stringify({ scope: "issues" }), "dashboard");
+        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: 0, change: { action: "sync_linear" } });
+        data = { ok: true, queued: true, message: "Linear sync queued — will complete on next Claude interaction" };
       }
       // ── GitHub API ────────────────────────────────────────────────────
       else if (url.pathname === "/api/github/configured") {
