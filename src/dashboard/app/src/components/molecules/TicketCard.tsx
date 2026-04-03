@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cardHover } from '@/lib/motion';
+import { useBridgeStore } from '@/stores/bridgeStore';
 import type { Ticket } from '@/types';
 
 interface TicketCardProps {
@@ -15,6 +16,7 @@ const priorityColor: Record<string, string> = {
 };
 
 export function TicketCard({ ticket, onClick }: TicketCardProps) {
+  const queueAction = useBridgeStore((s) => s.queueAction);
   const pColor = priorityColor[ticket.priority] ?? '#6b7280';
 
   return (
@@ -105,6 +107,34 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           {ticket.epic_name}
         </span>
       )}
+
+      {/* Bridge action buttons */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 4,
+          marginTop: 6,
+          borderTop: '1px solid var(--border)',
+          paddingTop: 6,
+        }}
+      >
+        {ticket.status === 'TODO' && !ticket.assigned_to && (
+          <button
+            onClick={(e) => { e.stopPropagation(); queueAction('assign_ticket', 'ticket', ticket.id, { ticket_ref: ticket.ticket_ref }); }}
+            style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer' }}
+          >
+            Assign
+          </button>
+        )}
+        {ticket.status !== 'DONE' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); queueAction('update_ticket', 'ticket', ticket.id, { status: 'DONE', ticket_ref: ticket.ticket_ref }); }}
+            style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--green, #22c55e)', cursor: 'pointer' }}
+          >
+            Done
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 }
