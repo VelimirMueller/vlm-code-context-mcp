@@ -96,6 +96,7 @@ export const useGithubStore = create<GithubStore>((set, getState) => ({
       await post('/api/github/sync/trigger', {});
       const state = getState();
       await Promise.all([state.fetchRepos(), state.fetchSyncStatus(), state.fetchAll(state.selectedRepoId ?? undefined)]);
+      set((s) => ({ loading: { ...s.loading, sync: false } }));
     } catch (e) {
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, sync: false } }));
     }
