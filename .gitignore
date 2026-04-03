@@ -17,6 +17,7 @@ yarn-error.log*
 *.db-wal
 .env*.local
 .github.local.json
+.linear.local.json
 .DS_Store
 .dist
 dist
