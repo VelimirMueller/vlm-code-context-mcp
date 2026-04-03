@@ -346,7 +346,7 @@ export async function fetchAndSyncGithub(
       html_url: i.html_url, created_at: i.created_at, updated_at: i.updated_at,
     }));
 
-    const prRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`, { headers });
+    const prRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=all&per_page=100`, { headers });
     const prData = prRes.ok ? await prRes.json() as any[] : [];
     const pullRequests = prData.map((p: any) => ({
       id: p.id, repo_id: repoId, number: p.number, title: p.title,

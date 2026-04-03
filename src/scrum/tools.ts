@@ -379,14 +379,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
-        kickoff: "Define sprint goal, estimate tickets, get team commitment.",
-        planning: "Break tickets into subtasks, assign agents, map dependencies.",
-        implementation: "Agents work on tickets. Update ticket status via update_ticket as work progresses.",
-        qa: "QA verifies each DONE ticket. Use update_ticket with qa_verified=true. Security review runs alongside.",
-        retro: "Each role adds retro findings via add_retro_finding. Identify at least 1 actionable change.",
-        review: "Write sprint summary, update milestone progress, record velocity.",
-        closed: "Sprint closed. Advance to rest when ready for next sprint.",
-        rest: "Sprint complete. Create next sprint when ready.",
+        kickoff: "Define sprint goal, estimate tickets, get team commitment. Then call advance_sprint to proceed to planning.",
+        planning: "Break tickets into subtasks, assign agents, map dependencies. Then call advance_sprint to start implementation.",
+        implementation: "Agents work on tickets. Update ticket status via update_ticket as work progresses. Call advance_sprint once all tickets are DONE.",
+        qa: "QA verifies each DONE ticket via update_ticket with qa_verified=true. Security review runs alongside. Call advance_sprint once all verified.",
+        retro: "Each role adds retro findings via add_retro_finding. Identify at least 1 actionable change. Call advance_sprint to proceed to review.",
+        review: "Write sprint summary, update milestone progress, record velocity. Call advance_sprint to close the sprint.",
+        closed: "Sprint closed. Call advance_sprint now to move to rest.",
+        rest: "Sprint complete. Call start_sprint now to begin the next sprint.",
       };
 
       return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
@@ -753,7 +753,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   // ─── Sprint Playbook ───────────────────────────────────────────────────────
   server.tool(
     "get_sprint_playbook",
-    "Get the current sprint status and what to do next. Returns phase, ticket summary, gate status, blockers, and next actions. The 'what do I do now?' tool.",
+    "Get the current sprint playbook: phase, ticket summary, gate status, blockers, and directive next actions. Follow the actions listed — do not ask for confirmation.",
     {
       sprint_id: z.number().optional().describe("Sprint ID (default: latest active sprint)"),
     },
@@ -784,15 +784,15 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const gates = nextPhase !== "done" ? checkSprintGates(db, sprint, nextPhase) : [];
 
       const ACTIONS: Record<string, string[]> = {
-        preparation: ["Review backlog", "PO grooms tickets", "Check team capacity"],
-        kickoff: ["Define sprint goal", "Estimate tickets", "Get team commitment"],
-        planning: ["Break tickets into subtasks", "Assign agents", "Map dependencies", "Use advance_sprint to start implementation"],
-        implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Use advance_sprint when all tickets are done"],
-        qa: ["QA verifies each DONE ticket", "Use update_ticket with qa_verified=true", "Security review alongside QA", "Use advance_sprint when all verified"],
-        refactoring: ["Optional cleanup", "No new features", "Use advance_sprint to proceed to retro"],
-        retro: ["Add retro findings via add_retro_finding", "Each role contributes", "Use advance_sprint when findings are logged"],
-        review: ["Write sprint summary", "Update milestone progress", "Record velocity", "Use advance_sprint to close"],
-        closed: ["Sprint closed", "Use advance_sprint to move to rest"],
+        preparation: ["Review backlog", "PO grooms tickets", "Check team capacity", "Call advance_sprint to proceed to kickoff"],
+        kickoff: ["Define sprint goal", "Estimate tickets", "Get team commitment", "Call advance_sprint to proceed to planning"],
+        planning: ["Break tickets into subtasks", "Assign agents", "Map dependencies", "Call advance_sprint to start implementation"],
+        implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Call advance_sprint once all tickets are DONE"],
+        qa: ["QA verifies each DONE ticket", "Call update_ticket with qa_verified=true", "Security review alongside QA", "Call advance_sprint once all tickets are QA verified"],
+        refactoring: ["Optional cleanup", "No new features", "Call advance_sprint to proceed to retro"],
+        retro: ["Add retro findings via add_retro_finding", "Each role contributes", "Call advance_sprint once findings are logged"],
+        review: ["Write sprint summary", "Update milestone progress", "Record velocity", "Call advance_sprint to close the sprint"],
+        closed: ["Sprint closed", "Call advance_sprint now to move to rest"],
       };
 
       const lines = [
@@ -805,7 +805,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         ...Object.entries(byStatus).map(([s, c]) => `  ${s}: ${c}`),
         ``,
         `## Gate Status for ${sprint.status} → ${nextPhase}`,
-        gates.length === 0 ? `  All gates pass — ready to advance` : gates.map(g => `  BLOCKED: ${g}`).join("\n"),
+        gates.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.map(g => `  BLOCKED: ${g}`).join("\n"),
         ``,
         `## What To Do Now`,
         ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
@@ -1413,7 +1413,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         }));
 
         // Fetch open PRs
-        const prUrl = `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`;
+        const prUrl = `https://api.github.com/repos/${owner}/${repo}/pulls?state=all&per_page=100`;
         const prRes = await fetch(prUrl, { headers });
         const prData = prRes.ok ? await prRes.json() as any[] : [];
         const pullRequests = prData.map((p: any) => ({

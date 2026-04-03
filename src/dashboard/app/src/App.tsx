@@ -8,6 +8,8 @@ import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { useLinearStore } from '@/stores/linearStore';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useGithubStore } from '@/stores/githubStore';
+import { useBridgeStore } from '@/stores/bridgeStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
@@ -112,6 +114,12 @@ export function App() {
   const fetchBacklog = usePlanningStore((s) => s.fetchBacklog);
   const fetchDiscoveries = usePlanningStore((s) => s.fetchDiscoveries);
   const fetchDiscoveryCoverage = usePlanningStore((s) => s.fetchDiscoveryCoverage);
+  const fetchGithubRepos = useGithubStore((s) => s.fetchRepos);
+  const fetchGithubSyncStatus = useGithubStore((s) => s.fetchSyncStatus);
+  const fetchGithubAll = useGithubStore((s) => s.fetchAll);
+  const githubSelectedRepoId = useGithubStore((s) => s.selectedRepoId);
+  const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
+  const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
 
   useEventSource({
     onEvent: () => {
@@ -125,6 +133,11 @@ export function App() {
       fetchBacklog();
       fetchDiscoveries();
       fetchDiscoveryCoverage();
+      fetchGithubRepos();
+      fetchGithubSyncStatus();
+      fetchGithubAll(githubSelectedRepoId ?? undefined);
+      fetchBridgeStatus();
+      fetchBridgeActions();
       // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
