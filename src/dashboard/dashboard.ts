@@ -503,6 +503,268 @@ function apiAllRetroFindings() {
   } catch { return []; }
 }
 
+// ─── Agent CRUD ────────────────────────────────────────────────────────────
+
+function apiCreateAgent(body: any) {
+  if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
+  if (existing) throw Object.assign(new Error("agent with this role already exists"), { status: 409 });
+  writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
+    body.role, body.name, body.description || null, body.model || 'claude-sonnet-4-6'
+  );
+  return { role: body.role, name: body.name, description: body.description || null, model: body.model || 'claude-sonnet-4-6' };
+}
+
+function apiUpdateAgent(role: string, body: any) {
+  if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
+  if (!existing) throw Object.assign(new Error("agent not found"), { status: 404 });
+  const sets: string[] = []; const vals: any[] = [];
+  if (body.name !== undefined) { sets.push("name=?"); vals.push(body.name); }
+  if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
+  if (body.model !== undefined) { sets.push("model=?"); vals.push(body.model); }
+  if (sets.length === 0) throw Object.assign(new Error("nothing to update"), { status: 400 });
+  sets.push("updated_at=datetime('now')");
+  vals.push(role);
+  writeDb.prepare(`UPDATE agents SET ${sets.join(",")} WHERE role=?`).run(...vals);
+  return writeDb.prepare("SELECT role, name, description, model FROM agents WHERE role = ?").get(role);
+}
+
+function apiDeleteAgent(role: string) {
+  const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
+  if (!existing) throw Object.assign(new Error("agent not found"), { status: 404 });
+  writeDb.prepare("DELETE FROM agents WHERE role = ?").run(role);
+  return { ok: true };
+}
+
+// ─── Discovery CRUD ────────────────────────────────────────────────────────
+
+function apiLinkDiscoveryToTicket(discoveryId: number, body: any) {
+  const discovery = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(discoveryId) as any;
+  if (!discovery) throw Object.assign(new Error("discovery not found"), { status: 404 });
+  const ticket = writeDb.prepare("SELECT id, title, status FROM tickets WHERE id = ?").get(body.ticket_id) as any;
+  if (!ticket) throw Object.assign(new Error("ticket not found"), { status: 404 });
+  const newStatus = ticket.status === "DONE" ? "implemented" : "planned";
+  writeDb.prepare("UPDATE discoveries SET implementation_ticket_id = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(body.ticket_id, newStatus, discoveryId);
+  return { ...discovery, implementation_ticket_id: body.ticket_id, status: newStatus, ticket_title: ticket.title };
+}
+
+function apiUpdateDiscovery(discoveryId: number, body: any) {
+  const existing = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(discoveryId) as any;
+  if (!existing) throw Object.assign(new Error("discovery not found"), { status: 404 });
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (body.status) { sets.push("status = ?"); vals.push(body.status); }
+  if (body.priority) { sets.push("priority = ?"); vals.push(body.priority); }
+  if (body.drop_reason) { sets.push("drop_reason = ?"); vals.push(body.drop_reason); }
+  sets.push("updated_at = datetime('now')");
+  vals.push(discoveryId);
+  writeDb.prepare(`UPDATE discoveries SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  return writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(discoveryId);
+}
+
+// ─── Sprint stuck / Blocker / Bug CRUD ─────────────────────────────────────
+
+function apiReportSprintStuck(sprintId: number, body: any) {
+  const sprint = writeDb.prepare(`SELECT name, status FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
+  writeDb.prepare(`INSERT INTO blockers (sprint_id, description, reported_by, status) VALUES (?, ?, ?, 'open')`).run(
+    sprintId, `Sprint stuck in ${body.phase || sprint.status} phase for 10+ minutes. Requires intervention.`, 'dashboard-ui'
+  );
+  return { ok: true, message: `Blocker created: sprint ${sprint.name} stuck in ${sprint.status}` };
+}
+
+function apiCreateBlocker(sprintId: number, body: any) {
+  writeDb.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to, status) VALUES (?, ?, ?, ?, ?, 'open')`).run(
+    sprintId, body.ticket_id ?? null, body.description, body.reported_by ?? null, body.escalated_to ?? null
+  );
+  return { ok: true };
+}
+
+function apiUpdateBlocker(blockerId: number, body: any) {
+  if (body.status === 'resolved') {
+    writeDb.prepare(`UPDATE blockers SET status = 'resolved', resolved_at = datetime('now') WHERE id = ?`).run(blockerId);
+  } else if (body.status) {
+    writeDb.prepare(`UPDATE blockers SET status = ? WHERE id = ?`).run(body.status, blockerId);
+  }
+  return { ok: true };
+}
+
+function apiCreateBug(sprintId: number, body: any) {
+  writeDb.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`).run(
+    sprintId, body.ticket_id ?? null, body.severity, body.description, body.steps_to_reproduce ?? null, body.expected ?? null, body.actual ?? null
+  );
+  return { ok: true };
+}
+
+function apiUpdateBug(bugId: number, body: any) {
+  if (body.status) {
+    writeDb.prepare(`UPDATE bugs SET status = ? WHERE id = ?`).run(body.status, bugId);
+  }
+  return { ok: true };
+}
+
+// ─── Sprint / Milestone / Epic / Ticket helpers ────────────────────────────
+
+function apiDeleteSprint(sprintId: number) {
+  const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId);
+  if (!existing) throw Object.assign(new Error("sprint not found"), { status: 404 });
+  writeDb.prepare("UPDATE tickets SET deleted_at = datetime('now') WHERE sprint_id = ?").run(sprintId);
+  writeDb.prepare("UPDATE sprints SET deleted_at = datetime('now') WHERE id = ?").run(sprintId);
+  return { ok: true };
+}
+
+function apiUpdateTicketMilestone(ticketId: number, body: any) {
+  const milestoneId = body.milestone_id;
+  if (milestoneId === null || milestoneId === undefined) {
+    writeDb.prepare("UPDATE tickets SET milestone = NULL, milestone_id = NULL WHERE id = ?").run(ticketId);
+  } else {
+    const milestone = writeDb.prepare("SELECT name FROM milestones WHERE id = ?").get(milestoneId) as any;
+    if (!milestone) throw Object.assign(new Error("milestone not found"), { status: 404 });
+    writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, ticketId);
+  }
+  return { ok: true };
+}
+
+function apiCreateEpic(body: any) {
+  if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
+  if (body.color) validateColor(body.color);
+  const result = writeDb.prepare(`INSERT INTO epics (name, description, milestone_id, priority, status) VALUES (?, ?, ?, ?, ?)`).run(
+    body.name, body.description || null, body.milestone_id || null, body.priority ?? 0, body.status || 'planned'
+  );
+  return { id: result.lastInsertRowid, name: body.name };
+}
+
+function apiUpdateEpic(epicId: number, body: any) {
+  if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
+  if (body.color) validateColor(body.color);
+  const sets: string[] = []; const vals: any[] = [];
+  if (body.name) { sets.push("name=?"); vals.push(body.name); }
+  if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
+  if (body.milestone_id !== undefined) { sets.push("milestone_id=?"); vals.push(body.milestone_id); }
+  if (body.priority) { sets.push("priority=?"); vals.push(body.priority); }
+  if (body.status) { sets.push("status=?"); vals.push(body.status); }
+  if (sets.length === 0) throw Object.assign(new Error("nothing to update"), { status: 400 });
+  sets.push("updated_at=datetime('now')");
+  vals.push(epicId);
+  writeDb.prepare(`UPDATE epics SET ${sets.join(",")} WHERE id=?`).run(...vals);
+  return { id: epicId, updated: true };
+}
+
+function apiUpdateSprintMilestone(sprintId: number, body: any) {
+  writeDb.prepare("UPDATE sprints SET milestone_id=?, updated_at=datetime('now') WHERE id=?").run(body.milestone_id ?? null, sprintId);
+  return { ok: true };
+}
+
+function apiUpdateTicketEpic(ticketId: number, body: any) {
+  writeDb.prepare("UPDATE tickets SET epic_id=?, updated_at=datetime('now') WHERE id=?").run(body.epic_id ?? null, ticketId);
+  return { ok: true };
+}
+
+function apiDeleteMilestone(milestoneId: number) {
+  const existing = writeDb.prepare("SELECT id FROM milestones WHERE id = ? AND deleted_at IS NULL").get(milestoneId);
+  if (!existing) throw Object.assign(new Error("milestone not found"), { status: 404 });
+  writeDb.prepare("UPDATE milestones SET deleted_at = datetime('now') WHERE id = ?").run(milestoneId);
+  return { ok: true };
+}
+
+function apiDeleteEpic(epicId: number) {
+  const existing = writeDb.prepare("SELECT id FROM epics WHERE id = ? AND deleted_at IS NULL").get(epicId);
+  if (!existing) throw Object.assign(new Error("epic not found"), { status: 404 });
+  writeDb.prepare("UPDATE epics SET deleted_at = datetime('now') WHERE id = ?").run(epicId);
+  return { ok: true };
+}
+
+function apiTrash() {
+  return {
+    milestones: writeDb.prepare("SELECT * FROM milestones WHERE deleted_at IS NOT NULL").all(),
+    sprints: writeDb.prepare("SELECT * FROM sprints WHERE deleted_at IS NOT NULL").all(),
+    epics: writeDb.prepare("SELECT * FROM epics WHERE deleted_at IS NOT NULL").all(),
+    tickets: writeDb.prepare("SELECT * FROM tickets WHERE deleted_at IS NOT NULL").all(),
+  };
+}
+
+function apiActivity() {
+  try { return writeDb.prepare(`SELECT * FROM event_log ORDER BY created_at DESC LIMIT 50`).all(); }
+  catch { return []; }
+}
+
+// ─── Bridge API helpers ────────────────────────────────────────────────────
+
+function apiBridgeActions(status: string) {
+  return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
+}
+
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
+
+function apiCreateBridgeAction(body: any) {
+  if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
+    throw Object.assign(new Error(`unknown action. Allowed: ${ALLOWED_BRIDGE_ACTIONS.join(', ')}`), { status: 400 });
+  }
+  const result = writeDb.prepare(
+    `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source) VALUES (?, ?, ?, ?, ?)`
+  ).run(body.action, body.entity_type ?? null, body.entity_id ?? null, body.payload ? JSON.stringify(body.payload) : null, body.source ?? "dashboard");
+  return { ok: true, id: result.lastInsertRowid };
+}
+
+function apiBridgeStatus() {
+  return {
+    pending: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'pending'").get() as any).c,
+    claimed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'claimed'").get() as any).c,
+    completed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'completed'").get() as any).c,
+    failed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'failed'").get() as any).c,
+  };
+}
+
+// ─── Sprint process & gates ────────────────────────────────────────────────
+
+function apiSprintProcessMarkdown() {
+  const processRow = writeDb.prepare("SELECT content FROM skills WHERE name = 'SPRINT_PROCESS_JSON'").get() as any;
+  if (!processRow?.content) return { markdown: "No sprint process config found. Use reset_sprint_process MCP tool." };
+  try {
+    const config = JSON.parse(processRow.content);
+    const lines = ["# Sprint Process (Auto-Generated from DB)\n"];
+    for (const phase of config.phases || []) {
+      lines.push(`## ${phase.name} (${phase.duration || "TBD"})`);
+      if (phase.ceremonies?.length) lines.push(`**Ceremonies:** ${phase.ceremonies.join(", ")}`);
+      if (phase.criteria?.length) { lines.push("**Gate Criteria:**"); phase.criteria.forEach((c: string) => lines.push(`- ${c}`)); }
+      lines.push("");
+    }
+    return { markdown: lines.join("\n") };
+  } catch { return { markdown: "Error parsing sprint process config" }; }
+}
+
+function apiSprintGates(sprintId: number) {
+  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
+  const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sprintId) as any[];
+  const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
+
+  const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
+  const nextPhase = TRANSITIONS[sprint.status] || null;
+  const gates: { gate: string; passed: boolean; detail: string }[] = [];
+
+  if (nextPhase === "implementation") {
+    gates.push({ gate: "tickets_assigned", passed: tickets.length > 0, detail: `${tickets.length} tickets` });
+  }
+  if (nextPhase === "qa" || sprint.status === "implementation") {
+    const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
+    gates.push({ gate: "all_tickets_done", passed: undone.length === 0, detail: `${undone.length} undone` });
+  }
+  if (nextPhase === "closed" || sprint.status === "review") {
+    const noQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
+    gates.push({ gate: "qa_verified", passed: noQA.length === 0, detail: `${noQA.length} unverified` });
+    gates.push({ gate: "velocity_set", passed: !!sprint.velocity_completed, detail: sprint.velocity_completed ? `${sprint.velocity_completed}pt` : "not set" });
+  }
+  if (nextPhase === "rest" || sprint.status === "closed") {
+    gates.push({ gate: "retro_findings", passed: retroCount > 0, detail: `${retroCount} findings` });
+  }
+
+  return { sprint_id: sprintId, phase: sprint.status, next_phase: nextPhase, gates, all_passed: gates.every(g => g.passed) };
+}
+
+// ─── Discoveries ───────────────────────────────────────────────────────────
+
 function apiDiscoveries(sprintId?: number, status?: string, category?: string, excludeStatus?: string) {
   try {
     let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title, t.status as ticket_status
@@ -1143,39 +1405,18 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/agents" && req.method === "POST") {
         const body = await readBody(req);
         if (!body.role || !body.name) { res.writeHead(400); res.end('{"error":"role and name are required"}'); return; }
-        if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
-        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
-        if (existing) { res.writeHead(409); res.end('{"error":"agent with this role already exists"}'); return; }
-        writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
-          body.role, body.name, body.description || null, body.model || 'claude-sonnet-4-6'
-        );
-        data = { role: body.role, name: body.name, description: body.description || null, model: body.model || 'claude-sonnet-4-6' };
+        data = apiCreateAgent(body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/agent\/[^/]+$/) && req.method === "PUT") {
         const role = decodeURIComponent(url.pathname.split("/").slice(3).join("/"));
         const body = await readBody(req);
-        if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
-        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
-        if (!existing) { res.writeHead(404); res.end('{"error":"agent not found"}'); return; }
-        const sets: string[] = []; const vals: any[] = [];
-        if (body.name !== undefined) { sets.push("name=?"); vals.push(body.name); }
-        if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
-        if (body.model !== undefined) { sets.push("model=?"); vals.push(body.model); }
-        if (sets.length === 0) { res.writeHead(400); res.end('{"error":"nothing to update"}'); return; }
-        sets.push("updated_at=datetime('now')");
-        vals.push(role);
-        writeDb.prepare(`UPDATE agents SET ${sets.join(",")} WHERE role=?`).run(...vals);
-        const updated = writeDb.prepare("SELECT role, name, description, model FROM agents WHERE role = ?").get(role);
-        data = updated;
+        data = apiUpdateAgent(role, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/agent\/[^/]+$/) && req.method === "DELETE") {
         const role = decodeURIComponent(url.pathname.split("/").slice(3).join("/"));
-        const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
-        if (!existing) { res.writeHead(404); res.end('{"error":"agent not found"}'); return; }
-        writeDb.prepare("DELETE FROM agents WHERE role = ?").run(role);
-        data = { ok: true };
+        data = apiDeleteAgent(role);
         notifyClients();
       }
       else if (url.pathname === "/api/agents") data = apiAgentsHealth();
@@ -1196,11 +1437,7 @@ const server = http.createServer(async (req, res) => {
         data = apiVisionUpdate(body);
         notifyClients();
       }
-      else if (url.pathname === "/api/activity") {
-        try {
-          data = writeDb.prepare(`SELECT * FROM event_log ORDER BY created_at DESC LIMIT 50`).all();
-        } catch { data = []; }
-      }
+      else if (url.pathname === "/api/activity") data = apiActivity();
       else if (url.pathname === "/api/backlog") data = apiBacklog();
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
@@ -1223,29 +1460,13 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/discovery\/\d+\/link$/) && req.method === "POST") {
         const did = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const discovery = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did) as any;
-        if (!discovery) { res.writeHead(404); res.end('{"error":"discovery not found"}'); return; }
-        const ticket = writeDb.prepare("SELECT id, title, status FROM tickets WHERE id = ?").get(body.ticket_id) as any;
-        if (!ticket) { res.writeHead(404); res.end('{"error":"ticket not found"}'); return; }
-        const newStatus = ticket.status === "DONE" ? "implemented" : "planned";
-        writeDb.prepare("UPDATE discoveries SET implementation_ticket_id = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(body.ticket_id, newStatus, did);
-        data = { ...discovery, implementation_ticket_id: body.ticket_id, status: newStatus, ticket_title: ticket.title };
+        data = apiLinkDiscoveryToTicket(did, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/discovery\/\d+$/) && req.method === "PATCH") {
         const did = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const existing = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did) as any;
-        if (!existing) { res.writeHead(404); res.end('{"error":"discovery not found"}'); return; }
-        const sets: string[] = [];
-        const vals: any[] = [];
-        if (body.status) { sets.push("status = ?"); vals.push(body.status); }
-        if (body.priority) { sets.push("priority = ?"); vals.push(body.priority); }
-        if (body.drop_reason) { sets.push("drop_reason = ?"); vals.push(body.drop_reason); }
-        sets.push("updated_at = datetime('now')");
-        vals.push(did);
-        writeDb.prepare(`UPDATE discoveries SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
-        data = writeDb.prepare("SELECT * FROM discoveries WHERE id = ?").get(did);
+        data = apiUpdateDiscovery(did, body);
         notifyClients();
       }
       else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
@@ -1253,16 +1474,8 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/stuck$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const sprint = writeDb.prepare(`SELECT name, status FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sid) as any;
-        if (!sprint) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
-        // Create a blocker entry so Claude/MCP can pick it up
-        writeDb.prepare(`INSERT INTO blockers (sprint_id, description, reported_by, status) VALUES (?, ?, ?, 'open')`).run(
-          sid,
-          `Sprint stuck in ${body.phase || sprint.status} phase for 10+ minutes. Requires intervention.`,
-          'dashboard-ui'
-        );
+        data = apiReportSprintStuck(sid, body);
         notifyClients();
-        data = { ok: true, message: `Blocker created: sprint ${sprint.name} stuck in ${sprint.status}` };
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/burndown$/)) {
         const sid = Number(url.pathname.split("/")[3]);
@@ -1270,20 +1483,13 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const { ticket_id, description, reported_by, escalated_to } = body;
-        if (!description) { res.writeHead(400); res.end('{"error":"description required"}'); return; }
-        writeDb.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to, status) VALUES (?, ?, ?, ?, ?, 'open')`).run(sid, ticket_id ?? null, description, reported_by ?? null, escalated_to ?? null);
-        data = { ok: true };
+        if (!body.description) { res.writeHead(400); res.end('{"error":"description required"}'); return; }
+        data = apiCreateBlocker(sid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/blocker\/\d+$/) && req.method === "PATCH") {
         const bid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        if (body.status === 'resolved') {
-          writeDb.prepare(`UPDATE blockers SET status = 'resolved', resolved_at = datetime('now') WHERE id = ?`).run(bid);
-        } else if (body.status) {
-          writeDb.prepare(`UPDATE blockers SET status = ? WHERE id = ?`).run(body.status, bid);
-        }
-        data = { ok: true };
+        data = apiUpdateBlocker(bid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/)) {
         const sid = Number(url.pathname.split("/")[3]);
@@ -1291,18 +1497,13 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const { ticket_id, severity, description, steps_to_reproduce, expected, actual } = body;
-        if (!description || !severity) { res.writeHead(400); res.end('{"error":"description and severity required"}'); return; }
-        writeDb.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`).run(sid, ticket_id ?? null, severity, description, steps_to_reproduce ?? null, expected ?? null, actual ?? null);
-        data = { ok: true };
+        if (!body.description || !body.severity) { res.writeHead(400); res.end('{"error":"description and severity required"}'); return; }
+        data = apiCreateBug(sid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/bug\/\d+$/) && req.method === "PATCH") {
         const bid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        if (body.status) {
-          writeDb.prepare(`UPDATE bugs SET status = ? WHERE id = ?`).run(body.status, bid);
-        }
-        data = { ok: true };
+        data = apiUpdateBug(bid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/)) {
         const sid = Number(url.pathname.split("/")[3]);
@@ -1333,11 +1534,7 @@ const server = http.createServer(async (req, res) => {
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "DELETE") {
         const sid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sid);
-        if (!existing) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
-        writeDb.prepare("UPDATE tickets SET deleted_at = datetime('now') WHERE sprint_id = ?").run(sid);
-        writeDb.prepare("UPDATE sprints SET deleted_at = datetime('now') WHERE id = ?").run(sid);
-        data = { ok: true };
+        data = apiDeleteSprint(sid);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/)) {
         const sid = Number(url.pathname.split("/")[3]);
@@ -1347,26 +1544,13 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/ticket\/\d+\/milestone$/) && req.method === "PATCH") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const milestoneId = body.milestone_id;
-        if (milestoneId === null || milestoneId === undefined) {
-          writeDb.prepare("UPDATE tickets SET milestone = NULL, milestone_id = NULL WHERE id = ?").run(tid);
-        } else {
-          const milestone = writeDb.prepare("SELECT name FROM milestones WHERE id = ?").get(milestoneId) as any;
-          if (!milestone) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
-          writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, tid);
-        }
-        data = { ok: true };
+        data = apiUpdateTicketMilestone(tid, body);
         notifyClients();
       }
       else if (url.pathname === "/api/epics" && req.method === "POST") {
         const body = await readBody(req);
         if (!body.name) { res.writeHead(400); res.end('{"error":"name is required"}'); return; }
-        if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
-        if (body.color) validateColor(body.color);
-        const result = writeDb.prepare(`INSERT INTO epics (name, description, milestone_id, priority, status) VALUES (?, ?, ?, ?, ?)`).run(
-          body.name, body.description || null, body.milestone_id || null, body.priority ?? 0, body.status || 'planned'
-        );
-        data = { id: result.lastInsertRowid, name: body.name };
+        data = apiCreateEpic(body);
         notifyClients();
       }
       else if (url.pathname === "/api/epics") {
@@ -1376,33 +1560,19 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/epic\/\d+$/) && req.method === "PUT") {
         const eid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
-        if (body.color) validateColor(body.color);
-        const sets: string[] = []; const vals: any[] = [];
-        if (body.name) { sets.push("name=?"); vals.push(body.name); }
-        if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
-        if (body.milestone_id !== undefined) { sets.push("milestone_id=?"); vals.push(body.milestone_id); }
-        if (body.priority) { sets.push("priority=?"); vals.push(body.priority); }
-        if (body.status) { sets.push("status=?"); vals.push(body.status); }
-        if (sets.length === 0) { res.writeHead(400); res.end('{"error":"nothing to update"}'); return; }
-        sets.push("updated_at=datetime('now')");
-        vals.push(eid);
-        writeDb.prepare(`UPDATE epics SET ${sets.join(",")} WHERE id=?`).run(...vals);
-        data = { id: eid, updated: true };
+        data = apiUpdateEpic(eid, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/milestone$/) && req.method === "PATCH") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        writeDb.prepare("UPDATE sprints SET milestone_id=?, updated_at=datetime('now') WHERE id=?").run(body.milestone_id ?? null, sid);
-        data = { ok: true };
+        data = apiUpdateSprintMilestone(sid, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/ticket\/\d+\/epic$/) && req.method === "PATCH") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        writeDb.prepare("UPDATE tickets SET epic_id=?, updated_at=datetime('now') WHERE id=?").run(body.epic_id ?? null, tid);
-        data = { ok: true };
+        data = apiUpdateTicketEpic(tid, body);
         notifyClients();
       }
       // ── Ticket CRUD endpoints ──────────────────────────────────────────
@@ -1420,27 +1590,15 @@ const server = http.createServer(async (req, res) => {
       // ── DELETE endpoints ─────────────────────────────────────────────
       else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "DELETE") {
         const mid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM milestones WHERE id = ? AND deleted_at IS NULL").get(mid);
-        if (!existing) { res.writeHead(404); res.end('{"error":"milestone not found"}'); return; }
-        writeDb.prepare("UPDATE milestones SET deleted_at = datetime('now') WHERE id = ?").run(mid);
-        data = { ok: true };
+        data = apiDeleteMilestone(mid);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/epic\/\d+$/) && req.method === "DELETE") {
         const eid = Number(url.pathname.split("/")[3]);
-        const existing = writeDb.prepare("SELECT id FROM epics WHERE id = ? AND deleted_at IS NULL").get(eid);
-        if (!existing) { res.writeHead(404); res.end('{"error":"epic not found"}'); return; }
-        writeDb.prepare("UPDATE epics SET deleted_at = datetime('now') WHERE id = ?").run(eid);
-        data = { ok: true };
+        data = apiDeleteEpic(eid);
         notifyClients();
       }
-      else if (url.pathname === "/api/trash") {
-        const milestones = writeDb.prepare("SELECT * FROM milestones WHERE deleted_at IS NOT NULL").all();
-        const sprints = writeDb.prepare("SELECT * FROM sprints WHERE deleted_at IS NOT NULL").all();
-        const epics = writeDb.prepare("SELECT * FROM epics WHERE deleted_at IS NOT NULL").all();
-        const tickets = writeDb.prepare("SELECT * FROM tickets WHERE deleted_at IS NOT NULL").all();
-        data = { milestones, sprints, epics, tickets };
-      }
+      else if (url.pathname === "/api/trash") data = apiTrash();
       else if (url.pathname === "/api/dump") data = apiDump();
       else if (url.pathname === "/api/restore" && req.method === "POST") {
         const body = await readBody(req);
@@ -1568,9 +1726,7 @@ const server = http.createServer(async (req, res) => {
       // ── Bridge API (pending_actions) ──────────────────────────────────
       else if (url.pathname === "/api/bridge/actions" && req.method === "GET") {
         const status = url.searchParams.get("status") ?? "pending";
-        data = writeDb.prepare(
-          "SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50"
-        ).all(status);
+        data = apiBridgeActions(status);
       }
       else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
         const remoteAddr = req.socket.remoteAddress ?? "";
@@ -1578,75 +1734,14 @@ const server = http.createServer(async (req, res) => {
         if (!isLocal) { res.writeHead(403); res.end('{"error":"bridge actions only from localhost"}'); return; }
         const body = await readBody(req);
         if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
-        const ALLOWED_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
-        if (!ALLOWED_ACTIONS.includes(body.action)) { res.writeHead(400); res.end(`{"error":"unknown action. Allowed: ${ALLOWED_ACTIONS.join(', ')}"}`); return; }
-        const stmt = writeDb.prepare(
-          `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source)
-           VALUES (?, ?, ?, ?, ?)`
-        );
-        const result = stmt.run(
-          body.action,
-          body.entity_type ?? null,
-          body.entity_id ?? null,
-          body.payload ? JSON.stringify(body.payload) : null,
-          body.source ?? "dashboard"
-        );
-        data = { ok: true, id: result.lastInsertRowid };
-        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(result.lastInsertRowid), change: { action: body.action } });
+        data = apiCreateBridgeAction(body);
+        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(data.id), change: { action: body.action } });
       }
-      else if (url.pathname === "/api/bridge/status") {
-        const pending = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'pending'").get() as any).c;
-        const claimed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'claimed'").get() as any).c;
-        const completed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'completed'").get() as any).c;
-        const failed = (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'failed'").get() as any).c;
-        data = { pending, claimed, completed, failed };
-      }
-      else if (url.pathname === "/api/sprint-process/markdown") {
-        // Auto-generate sprint process as markdown from DB config
-        const processRow = writeDb.prepare("SELECT content FROM skills WHERE name = 'SPRINT_PROCESS_JSON'").get() as any;
-        if (processRow?.content) {
-          try {
-            const config = JSON.parse(processRow.content);
-            const lines = ["# Sprint Process (Auto-Generated from DB)\n"];
-            for (const phase of config.phases || []) {
-              lines.push(`## ${phase.name} (${phase.duration || "TBD"})`);
-              if (phase.ceremonies?.length) lines.push(`**Ceremonies:** ${phase.ceremonies.join(", ")}`);
-              if (phase.criteria?.length) { lines.push("**Gate Criteria:**"); phase.criteria.forEach((c: string) => lines.push(`- ${c}`)); }
-              lines.push("");
-            }
-            data = { markdown: lines.join("\n") };
-          } catch { data = { markdown: "Error parsing sprint process config" }; }
-        } else { data = { markdown: "No sprint process config found. Use reset_sprint_process MCP tool." }; }
-      }
+      else if (url.pathname === "/api/bridge/status") data = apiBridgeStatus();
+      else if (url.pathname === "/api/sprint-process/markdown") data = apiSprintProcessMarkdown();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/gates$/)) {
-        // Gate status for a sprint — used by dashboard UI
         const sid = Number(url.pathname.split("/")[3]);
-        const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sid) as any;
-        if (!sprint) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
-        const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sid) as any[];
-        const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sid) as any).c;
-
-        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-        const nextPhase = TRANSITIONS[sprint.status] || null;
-        const gates: { gate: string; passed: boolean; detail: string }[] = [];
-
-        if (nextPhase === "implementation") {
-          gates.push({ gate: "tickets_assigned", passed: tickets.length > 0, detail: `${tickets.length} tickets` });
-        }
-        if (nextPhase === "qa" || sprint.status === "implementation") {
-          const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-          gates.push({ gate: "all_tickets_done", passed: undone.length === 0, detail: `${undone.length} undone` });
-        }
-        if (nextPhase === "closed" || sprint.status === "review") {
-          const noQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
-          gates.push({ gate: "qa_verified", passed: noQA.length === 0, detail: `${noQA.length} unverified` });
-          gates.push({ gate: "velocity_set", passed: !!sprint.velocity_completed, detail: sprint.velocity_completed ? `${sprint.velocity_completed}pt` : "not set" });
-        }
-        if (nextPhase === "rest" || sprint.status === "closed") {
-          gates.push({ gate: "retro_findings", passed: retroCount > 0, detail: `${retroCount} findings` });
-        }
-
-        data = { sprint_id: sid, phase: sprint.status, next_phase: nextPhase, gates, all_passed: gates.every(g => g.passed) };
+        data = apiSprintGates(sid);
       }
       else if (url.pathname === "/api/sprint-process" && req.method === "GET") {
         data = apiGetSprintProcess();
