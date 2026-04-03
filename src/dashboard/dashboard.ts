@@ -410,7 +410,7 @@ function apiSprintTickets(sprintId: number) {
 function apiSprintRetro(sprintId: number) {
   try {
     return writeDb.prepare(`
-      SELECT id, role, category, finding, action_owner, action_applied
+      SELECT id, role, category, finding, action_owner, action_applied, linked_ticket_id
       FROM retro_findings WHERE sprint_id = ? ORDER BY category
     `).all(sprintId);
   } catch { return []; }
@@ -1259,15 +1259,71 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/burndown$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiBurndown(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const { ticket_id, description, reported_by, escalated_to } = body;
+        if (!description) { res.writeHead(400); res.end('{"error":"description required"}'); return; }
+        writeDb.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to, status) VALUES (?, ?, ?, ?, ?, 'open')`).run(sid, ticket_id ?? null, description, reported_by ?? null, escalated_to ?? null);
+        data = { ok: true };
+        notifyClients();
+      } else if (url.pathname.match(/^\/api\/blocker\/\d+$/) && req.method === "PATCH") {
+        const bid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        if (body.status === 'resolved') {
+          writeDb.prepare(`UPDATE blockers SET status = 'resolved', resolved_at = datetime('now') WHERE id = ?`).run(bid);
+        } else if (body.status) {
+          writeDb.prepare(`UPDATE blockers SET status = ? WHERE id = ?`).run(body.status, bid);
+        }
+        data = { ok: true };
+        notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintBlockers(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const { ticket_id, severity, description, steps_to_reproduce, expected, actual } = body;
+        if (!description || !severity) { res.writeHead(400); res.end('{"error":"description and severity required"}'); return; }
+        writeDb.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`).run(sid, ticket_id ?? null, severity, description, steps_to_reproduce ?? null, expected ?? null, actual ?? null);
+        data = { ok: true };
+        notifyClients();
+      } else if (url.pathname.match(/^\/api\/bug\/\d+$/) && req.method === "PATCH") {
+        const bid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        if (body.status) {
+          writeDb.prepare(`UPDATE bugs SET status = ? WHERE id = ?`).run(body.status, bid);
+        }
+        data = { ok: true };
+        notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintBugs(sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintTickets(sid);
+      } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const { role, category, finding, action_owner } = body;
+        if (!category || !finding) { res.writeHead(400); res.end('{"error":"category and finding required"}'); return; }
+        writeDb.prepare(`INSERT INTO retro_findings (sprint_id, role, category, finding, action_owner) VALUES (?, ?, ?, ?, ?)`).run(sid, role ?? null, category, finding, action_owner ?? null);
+        data = { ok: true };
+        notifyClients();
+      } else if (url.pathname.match(/^\/api\/retro\/\d+$/) && req.method === "PATCH") {
+        const rid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const updates: string[] = [];
+        const params: any[] = [];
+        if (body.action_applied !== undefined) { updates.push('action_applied = ?'); params.push(body.action_applied ? 1 : 0); }
+        if (body.action_owner) { updates.push('action_owner = ?'); params.push(body.action_owner); }
+        if (body.linked_ticket_id !== undefined) { updates.push('linked_ticket_id = ?'); params.push(body.linked_ticket_id); }
+        if (updates.length > 0) {
+          params.push(rid);
+          writeDb.prepare(`UPDATE retro_findings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+        }
+        data = { ok: true };
+        notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiSprintRetro(sid);
@@ -1598,6 +1654,7 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname === "/api/sprint-process" && req.method === "PUT") {
         const body = await readBody(req);
         data = apiPutSprintProcess(body);
+        notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/gate\/[a-z]+$/) && req.method === "GET") {
         const parts = url.pathname.split("/");
         const sid = Number(parts[3]);

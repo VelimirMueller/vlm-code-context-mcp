@@ -76,8 +76,10 @@ export function initScrumSchema(db: Database.Database): void {
       finding TEXT NOT NULL,
       action_owner TEXT,
       action_applied INTEGER NOT NULL DEFAULT 0,
+      linked_ticket_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+      FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+      FOREIGN KEY (linked_ticket_id) REFERENCES tickets(id)
     );
 
     CREATE TABLE IF NOT EXISTS blockers (
@@ -444,11 +446,18 @@ export function runMigrations(db: Database.Database): void {
       );
       CREATE INDEX IF NOT EXISTS idx_workflow_step_log_workflow ON workflow_step_log(workflow_id);
     ` },
+    { version: 14, name: 'add_retro_linked_ticket_id', sql: `SELECT 1` },
   ];
   for (const m of migrations) {
     if (m.version > current) {
       db.exec(m.sql);
       db.prepare("INSERT INTO schema_versions (version, name) VALUES (?, ?)").run(m.version, m.name);
     }
+  }
+
+  // Safe column additions (idempotent — no-op if column already exists)
+  const retroCols = db.pragma("table_info(retro_findings)") as Array<{ name: string }>;
+  if (!retroCols.some((c) => c.name === "linked_ticket_id")) {
+    db.exec("ALTER TABLE retro_findings ADD COLUMN linked_ticket_id INTEGER REFERENCES tickets(id)");
   }
 }
