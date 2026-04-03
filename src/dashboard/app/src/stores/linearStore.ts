@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { get, patch } from '@/lib/api';
+import { get, patch, post } from '@/lib/api';
 import type { NormalizedLinearIssue, LinearState, LinearSyncStatus, KanbanColumn } from '@/types';
 
 export interface LinearStore {
@@ -14,6 +14,7 @@ export interface LinearStore {
   fetchIssues: (project?: string | null, state?: KanbanColumn | null) => Promise<void>;
   fetchStates: () => Promise<void>;
   fetchSyncStatus: () => Promise<void>;
+  syncNow: () => Promise<void>;
   moveIssue: (issueId: string, column: KanbanColumn) => Promise<void>;
   setFilterProject: (project: string | null) => void;
   setFilterState: (state: KanbanColumn | null) => void;
@@ -66,6 +67,21 @@ export const useLinearStore = create<LinearStore>((set, getState) => ({
     try {
       const status = await get<LinearSyncStatus>('/api/linear/sync/status');
       set((s) => ({ syncStatus: status ?? null, loading: { ...s.loading, sync: false } }));
+    } catch (e) {
+      set((s) => ({ error: (e as Error).message, loading: { ...s.loading, sync: false } }));
+    }
+  },
+
+  syncNow: async () => {
+    set((s) => ({ loading: { ...s.loading, sync: true }, error: null }));
+    try {
+      await post('/api/linear/sync/trigger', {});
+      // Sync is queued via bridge — refresh local data after a short delay
+      setTimeout(async () => {
+        const state = getState();
+        await Promise.all([state.fetchSyncStatus(), state.fetchStates(), state.fetchIssues()]);
+        set((s) => ({ loading: { ...s.loading, sync: false } }));
+      }, 1000);
     } catch (e) {
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, sync: false } }));
     }

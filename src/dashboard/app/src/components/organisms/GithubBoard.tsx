@@ -3,6 +3,7 @@ import { useGithubStore } from '@/stores/githubStore';
 import { GithubIssueCard } from '@/components/molecules/GithubIssueCard';
 import { GithubPRCard } from '@/components/molecules/GithubPRCard';
 import { GithubCommitItem } from '@/components/molecules/GithubCommitItem';
+import { SyncButton } from '@/components/atoms/SyncButton';
 
 type SubTab = 'issues' | 'prs' | 'commits';
 
@@ -26,6 +27,7 @@ export function GithubBoard() {
   const fetchRepos = useGithubStore((s) => s.fetchRepos);
   const fetchSyncStatus = useGithubStore((s) => s.fetchSyncStatus);
   const fetchAll = useGithubStore((s) => s.fetchAll);
+  const syncNow = useGithubStore((s) => s.syncNow);
 
   useEffect(() => {
     fetchRepos();
@@ -87,19 +89,12 @@ export function GithubBoard() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text3)' }}>
-          {loading.issues && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', animation: 'pulse 1s ease-in-out infinite' }} />
-              Loading...
-            </span>
-          )}
-          {syncStatus?.syncedAt && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>
-              Synced {new Date(syncStatus.syncedAt + 'Z').toLocaleTimeString()}
-            </span>
-          )}
-        </div>
+        <SyncButton
+          onSync={syncNow}
+          loading={loading.sync}
+          lastSyncedAt={syncStatus?.syncedAt}
+          label="Sync"
+        />
       </div>
 
       {error && (
