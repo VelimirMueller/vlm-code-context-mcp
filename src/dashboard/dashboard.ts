@@ -416,6 +416,53 @@ function apiSprintRetro(sprintId: number) {
   } catch { return []; }
 }
 
+function createRetroFinding(sprintId: number, body: { role?: string; category: string; finding: string; action_owner?: string }) {
+  writeDb.prepare(
+    `INSERT INTO retro_findings (sprint_id, role, category, finding, action_owner) VALUES (?, ?, ?, ?, ?)`
+  ).run(sprintId, body.role ?? null, body.category, body.finding, body.action_owner ?? null);
+}
+
+function updateRetroFinding(findingId: number, body: { action_applied?: boolean; action_owner?: string; linked_ticket_id?: number | null }) {
+  const updates: string[] = [];
+  const params: any[] = [];
+  if (body.action_applied !== undefined) { updates.push('action_applied = ?'); params.push(body.action_applied ? 1 : 0); }
+  if (body.action_owner) { updates.push('action_owner = ?'); params.push(body.action_owner); }
+  if (body.linked_ticket_id !== undefined) { updates.push('linked_ticket_id = ?'); params.push(body.linked_ticket_id); }
+  if (updates.length > 0) {
+    params.push(findingId);
+    writeDb.prepare(`UPDATE retro_findings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  }
+}
+
+function generateSprintAutoAnalysis(sprintId: number): { analysis: string; donePoints: number } {
+  const totalTickets = (writeDb.prepare(`SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ?`).get(sprintId) as any).c;
+  const doneTickets = (writeDb.prepare(`SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`).get(sprintId) as any).c;
+  const totalPoints = (writeDb.prepare(`SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ?`).get(sprintId) as any).c;
+  const donePoints = (writeDb.prepare(`SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`).get(sprintId) as any).c;
+  const committed = (writeDb.prepare(`SELECT velocity_committed FROM sprints WHERE id = ?`).get(sprintId) as any)?.velocity_committed ?? 0;
+  const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+  const velocityDelta = donePoints - committed;
+  const velocityDeltaStr = velocityDelta >= 0 ? `+${velocityDelta}` : `${velocityDelta}`;
+
+  const blockerCount = (writeDb.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ?`).get(sprintId) as any)?.c || 0;
+
+  const avgVelRow = writeDb.prepare(`SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status IN ('closed','rest') AND velocity_completed IS NOT NULL`).get() as any;
+  const avgVelocity = avgVelRow?.avg_vel ? Math.round(avgVelRow.avg_vel * 10) / 10 : 0;
+  const vsAvgDelta = donePoints - avgVelocity;
+  const vsAvgStr = vsAvgDelta >= 0 ? `+${Math.round(vsAvgDelta * 10) / 10}` : `${Math.round(vsAvgDelta * 10) / 10}`;
+
+  const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). ` +
+    `Velocity: ${donePoints}pt completed of ${committed}pt committed (${velocityDeltaStr}pt delta). ` +
+    `Blockers: ${blockerCount} total. ` +
+    `vs. average velocity ${avgVelocity}pt across all sprints (${vsAvgStr}pt).`;
+
+  writeDb.prepare(
+    `INSERT INTO retro_findings (sprint_id, role, category, finding) VALUES (?, 'auto_analysis', 'auto_analysis', ?)`
+  ).run(sprintId, analysis);
+
+  return { analysis, donePoints };
+}
+
 function apiSprintBlockers(sprintId: number) {
   try {
     return writeDb.prepare(`
@@ -766,46 +813,7 @@ function apiSprintUpdate(id: number, body: any) {
 
     // When transitioning to 'retro': auto-generate retro analysis
     if (newStatus === 'retro') {
-      const totalTickets = (writeDb.prepare(
-        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ?`
-      ).get(id) as any).c;
-      const doneTickets = (writeDb.prepare(
-        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`
-      ).get(id) as any).c;
-      const totalPoints = (writeDb.prepare(
-        `SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ?`
-      ).get(id) as any).c;
-      const donePoints = (writeDb.prepare(
-        `SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`
-      ).get(id) as any).c;
-      const committed = current.velocity_committed ?? 0;
-      const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
-      const velocityDelta = donePoints - committed;
-      const velocityDeltaStr = velocityDelta >= 0 ? `+${velocityDelta}` : `${velocityDelta}`;
-
-      // Blocker count for this sprint
-      const blockerCount = (writeDb.prepare(
-        `SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ?`
-      ).get(id) as any)?.c || 0;
-
-      // Average velocity across all sprints for comparison
-      const avgVelRow = writeDb.prepare(
-        `SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status IN ('closed','rest') AND velocity_completed IS NOT NULL`
-      ).get() as any;
-      const avgVelocity = avgVelRow?.avg_vel ? Math.round(avgVelRow.avg_vel * 10) / 10 : 0;
-      const vsAvgDelta = donePoints - avgVelocity;
-      const vsAvgStr = vsAvgDelta >= 0 ? `+${Math.round(vsAvgDelta * 10) / 10}` : `${Math.round(vsAvgDelta * 10) / 10}`;
-
-      const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). ` +
-        `Velocity: ${donePoints}pt completed of ${committed}pt committed (${velocityDeltaStr}pt delta). ` +
-        `Blockers: ${blockerCount} total. ` +
-        `vs. average velocity ${avgVelocity}pt across all sprints (${vsAvgStr}pt).`;
-
-      writeDb.prepare(
-        `INSERT INTO retro_findings (sprint_id, role, category, finding) VALUES (?, 'auto_analysis', 'auto_analysis', ?)`
-      ).run(id, analysis);
-
-      // Auto-set velocity_completed
+      const { donePoints } = generateSprintAutoAnalysis(id);
       sets.push("velocity_completed=?"); vals.push(donePoints);
     }
 
@@ -1305,23 +1313,14 @@ const server = http.createServer(async (req, res) => {
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const { role, category, finding, action_owner } = body;
-        if (!category || !finding) { res.writeHead(400); res.end('{"error":"category and finding required"}'); return; }
-        writeDb.prepare(`INSERT INTO retro_findings (sprint_id, role, category, finding, action_owner) VALUES (?, ?, ?, ?, ?)`).run(sid, role ?? null, category, finding, action_owner ?? null);
+        if (!body.category || !body.finding) { res.writeHead(400); res.end('{"error":"category and finding required"}'); return; }
+        createRetroFinding(sid, body);
         data = { ok: true };
         notifyClients();
       } else if (url.pathname.match(/^\/api\/retro\/\d+$/) && req.method === "PATCH") {
         const rid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const updates: string[] = [];
-        const params: any[] = [];
-        if (body.action_applied !== undefined) { updates.push('action_applied = ?'); params.push(body.action_applied ? 1 : 0); }
-        if (body.action_owner) { updates.push('action_owner = ?'); params.push(body.action_owner); }
-        if (body.linked_ticket_id !== undefined) { updates.push('linked_ticket_id = ?'); params.push(body.linked_ticket_id); }
-        if (updates.length > 0) {
-          params.push(rid);
-          writeDb.prepare(`UPDATE retro_findings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-        }
+        updateRetroFinding(rid, body);
         data = { ok: true };
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {
