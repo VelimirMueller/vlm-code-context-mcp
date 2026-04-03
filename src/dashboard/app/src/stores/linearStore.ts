@@ -76,8 +76,12 @@ export const useLinearStore = create<LinearStore>((set, getState) => ({
     set((s) => ({ loading: { ...s.loading, sync: true }, error: null }));
     try {
       await post('/api/linear/sync/trigger', {});
-      const state = getState();
-      await Promise.all([state.fetchSyncStatus(), state.fetchStates(), state.fetchIssues()]);
+      // Sync is queued via bridge — refresh local data after a short delay
+      setTimeout(async () => {
+        const state = getState();
+        await Promise.all([state.fetchSyncStatus(), state.fetchStates(), state.fetchIssues()]);
+        set((s) => ({ loading: { ...s.loading, sync: false } }));
+      }, 1000);
     } catch (e) {
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, sync: false } }));
     }
