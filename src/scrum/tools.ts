@@ -313,6 +313,20 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {
           // Non-fatal — don't block the update
         }
+
+        // Auto-archive discoveries linked to this sprint
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+          `).run(sprint_id, sprint_id);
+          db.prepare(`
+            UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+          `).run(sprint_id, sprint_id);
+        } catch {}
       }
 
       return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}` }] };
@@ -375,6 +389,24 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
           retroNote = "\nAuto retro analysis generated.";
         } catch {}
+
+        // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+          `).run(sprint_id, sprint_id);
+        } catch {}
+
+        // Auto-drop discoveries that were planned but ticket was not completed
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+          `).run(sprint_id, sprint_id);
+        } catch {}
       }
 
       // Build next-action guidance
@@ -405,10 +437,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       assigned_to: z.string().optional(),
       story_points: z.number().optional(),
       milestone: z.string().optional(),
+      milestone_id: z.number().optional().describe("Milestone ID to link to"),
+      epic_id: z.number().optional().describe("Epic ID to link to"),
     },
-    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone }) => {
+    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id }) => {
       try {
-        const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone) VALUES (?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestone || null);
+        // Resolve milestone name from milestone_id if not provided directly
+        let milestoneName = milestone || null;
+        if (milestone_id && !milestoneName) {
+          const ms = db.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
+          if (ms) milestoneName = ms.name;
+        }
+        const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestoneName, milestone_id || null, epic_id || null);
         return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -418,7 +458,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "update_ticket",
-    "Update a ticket's status, assignment, or QA verification",
+    "Update a ticket's status, assignment, milestone, epic, or QA verification",
     {
       ticket_id: z.number().describe("Ticket ID"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
@@ -426,8 +466,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       qa_verified: z.boolean().optional(),
       verified_by: z.string().optional(),
       notes: z.string().optional(),
+      milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
+      epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
     },
-    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes }) => {
+    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id }) => {
       const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
       if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
 
@@ -454,6 +496,16 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(qa_verified ? 1 : 0); }
       if (verified_by) { sets.push("verified_by=?"); vals.push(verified_by); }
       if (notes) { sets.push("notes=?"); vals.push(notes); }
+      if (epic_id !== undefined) { sets.push("epic_id=?"); vals.push(epic_id); }
+      if (milestone_id !== undefined) {
+        sets.push("milestone_id=?"); vals.push(milestone_id);
+        if (milestone_id) {
+          const ms = db.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
+          sets.push("milestone=?"); vals.push(ms?.name || null);
+        } else {
+          sets.push("milestone=?"); vals.push(null);
+        }
+      }
       if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
