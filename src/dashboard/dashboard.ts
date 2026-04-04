@@ -767,7 +767,7 @@ function apiSprintGates(sprintId: number) {
 
 function apiDiscoveries(sprintId?: number, status?: string, category?: string, excludeStatus?: string) {
   try {
-    let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title, t.status as ticket_status
+    let sql = `SELECT d.*, s.name as sprint_name, s.status as sprint_status, t.title as ticket_title, t.status as ticket_status
       FROM discoveries d
       JOIN sprints s ON d.discovery_sprint_id = s.id
       LEFT JOIN tickets t ON d.implementation_ticket_id = t.id
@@ -1099,6 +1099,20 @@ function apiSprintUpdate(id: number, body: any) {
   // Auto-rebuild marketing stats when a sprint is closed
   if (body.status === 'closed') {
     rebuildMarketingStats();
+
+    // Auto-archive discoveries: promote planned→implemented if ticket DONE, drop if not
+    try {
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+      `).run(id, id);
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+      `).run(id, id);
+    } catch {}
   }
 
   const result: any = { id, updated: true };
