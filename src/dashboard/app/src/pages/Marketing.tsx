@@ -1,490 +1,437 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { useSprintStore } from '@/stores/sprintStore';
-import { useAgentStore } from '@/stores/agentStore';
-import { usePlanningStore } from '@/stores/planningStore';
-import { useUIStore } from '@/stores/uiStore';
-import { get } from '@/lib/api';
-import { SubTabBar } from '@/components/molecules/SubTabBar';
-import { HeroText } from '@/components/molecules/HeroText';
-import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
-import { BentoCard } from '@/components/molecules/BentoCard';
-import { GoogleAdsStrategy } from '@/components/organisms/GoogleAdsStrategy';
-import { tabVariants, tabTransition } from '@/lib/motion';
+import { motion } from 'framer-motion';
 
-const TABS = [
-  { key: 'releases', label: 'Releases' },
-  { key: 'positioning', label: 'Positioning' },
-  { key: 'roadmap', label: 'Release Timeline' },
-  { key: 'metrics', label: 'Metrics' },
-  { key: 'google-ads', label: 'Campaigns' },
+const fadeUp = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+};
+
+const stagger = {
+  animate: { transition: { staggerChildren: 0.08 } },
+};
+
+const features = [
+  {
+    emoji: '\u{1F4CA}',
+    title: 'Dashboard',
+    description: 'Sprint tracking, ticket management, kanban boards, and milestone progress at a glance.',
+    color: 'var(--blue)',
+  },
+  {
+    emoji: '\u{1F5FA}\uFE0F',
+    title: 'Planning',
+    description: 'Discovery sprints, backlog management, coverage tracking, and roadmap visualization.',
+    color: 'var(--purple)',
+  },
+  {
+    emoji: '\u{1F4C2}',
+    title: 'Code Explorer',
+    description: 'Codebase navigation with metadata annotations, file descriptions, and symbol search.',
+    color: 'var(--accent)',
+  },
+  {
+    emoji: '\u{1F465}',
+    title: 'Team',
+    description: 'Workload management, mood tracking, agent assignments, and capacity planning.',
+    color: 'var(--orange)',
+  },
+  {
+    emoji: '\u{1F50D}',
+    title: 'Retro',
+    description: 'Sprint retrospectives, findings history, action items, and pattern analysis.',
+    color: 'var(--pink)',
+  },
+  {
+    emoji: '\u{1F50C}',
+    title: 'Integrations',
+    description: 'GitHub sync, Linear sync, real-time SSE updates, and bridge status monitoring.',
+    color: 'var(--blue)',
+  },
 ];
 
-interface ProjectStatus {
-  toolCount: number;
-  version: string;
-  agents: number;
-  milestones: number;
-}
+const steps = [
+  {
+    num: '1',
+    title: 'Install the MCP server',
+    description: 'Add code-context to your project with npm. One command, zero config.',
+    code: 'npm install code-context',
+  },
+  {
+    num: '2',
+    title: 'Connect to Claude Code',
+    description: 'Register as an MCP server in your Claude Code config. The tools appear automatically.',
+    code: 'claude mcp add code-context',
+  },
+  {
+    num: '3',
+    title: 'Manage your project',
+    description: 'Create sprints, assign tickets, run retros, and explore your codebase — all through natural language.',
+    code: '"Create a sprint with 5 tickets for the auth feature"',
+  },
+];
 
 export function Marketing() {
-  const activeTab = useUIStore((s) => s.activeTab);
-  const setActiveTab = useUIStore((s) => s.setTab);
-  const sprints = useSprintStore((s) => s.sprints);
-  const agents = useAgentStore((s) => s.agents);
-  const milestones = usePlanningStore((s) => s.milestones);
-
-  const [projectStatus, setProjectStatus] = useState<ProjectStatus>({ toolCount: 0, version: '', agents: 0, milestones: 0 });
-  useEffect(() => {
-    get<ProjectStatus>('/api/project/status').then((s) => {
-      if (s) setProjectStatus(s);
-    }).catch(() => {});
-  }, []);
-
-  const toolCount = projectStatus.toolCount || 48;
-  const version = projectStatus.version || '2.0.0';
-
-  const closedSprints = sprints.filter((s) => s.status === 'closed' || s.status === 'rest');
-  const totalTickets = closedSprints.reduce((a, s) => a + s.done_count, 0);
-  const totalPoints = closedSprints.reduce((a, s) => a + s.velocity_completed, 0);
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <SubTabBar tabs={TABS} active={activeTab} onChange={setActiveTab} />
+    <div style={{ height: '100%', overflow: 'auto' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '48px 24px 64px' }}>
 
-      <AnimatePresence mode="wait">
-        {activeTab === 'releases' && (
-          <motion.div
-            key="releases"
-            variants={tabVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={tabTransition}
-            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
-          >
-            <HeroText>
-              <AnimatedNumber value={closedSprints.length} />
-              {' sprints shipped — '}
-              <AnimatedNumber value={totalTickets} />
-              {' features delivered'}
-            </HeroText>
-            <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <ReleaseNotes sprints={closedSprints} />
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'positioning' && (
-          <motion.div
-            key="positioning"
-            variants={tabVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={tabTransition}
-            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
-          >
-            <HeroText>
-              {'Product positioning — '}
-              <AnimatedNumber value={agents.length} />
-              {' AI agents, '}
-              <AnimatedNumber value={milestones.length} />
-              {' milestones'}
-            </HeroText>
-            <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <ProductPositioning totalTickets={totalTickets} totalPoints={totalPoints} sprintCount={closedSprints.length} agentCount={agents.length} toolCount={toolCount} />
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'metrics' && (
-          <motion.div
-            key="metrics"
-            variants={tabVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={tabTransition}
-            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
-          >
-            <HeroText>
-              {'Growth dashboard — '}
-              <AnimatedNumber value={totalPoints} />
-              {'pt total velocity'}
-            </HeroText>
-            <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <GrowthMetrics
-                sprints={closedSprints}
-                totalTickets={totalTickets}
-                totalPoints={totalPoints}
-                agentCount={agents.length}
-                toolCount={toolCount}
-              />
-            </div>
-          </motion.div>
-        )}
-        {activeTab === 'roadmap' && (
-          <motion.div
-            key="roadmap"
-            variants={tabVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={tabTransition}
-            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
-          >
-            <HeroText>
-              {`v${version} shipped — `}
-              <AnimatedNumber value={milestones.length} />
-              {' milestones complete'}
-            </HeroText>
-            <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-              <Roadmap milestones={milestones} toolCount={toolCount} agentCount={agents.length} version={version} />
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'google-ads' && (
-          <motion.div
-            key="google-ads"
-            variants={tabVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            transition={tabTransition}
-            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
-          >
-            <HeroText>
-              {'Google Ads AI — cheap strategies for npm packages'}
-            </HeroText>
-            <GoogleAdsStrategy />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* ─── Release Notes ──────────────────────────────────────────────────────────── */
-
-function ReleaseNotes({ sprints }: { sprints: any[] }) {
-  // Extract a numeric identifier from sprint name for grouping.
-  // Handles "T14", "sprint-9", "Sprint 34" etc.
-  function sprintNumber(name: string): { prefix: string; num: number } {
-    const tMatch = name.match(/^T(\d+)$/i);
-    if (tMatch) return { prefix: 'T', num: parseInt(tMatch[1], 10) };
-    const sMatch = name.match(/sprint[- ]?(\d+)/i);
-    if (sMatch) return { prefix: 'S', num: parseInt(sMatch[1], 10) };
-    return { prefix: '?', num: 0 };
-  }
-
-  function matchesPhase(s: any, criteria: Array<{ prefix: string; min: number; max: number }>): boolean {
-    const sn = sprintNumber(s.name);
-    return criteria.some((c) => sn.prefix === c.prefix && sn.num >= c.min && sn.num <= c.max);
-  }
-
-  // Group sprints into phases by milestone-era ranges
-  const phases = [
-    {
-      title: 'Foundation',
-      subtitle: 'SQLite indexing, React rewrite, 9-agent scrum team',
-      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'T', min: 14, max: 22 }, { prefix: 'S', min: 9, max: 10 }])),
-      color: 'var(--blue)',
-    },
-    {
-      title: 'Platform',
-      subtitle: 'MCP bootstrap, navigation, cleanup, marketing',
-      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 11, max: 20 }])),
-      color: 'var(--purple)',
-    },
-    {
-      title: 'Polish',
-      subtitle: 'SVG icons, milestone grouping, Gantt, breadcrumbs, DB verification',
-      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 21, max: 33 }])),
-      color: 'var(--accent)',
-    },
-    {
-      title: 'Integration',
-      subtitle: 'Me tab, Linear sync, code splitting, API hardening',
-      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 34, max: 37 }])),
-      color: 'var(--orange)',
-    },
-    {
-      title: 'Launch Ready',
-      subtitle: 'MCP audit, onboarding, refinement lifecycle, CHANGELOG, Remotion animations',
-      sprints: sprints.filter((s) => matchesPhase(s, [{ prefix: 'S', min: 38, max: 999 }])),
-      color: '#10b981',
-    },
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ padding: '20px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
-          Code Context MCP — Release Chronicle
-        </div>
-        <div style={{ fontSize: 14, color: 'var(--text2)', lineHeight: 1.6 }}>
-          From zero to a fully autonomous AI-powered virtual IT department in {sprints.length} sprints.
-          Every line of code reviewed by AI agents. Every sprint closed with retrospectives.
-          This is not just a tool — it is a paradigm shift in how software teams operate.
-        </div>
-      </div>
-
-      {phases.map((phase) => (
-        <div key={phase.title}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: phase.color }}>{phase.title}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>{phase.subtitle}</div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {phase.sprints.map((s: any) => (
-              <div
-                key={s.id}
-                style={{
-                  padding: '12px 16px',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderLeft: `3px solid ${phase.color}`,
-                  borderRadius: 8,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-                    {s.done_count}/{s.ticket_count} shipped | {s.velocity_completed}pt
-                  </div>
-                </div>
-                {s.goal && (
-                  <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, lineHeight: 1.5 }}>
-                    {s.goal}
-                  </div>
-                )}
-              </div>
-            ))}
-            {phase.sprints.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--text3)', padding: 12 }}>No sprints in this phase yet</div>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Product Positioning ────────────────────────────────────────────────────── */
-
-function ProductPositioning({ totalTickets, totalPoints, sprintCount, agentCount, toolCount }: { totalTickets: number; totalPoints: number; sprintCount: number; agentCount: number; toolCount: number }) {
-  const valueProps = [
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" stroke="var(--accent)" strokeWidth="1.5"/><path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/><path d="M13 4l2-2M13 4l2 2" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round"/></svg>,
-      title: 'AI-Native Scrum',
-      description: `${agentCount} specialized AI agents running full scrum ceremonies — planning, standups, retros, QA — autonomously. No human bottleneck.`,
-      stat: `${agentCount} agents`,
-    },
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="11" y="2" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="2" y="11" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/><rect x="11" y="11" width="5" height="5" rx="1" stroke="var(--blue)" strokeWidth="1.5"/></svg>,
-      title: 'Real-Time Dashboard',
-      description: 'Enterprise-grade React dashboard with kanban, Gantt charts, velocity tracking, burndown, and bento grid insights. Zero-config via MCP.',
-      stat: '7 views',
-    },
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v4l3 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="9" r="7" stroke="var(--purple)" strokeWidth="1.5"/><path d="M13 13l2 2" stroke="var(--purple)" strokeWidth="1.5" strokeLinecap="round"/></svg>,
-      title: 'MCP-First Architecture',
-      description: 'Every action flows through Model Context Protocol. Claude, Cursor, or any MCP client becomes your entire IT department.',
-      stat: `${toolCount} tools`,
-    },
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l7 4v6l-7 4-7-4V6l7-4z" stroke="var(--orange)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 10v6M2 6l7 4 7-4" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-      title: 'Process Guardrails',
-      description: 'Mandatory retros, QA gates, burnout protection, minimum ticket rules. Process discipline enforced by the system, not by willpower.',
-      stat: '7 rules',
-    },
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 14l4-5 3 3 5-7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-      title: 'Proven Track Record',
-      description: `${sprintCount} sprints completed, ${totalTickets} tickets delivered, ${totalPoints} story points shipped. Built by its own scrum process.`,
-      stat: `${totalPoints}pt`,
-    },
-    {
-      icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v8l4 4" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 6l4-4 4 4" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-      title: 'One Command Setup',
-      description: 'npm install → MCP connect → full project management with agents, dashboard, and persistence. Bootstrap in under 60 seconds.',
-      stat: '< 60s',
-    },
-  ];
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-      {valueProps.map((vp) => (
-        <BentoCard
-          key={vp.title}
-          icon={vp.icon}
-          title={vp.title}
-          subtitle={vp.stat}
-          borderColor="var(--border)"
-          iconBg="rgba(255,255,255,.05)"
+        {/* ── Hero ──────────────────────────────────────────────── */}
+        <motion.section
+          initial="initial"
+          animate="animate"
+          variants={stagger}
+          style={{ textAlign: 'center', marginBottom: 64 }}
         >
-          <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>{vp.description}</div>
-        </BentoCard>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Roadmap ────────────────────────────────────────────────────────────────── */
-
-function Roadmap({ milestones, toolCount, agentCount, version }: { milestones: any[]; toolCount: number; agentCount: number; version: string }) {
-  const completed = milestones.filter((m: any) => m.status === 'completed');
-  const planned = milestones.filter((m: any) => m.status !== 'completed');
-
-  const future = [
-    { name: 'npm publish', description: `Publish v${version} to npm registry. One-command install for any project.`, status: 'next' },
-    { name: 'Multi-project Support', description: 'Manage multiple codebases from a single dashboard instance.', status: 'planned' },
-    { name: 'GitHub/GitLab Sync', description: 'Two-way sync between MCP scrum board and GitHub Issues/GitLab.', status: 'planned' },
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>v{version} — Current Release</div>
-        <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
-          {toolCount} MCP tools, {agentCount}-agent scrum team, React dashboard with Linear integration, code splitting,
-          interactive onboarding, ticket refinement lifecycle, Remotion vision animations, security hardening. {completed.length} milestones delivered.
-        </div>
-      </div>
-
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>Completed Milestones</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          {completed.map((m: any) => (
-            <div key={m.id} style={{ padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>SHIPPED</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {planned.length > 0 && (
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--purple)', marginBottom: 12 }}>In Progress</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {planned.map((m: any) => (
-              <div key={m.id} style={{ padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: '3px solid var(--purple)', borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--blue)', marginBottom: 12 }}>What's Next</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {future.map((f) => (
-            <div key={f.name} style={{ padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `3px solid ${f.status === 'next' ? 'var(--orange)' : 'var(--text3)'}`, borderRadius: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{f.name}</div>
-                <div style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, color: f.status === 'next' ? 'var(--orange)' : 'var(--text3)', textTransform: 'uppercase' }}>{f.status === 'next' ? 'UP NEXT' : 'PLANNED'}</div>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4, lineHeight: 1.5 }}>{f.description}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Growth Metrics ─────────────────────────────────────────────────────────── */
-
-function GrowthMetrics({ sprints, totalTickets, totalPoints, agentCount, toolCount }: { sprints: any[]; totalTickets: number; totalPoints: number; agentCount: number; toolCount: number }) {
-  const velocities = sprints.map((s) => s.velocity_completed);
-  const avgVelocity = velocities.length > 0 ? Math.round(velocities.reduce((a: number, b: number) => a + b, 0) / velocities.length) : 0;
-  const maxVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
-  const completionRates = sprints
-    .filter((s) => s.ticket_count > 0)
-    .map((s) => Math.round((s.done_count / s.ticket_count) * 100));
-  const avgCompletion = completionRates.length > 0 ? Math.round(completionRates.reduce((a: number, b: number) => a + b, 0) / completionRates.length) : 0;
-
-  const metrics = [
-    { label: 'Total Sprints', value: sprints.length, color: 'var(--blue)' },
-    { label: 'Tickets Shipped', value: totalTickets, color: 'var(--accent)' },
-    { label: 'Story Points', value: totalPoints, color: 'var(--purple)' },
-    { label: 'Avg Velocity', value: avgVelocity, color: 'var(--blue)' },
-    { label: 'Peak Velocity', value: maxVelocity, color: 'var(--orange)' },
-    { label: 'Completion Rate', value: avgCompletion, color: 'var(--accent)', suffix: '%' },
-    { label: 'Team Size', value: agentCount, color: 'var(--purple)' },
-    { label: 'MCP Tools', value: toolCount, color: 'var(--text2)' },
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Big numbers grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        {metrics.map((m) => (
-          <div
-            key={m.label}
+          <motion.div
+            variants={fadeUp}
+            transition={{ duration: 0.5 }}
             style={{
-              padding: '16px 20px',
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              textAlign: 'center',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 16px',
+              background: 'var(--accent-glow)',
+              border: '1px solid var(--accent)',
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--accent)',
+              marginBottom: 20,
+              fontFamily: 'var(--mono)',
             }}
           >
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 28, fontWeight: 700, color: m.color, lineHeight: 1 }}>
-              <AnimatedNumber value={m.value} />
-              {m.suffix ?? ''}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginTop: 6, letterSpacing: '0.05em' }}>
-              {m.label}
-            </div>
-          </div>
-        ))}
-      </div>
+            MCP-NATIVE PROJECT MANAGEMENT
+          </motion.div>
 
-      {/* Sprint velocity timeline */}
-      <div style={{ padding: '16px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Velocity Over Time</div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100 }}>
-          {sprints.map((s: any, i: number) => {
-            const height = maxVelocity > 0 ? (s.velocity_completed / maxVelocity) * 100 : 0;
-            return (
-              <div
-                key={s.id}
-                title={`${s.name}: ${s.velocity_completed}pt`}
+          <motion.h1
+            variants={fadeUp}
+            transition={{ duration: 0.5 }}
+            style={{
+              fontSize: 'clamp(28px, 5vw, 44px)',
+              fontWeight: 800,
+              color: 'var(--text)',
+              lineHeight: 1.15,
+              letterSpacing: '-0.03em',
+              marginBottom: 16,
+            }}
+          >
+            Your AI-powered{' '}
+            <span style={{ color: 'var(--accent)' }}>project management</span>{' '}
+            brain
+          </motion.h1>
+
+          <motion.p
+            variants={fadeUp}
+            transition={{ duration: 0.5 }}
+            style={{
+              fontSize: 'clamp(15px, 2vw, 18px)',
+              color: 'var(--text2)',
+              maxWidth: 600,
+              margin: '0 auto 32px',
+              lineHeight: 1.6,
+            }}
+          >
+            Sprint planning, ticket management, retrospectives, and codebase exploration —
+            all through natural language in Claude Code.
+          </motion.p>
+
+          <motion.div
+            variants={fadeUp}
+            transition={{ duration: 0.5 }}
+            style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}
+          >
+            <a
+              href="#get-started"
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById('get-started')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 28px',
+                background: 'var(--accent)',
+                color: '#000',
+                fontSize: 14,
+                fontWeight: 700,
+                borderRadius: 10,
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'opacity 0.2s',
+              }}
+            >
+              Get Started
+            </a>
+            <a
+              href="https://github.com/VelimirMueller/mcp-server"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 28px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border2)',
+                color: 'var(--text)',
+                fontSize: 14,
+                fontWeight: 600,
+                borderRadius: 10,
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+              }}
+            >
+              View on GitHub
+            </a>
+          </motion.div>
+        </motion.section>
+
+        {/* ── Features Grid ────────────────────────────────────── */}
+        <motion.section
+          initial="initial"
+          whileInView="animate"
+          viewport={{ once: true, margin: '-60px' }}
+          variants={stagger}
+          style={{ marginBottom: 64 }}
+        >
+          <motion.h2
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--accent)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 8,
+              fontFamily: 'var(--mono)',
+            }}
+          >
+            Features
+          </motion.h2>
+          <motion.h3
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 'clamp(20px, 3vw, 28px)',
+              fontWeight: 700,
+              color: 'var(--text)',
+              letterSpacing: '-0.02em',
+              marginBottom: 32,
+            }}
+          >
+            Everything you need to manage your project
+          </motion.h3>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {features.map((f) => (
+              <motion.div
+                key={f.title}
+                variants={fadeUp}
+                transition={{ duration: 0.4 }}
                 style={{
-                  flex: 1,
-                  height: `${Math.max(4, height)}%`,
-                  background: s.velocity_completed >= avgVelocity ? 'var(--accent)' : 'var(--surface3)',
-                  borderRadius: '3px 3px 0 0',
-                  transition: 'height .4s ease',
-                  cursor: 'default',
-                  minWidth: 4,
+                  padding: '20px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  transition: 'border-color 0.2s',
                 }}
-              />
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-          <span>Sprint 1</span>
-          <span style={{ color: 'var(--accent)' }}>avg: {avgVelocity}pt</span>
-          <span>Sprint {sprints.length}</span>
-        </div>
-      </div>
+                whileHover={{ borderColor: f.color, y: -2 }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: 'var(--surface3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 20,
+                  }}
+                >
+                  {f.emoji}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{f.title}</div>
+                <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>{f.description}</div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.section>
 
-      {/* Marketing headline */}
-      <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg, rgba(16,185,129,.08), rgba(59,130,246,.08))', border: '1px solid var(--border)', borderRadius: 12, textAlign: 'center' }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
-          "{totalPoints} story points. {sprints.length} sprints. Zero human bottlenecks."
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-          The first MCP server that manages its own development. Code Context MCP is proof that AI teams deliver.
-        </div>
+        {/* ── How It Works ─────────────────────────────────────── */}
+        <motion.section
+          initial="initial"
+          whileInView="animate"
+          viewport={{ once: true, margin: '-60px' }}
+          variants={stagger}
+          style={{ marginBottom: 64 }}
+        >
+          <motion.h2
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--accent)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 8,
+              fontFamily: 'var(--mono)',
+            }}
+          >
+            How It Works
+          </motion.h2>
+          <motion.h3
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 'clamp(20px, 3vw, 28px)',
+              fontWeight: 700,
+              color: 'var(--text)',
+              letterSpacing: '-0.02em',
+              marginBottom: 32,
+            }}
+          >
+            Up and running in three steps
+          </motion.h3>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {steps.map((s) => (
+              <motion.div
+                key={s.num}
+                variants={fadeUp}
+                transition={{ duration: 0.4 }}
+                style={{
+                  padding: '24px 20px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    color: '#000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 14,
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}
+                >
+                  {s.num}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{s.title}</div>
+                <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>{s.description}</div>
+                <div
+                  style={{
+                    marginTop: 'auto',
+                    padding: '10px 14px',
+                    background: 'var(--bg)',
+                    borderRadius: 8,
+                    fontFamily: 'var(--mono)',
+                    fontSize: 12,
+                    color: 'var(--accent2)',
+                    border: '1px solid var(--border)',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {s.code}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.section>
+
+        {/* ── CTA / Get Started ────────────────────────────────── */}
+        <motion.section
+          id="get-started"
+          initial="initial"
+          whileInView="animate"
+          viewport={{ once: true, margin: '-60px' }}
+          variants={stagger}
+          style={{
+            padding: '40px 32px',
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.06), rgba(59,130,246,0.06))',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-lg)',
+            textAlign: 'center',
+          }}
+        >
+          <motion.h2
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 'clamp(20px, 3vw, 28px)',
+              fontWeight: 700,
+              color: 'var(--text)',
+              letterSpacing: '-0.02em',
+              marginBottom: 12,
+            }}
+          >
+            Ready to get started?
+          </motion.h2>
+          <motion.p
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              fontSize: 14,
+              color: 'var(--text2)',
+              maxWidth: 520,
+              margin: '0 auto 24px',
+              lineHeight: 1.6,
+            }}
+          >
+            Install the MCP server and connect it to Claude Code.
+            Your entire project management workflow lives inside your AI assistant.
+          </motion.p>
+
+          <motion.div
+            variants={fadeUp}
+            transition={{ duration: 0.4 }}
+            style={{
+              display: 'inline-block',
+              padding: '14px 24px',
+              background: 'var(--surface)',
+              border: '1px solid var(--border2)',
+              borderRadius: 10,
+              fontFamily: 'var(--mono)',
+              fontSize: 14,
+              color: 'var(--accent2)',
+              userSelect: 'all',
+              cursor: 'text',
+            }}
+          >
+            npm install code-context
+          </motion.div>
+        </motion.section>
+
       </div>
     </div>
   );
