@@ -2,6 +2,13 @@ import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+/** Canonical phase transition map: current → next allowed phase. */
+const PHASE_TRANSITIONS: Record<string, string> = {
+  preparation: "kickoff", kickoff: "planning", planning: "implementation",
+  implementation: "qa", qa: "retro", refactoring: "retro",
+  retro: "review", review: "closed", closed: "rest",
+};
+
 /**
  * Shared gate checks used by both advance_sprint and get_sprint_playbook.
  * Returns an array of gate-failure strings (empty = all gates pass).
@@ -232,29 +239,12 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       // ─── Phase transition gates ─────────────────────────────────
       if (status) {
-        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-        const allowed = TRANSITIONS[sprint.status];
+        const allowed = PHASE_TRANSITIONS[sprint.status];
         if (allowed !== status) {
           return { content: [{ type: "text" as const, text: `Cannot transition ${sprint.status} → ${status}. Expected: ${allowed}` }], isError: true };
         }
 
-        const gates: string[] = [];
-        const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
-
-        if (status === "qa") {
-          const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-          if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-        }
-        if (status === "closed") {
-          const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
-          if (doneNoQA.length > 0) gates.push(`${doneNoQA.length} DONE tickets not QA verified: ${doneNoQA.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-          if (!velocity_completed && !sprint.velocity_completed) gates.push("velocity_completed not set — pass it with this update");
-        }
-        if (status === "rest") {
-          const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint_id) as any).c;
-          if (retroCount === 0) gates.push("No retro findings — add at least 1 finding before closing to rest");
-        }
-
+        const gates = checkSprintGates(db, sprint, status);
         if (gates.length > 0) {
           return { content: [{ type: "text" as const, text: `Gate blocked for sprint ${sprint.name} (${sprint.status} → ${status}):\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
         }
@@ -346,8 +336,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
-      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-      const nextPhase = TRANSITIONS[sprint.status];
+      const nextPhase = PHASE_TRANSITIONS[sprint.status];
       if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
 
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
@@ -831,8 +820,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
 
       // Gate check for next phase (uses shared function)
-      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-      const nextPhase = TRANSITIONS[sprint.status] || "done";
+      const nextPhase = PHASE_TRANSITIONS[sprint.status] || "done";
       const gates = nextPhase !== "done" ? checkSprintGates(db, sprint, nextPhase) : [];
 
       const ACTIONS: Record<string, string[]> = {
