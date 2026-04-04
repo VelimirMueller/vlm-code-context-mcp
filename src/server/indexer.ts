@@ -123,37 +123,92 @@ function parseImports(content: string): ParsedImport[] {
 }
 
 // ─── Export parsing (JS/TS only) ────────────────────────────────────────────
-interface ParsedExport {
+export interface ParsedExport {
   name: string;
   kind: string;
+  description: string | null;
 }
 
-function parseExports(content: string): ParsedExport[] {
+/** Extract the description from a JSDoc block that ends just before `pos` in `content`. */
+export function extractJSDocBefore(content: string, pos: number): string | null {
+  const before = content.slice(0, pos);
+  const match = /\/\*\*\s*([\s\S]*?)\*\/\s*$/.exec(before);
+  if (!match) return null;
+
+  const desc = match[1]
+    .split("\n")
+    .map(line => line.replace(/^\s*\*\s?/, "").trim())
+    .filter(line => line && !line.startsWith("@"))
+    .join(" ")
+    .trim();
+
+  return desc || null;
+}
+
+const MUTABLE_KINDS = new Set(["let", "var"]);
+
+function normalizeKind(kind: string): string {
+  return MUTABLE_KINDS.has(kind) ? "const" : kind;
+}
+
+/** Collect all regex matches into an array via a mapper function. */
+function matchAll(
+  content: string,
+  regex: RegExp,
+  mapper: (match: RegExpExecArray) => ParsedExport[],
+): ParsedExport[] {
   const results: ParsedExport[] = [];
-  const defaultRe = /export\s+default\s+(function|class)\s+(\w+)/g;
   let m: RegExpExecArray | null;
-  while ((m = defaultRe.exec(content)) !== null) {
-    results.push({ name: m[2], kind: m[1] === "function" ? "function" : "class" });
-  }
-  const namedRe = /export\s+(?:async\s+)?(function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
-  while ((m = namedRe.exec(content)) !== null) {
-    const kind = ["let", "var"].includes(m[1]) ? "const" : m[1];
-    results.push({ name: m[2], kind });
-  }
-  const reExportRe = /export\s+\{([^}]+)\}(?!\s*from)/g;
-  while ((m = reExportRe.exec(content)) !== null) {
-    m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
-      if (parts[0]) results.push({ name: parts[0], kind: "re-export" });
-    });
-  }
-  const reExportFromRe = /export\s+\{([^}]+)\}\s*from\s+['"][^'"]+['"]/g;
-  while ((m = reExportFromRe.exec(content)) !== null) {
-    m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
-      const name = parts.length > 1 ? parts[1] : parts[0];
-      if (name) results.push({ name, kind: "re-export" });
-    });
+  while ((m = regex.exec(content)) !== null) {
+    results.push(...mapper(m));
   }
   return results;
+}
+
+/** Parse `export { a, b }` braces into name pairs, resolving `as` aliases. */
+function parseBraceList(raw: string, useAlias: boolean): string[] {
+  return raw
+    .split(",")
+    .map(s => s.trim().split(/\s+as\s+/))
+    .map(parts => useAlias && parts.length > 1 ? parts[1] : parts[0])
+    .filter(Boolean);
+}
+
+function findDefaultExports(content: string): ParsedExport[] {
+  return matchAll(content, /export\s+default\s+(function|class)\s+(\w+)/g, (m) => [
+    { name: m[2], kind: m[1], description: extractJSDocBefore(content, m.index) },
+  ]);
+}
+
+function findNamedExports(content: string): ParsedExport[] {
+  return matchAll(
+    content,
+    /export\s+(?:async\s+)?(function|const|let|var|class|interface|type|enum)\s+(\w+)/g,
+    (m) => [
+      { name: m[2], kind: normalizeKind(m[1]), description: extractJSDocBefore(content, m.index) },
+    ],
+  );
+}
+
+function findLocalReExports(content: string): ParsedExport[] {
+  return matchAll(content, /export\s+\{([^}]+)\}(?!\s*from)/g, (m) =>
+    parseBraceList(m[1], false).map(name => ({ name, kind: "re-export", description: null })),
+  );
+}
+
+function findModuleReExports(content: string): ParsedExport[] {
+  return matchAll(content, /export\s+\{([^}]+)\}\s*from\s+['"][^'"]+['"]/g, (m) =>
+    parseBraceList(m[1], true).map(name => ({ name, kind: "re-export", description: null })),
+  );
+}
+
+export function parseExports(content: string): ParsedExport[] {
+  return [
+    ...findDefaultExports(content),
+    ...findNamedExports(content),
+    ...findLocalReExports(content),
+    ...findModuleReExports(content),
+  ];
 }
 
 // ─── Summary extraction ──────────────────────────────────────────────────────
@@ -668,7 +723,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   const getFileId = db.prepare(`SELECT id FROM files WHERE path = ?`);
   const clearExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
   const clearDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ?`);
-  const insertExport = db.prepare(`INSERT INTO exports (file_id, name, kind) VALUES (?, ?, ?)`);
+  const insertExport = db.prepare(`INSERT INTO exports (file_id, name, kind, description) VALUES (?, ?, ?, ?)`);
   const insertDep = db.prepare(`INSERT OR IGNORE INTO dependencies (source_id, target_id, symbols) VALUES (?, ?, ?)`);
 
   let exportCount = 0;
@@ -709,7 +764,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
 
       if (PARSEABLE_EXTENSIONS.has(ext)) {
         for (const exp of parseExports(content)) {
-          insertExport.run(row.id, exp.name, exp.kind);
+          insertExport.run(row.id, exp.name, exp.kind, exp.description);
           exportCount++;
         }
       }
