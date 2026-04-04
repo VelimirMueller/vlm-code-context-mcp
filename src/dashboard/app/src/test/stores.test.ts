@@ -121,31 +121,8 @@ describe('sprintStore', () => {
   });
 });
 
-// ─── meStore ───────────────────────────────────────────────────────────
-
-describe('meStore', () => {
-  let useMeStore: typeof import('@/stores/meStore').useMeStore;
-
-  beforeEach(async () => {
-    const mod = await import('@/stores/meStore');
-    useMeStore = mod.useMeStore;
-    useMeStore.setState({
-      configured: false,
-      synced: false,
-      syncedAt: null,
-      issues: [],
-      collapsedGroups: new Set(),
-    });
-    mockFetch.mockReset();
-  });
-
-  it('toggleGroup adds and removes status', () => {
-    useMeStore.getState().toggleGroup('In Progress');
-    expect(useMeStore.getState().collapsedGroups.has('In Progress')).toBe(true);
-    useMeStore.getState().toggleGroup('In Progress');
-    expect(useMeStore.getState().collapsedGroups.has('In Progress')).toBe(false);
-  });
-});
+// meStore was removed in Sprint 63 (Linear tab consolidation).
+// Linear data is now managed by linearStore — see linear-kanban.test.tsx.
 
 // ─── agentStore ────────────────────────────────────────────────────────
 

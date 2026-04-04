@@ -374,7 +374,7 @@ export function CodeExplorer() {
             {'Dependency graph — '}
             <AnimatedNumber value={files.length} />
             {' files, '}
-            <AnimatedNumber value={stats?.dependencies ?? 0} />
+            <AnimatedNumber value={stats?.deps ?? 0} />
             {' connections'}
           </HeroText>
           <div style={{ flex: 1, height: 'calc(100% - 40px)' }}>
@@ -395,7 +395,7 @@ export function CodeExplorer() {
               { label: 'Files', value: files.length },
               { label: 'Directories', value: directories.length },
               { label: 'Exports', value: stats?.exports ?? 0 },
-              { label: 'Dependencies', value: stats?.dependencies ?? 0 },
+              { label: 'Dependencies', value: stats?.deps ?? 0 },
             ].map((s) => (
               <div key={s.label} style={{ padding: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, textAlign: 'center' }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>{s.label}</div>
@@ -403,11 +403,11 @@ export function CodeExplorer() {
               </div>
             ))}
           </div>
-          {stats?.topExtensions && (
+          {stats?.extensions && (
             <div style={{ padding: '20px 20px 0' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>File Types</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(stats.topExtensions as { extension: string; c: number }[]).map((ext) => {
+                {(stats.extensions as { extension: string; c: number }[]).map((ext) => {
                   const pct = files.length > 0 ? (ext.c / files.length) * 100 : 0;
                   const color = langColors[ext.extension] || 'var(--accent)';
                   return (

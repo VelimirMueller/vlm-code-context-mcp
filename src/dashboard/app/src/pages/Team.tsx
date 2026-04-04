@@ -18,14 +18,14 @@ const TEAM_TABS = [
 
 function WorkloadView() {
   const agents = useAgentStore((s) => s.agents);
-  const maxPts = Math.max(...agents.map((a) => a.sprintsCompleted || 0), 1);
+  const maxPts = Math.max(...agents.map((a) => a.done_tickets || 0), 1);
 
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
       <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>Points per Agent</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {agents.map((a) => {
-          const pts = a.sprintsCompleted || 0;
+          const pts = a.done_tickets || 0;
           const pct = (pts / maxPts) * 100;
           return (
             <div key={a.role} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
