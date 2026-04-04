@@ -17,11 +17,28 @@ export function FileItem({ file, isActive, onClick }: FileItemProps) {
     <div
       className={`file-item${isActive ? ' active' : ''}`}
       onClick={() => onClick(file.id)}
-      title={file.path}
+      title={file.summary || file.path}
     >
-      <Dot color={color} />
-      <span className="file-name">{name}</span>
-      <span className="file-size">{fmtSize(file.size_bytes)}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+        <Dot color={color} />
+        <span className="file-name">{name}</span>
+        <span className="file-size">{fmtSize(file.size_bytes)}</span>
+      </div>
+      {file.summary && (
+        <div
+          style={{
+            fontSize: 10,
+            color: 'var(--text3)',
+            paddingLeft: 20,
+            lineHeight: 1.3,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {file.summary}
+        </div>
+      )}
     </div>
   );
 }

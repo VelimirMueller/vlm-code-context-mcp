@@ -22,7 +22,8 @@ export function useSearch() {
     return files.filter(
       (f) =>
         f.path.toLowerCase().includes(q) ||
-        f.language.toLowerCase().includes(q),
+        f.language.toLowerCase().includes(q) ||
+        (f.summary && f.summary.toLowerCase().includes(q)),
     );
   }, [files, debouncedQuery]);
 

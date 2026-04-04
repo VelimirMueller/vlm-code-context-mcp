@@ -16,9 +16,9 @@ export interface FileDetail {
   created_at: string;
   modified_at: string;
   indexed_at: string;
-  exports: string[];
-  imports: string[];
-  importedBy: string[];
+  exports: Array<{ name: string; kind: string; description: string | null }>;
+  imports: Array<{ id: number; path: string; summary: string; symbols: string }>;
+  importedBy: Array<{ id: number; path: string; summary: string; symbols: string }>;
 }
 
 export interface Change {

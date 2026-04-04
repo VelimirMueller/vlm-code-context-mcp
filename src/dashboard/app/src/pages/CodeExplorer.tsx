@@ -83,10 +83,23 @@ function DetailTab() {
       {exports.length > 0 && (
         <div className="detail-section">
           <h3>Exports ({exports.length})</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {exports.map((exp, i) => (
-              <Badge key={i} text={exp} variant="pkg" />
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {exports.map((exp, i) => {
+              const e = typeof exp === 'string' ? { name: exp, kind: '', description: null } : exp;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <Badge text={e.name} variant="pkg" />
+                  {e.kind && (
+                    <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{e.kind}</span>
+                  )}
+                  {e.description && (
+                    <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.description}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -96,11 +109,13 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imports ({imports.length})</h3>
           {imports.map((imp, i) => {
-            const short = imp.split('/').slice(-2).join('/');
+            const path = typeof imp === 'string' ? imp : imp.path;
+            const symbols = typeof imp === 'string' ? imp : imp.symbols;
+            const short = path.split('/').slice(-2).join('/');
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
-                <div className="dep-symbols">{imp}</div>
+                <div className="dep-symbols">{symbols}</div>
               </div>
             );
           })}
@@ -112,11 +127,13 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imported By ({importedBy.length})</h3>
           {importedBy.map((dep, i) => {
-            const short = dep.split('/').slice(-2).join('/');
+            const path = typeof dep === 'string' ? dep : dep.path;
+            const symbols = typeof dep === 'string' ? dep : dep.symbols;
+            const short = path.split('/').slice(-2).join('/');
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
-                <div className="dep-symbols">{dep}</div>
+                <div className="dep-symbols">{symbols}</div>
               </div>
             );
           })}
@@ -374,7 +391,7 @@ export function CodeExplorer() {
             {'Dependency graph — '}
             <AnimatedNumber value={files.length} />
             {' files, '}
-            <AnimatedNumber value={stats?.dependencies ?? 0} />
+            <AnimatedNumber value={stats?.deps ?? 0} />
             {' connections'}
           </HeroText>
           <div style={{ flex: 1, height: 'calc(100% - 40px)' }}>
@@ -395,7 +412,7 @@ export function CodeExplorer() {
               { label: 'Files', value: files.length },
               { label: 'Directories', value: directories.length },
               { label: 'Exports', value: stats?.exports ?? 0 },
-              { label: 'Dependencies', value: stats?.dependencies ?? 0 },
+              { label: 'Dependencies', value: stats?.deps ?? 0 },
             ].map((s) => (
               <div key={s.label} style={{ padding: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, textAlign: 'center' }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>{s.label}</div>
@@ -403,11 +420,11 @@ export function CodeExplorer() {
               </div>
             ))}
           </div>
-          {stats?.topExtensions && (
+          {stats?.extensions && (
             <div style={{ padding: '20px 20px 0' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>File Types</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(stats.topExtensions as { extension: string; c: number }[]).map((ext) => {
+                {(stats.extensions as { extension: string; c: number }[]).map((ext) => {
                   const pct = files.length > 0 ? (ext.c / files.length) * 100 : 0;
                   const color = langColors[ext.extension] || 'var(--accent)';
                   return (

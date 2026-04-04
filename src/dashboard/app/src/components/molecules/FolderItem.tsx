@@ -53,6 +53,22 @@ export function FolderItem({
         <span className="folder-name">{dirInfo.name}</span>
         <span className="folder-count">{dirInfo.file_count}</span>
       </div>
+      {dirInfo.description && !isOpen && (
+        <div
+          style={{
+            fontSize: 10,
+            color: 'var(--text3)',
+            padding: '0 12px 4px 42px',
+            lineHeight: 1.3,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={dirInfo.description}
+        >
+          {dirInfo.description}
+        </div>
+      )}
 
       <motion.div
         className="tree-children"
