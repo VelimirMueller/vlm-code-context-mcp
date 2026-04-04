@@ -109,11 +109,13 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imports ({imports.length})</h3>
           {imports.map((imp, i) => {
-            const short = imp.split('/').slice(-2).join('/');
+            const path = typeof imp === 'string' ? imp : imp.path;
+            const symbols = typeof imp === 'string' ? imp : imp.symbols;
+            const short = path.split('/').slice(-2).join('/');
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
-                <div className="dep-symbols">{imp}</div>
+                <div className="dep-symbols">{symbols}</div>
               </div>
             );
           })}
@@ -125,11 +127,13 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imported By ({importedBy.length})</h3>
           {importedBy.map((dep, i) => {
-            const short = dep.split('/').slice(-2).join('/');
+            const path = typeof dep === 'string' ? dep : dep.path;
+            const symbols = typeof dep === 'string' ? dep : dep.symbols;
+            const short = path.split('/').slice(-2).join('/');
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
-                <div className="dep-symbols">{dep}</div>
+                <div className="dep-symbols">{symbols}</div>
               </div>
             );
           })}
