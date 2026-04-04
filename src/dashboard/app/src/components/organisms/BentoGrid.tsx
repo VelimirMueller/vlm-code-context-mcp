@@ -1,21 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { BentoCard } from '@/components/molecules/BentoCard';
-import { get } from '@/lib/api';
-import type { RetroFinding } from '@/types';
 
 export function BentoGrid() {
   const sprints = useSprintStore((s) => s.sprints);
-  const [allFindings, setAllFindings] = useState<RetroFinding[]>([]);
-  const [loading, setLoading] = useState(false);
+  const allFindings = useSprintStore((s) => s.allRetroFindings);
+  const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
 
+  // Initial fetch (SSE will keep it updated via App.tsx)
   useEffect(() => {
-    setLoading(true);
-    get<RetroFinding[]>('/api/retro/all')
-      .then((findings) => setAllFindings(Array.isArray(findings) ? findings : []))
-      .catch(() => setAllFindings([]))
-      .finally(() => setLoading(false));
-  }, [sprints.length]);
+    fetchAllRetro();
+  }, [fetchAllRetro]);
+
+  const loading = allFindings.length === 0 && sprints.length > 0;
 
   const well = allFindings.filter((f) => f.category === 'went_well');
   const wrong = allFindings.filter((f) => f.category === 'went_wrong');
