@@ -7,7 +7,38 @@ on:
     branches: [main]
 
 jobs:
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - name: Backend type check
+        run: npx tsc --noEmit
+      - name: Frontend type check
+        run: cd src/dashboard/app && npx tsc --noEmit
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - name: ESLint
+        # TODO: remove continue-on-error once existing lint issues are resolved
+        continue-on-error: true
+        run: npm run lint
+
   test:
+    name: Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -19,6 +50,20 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm test
+      - name: Backend tests
+        run: npx vitest run
+      - name: Frontend tests
+        run: cd src/dashboard/app && npx vitest run
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
       - run: npm run build
