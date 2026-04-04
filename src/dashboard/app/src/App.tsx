@@ -107,6 +107,7 @@ export function App() {
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
   const fetchRetro = useSprintStore((s) => s.fetchRetro);
+  const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
   const fetchBurndown = useSprintStore((s) => s.fetchBurndown);
   const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
@@ -138,6 +139,7 @@ export function App() {
       fetchGithubAll(githubSelectedRepoId ?? undefined);
       fetchBridgeStatus();
       fetchBridgeActions();
+      fetchAllRetro();
       // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
