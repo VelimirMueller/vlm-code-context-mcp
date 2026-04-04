@@ -16,7 +16,7 @@ export interface FileDetail {
   created_at: string;
   modified_at: string;
   indexed_at: string;
-  exports: string[];
+  exports: Array<{ name: string; kind: string; description: string | null }>;
   imports: string[];
   importedBy: string[];
 }

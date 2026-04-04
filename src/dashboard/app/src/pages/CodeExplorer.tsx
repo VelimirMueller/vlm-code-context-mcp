@@ -83,10 +83,23 @@ function DetailTab() {
       {exports.length > 0 && (
         <div className="detail-section">
           <h3>Exports ({exports.length})</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {exports.map((exp, i) => (
-              <Badge key={i} text={exp} variant="pkg" />
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {exports.map((exp, i) => {
+              const e = typeof exp === 'string' ? { name: exp, kind: '', description: null } : exp;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <Badge text={e.name} variant="pkg" />
+                  {e.kind && (
+                    <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{e.kind}</span>
+                  )}
+                  {e.description && (
+                    <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.description}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

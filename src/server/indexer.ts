@@ -126,6 +126,18 @@ function parseImports(content: string): ParsedImport[] {
 interface ParsedExport {
   name: string;
   kind: string;
+  description: string | null;
+}
+
+/** Extract the first line of a JSDoc block that ends just before `pos` in `content`. */
+function extractJSDocBefore(content: string, pos: number): string | null {
+  const before = content.slice(0, pos);
+  const jsdocRe = /\/\*\*\s*([\s\S]*?)\*\/\s*$/;
+  const m = jsdocRe.exec(before);
+  if (!m) return null;
+  const lines = m[1].split("\n").map(l => l.replace(/^\s*\*\s?/, "").trim()).filter(Boolean);
+  const desc = lines.filter(l => !l.startsWith("@")).join(" ").trim();
+  return desc || null;
 }
 
 function parseExports(content: string): ParsedExport[] {
@@ -133,24 +145,24 @@ function parseExports(content: string): ParsedExport[] {
   const defaultRe = /export\s+default\s+(function|class)\s+(\w+)/g;
   let m: RegExpExecArray | null;
   while ((m = defaultRe.exec(content)) !== null) {
-    results.push({ name: m[2], kind: m[1] === "function" ? "function" : "class" });
+    results.push({ name: m[2], kind: m[1] === "function" ? "function" : "class", description: extractJSDocBefore(content, m.index) });
   }
   const namedRe = /export\s+(?:async\s+)?(function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
   while ((m = namedRe.exec(content)) !== null) {
     const kind = ["let", "var"].includes(m[1]) ? "const" : m[1];
-    results.push({ name: m[2], kind });
+    results.push({ name: m[2], kind, description: extractJSDocBefore(content, m.index) });
   }
   const reExportRe = /export\s+\{([^}]+)\}(?!\s*from)/g;
   while ((m = reExportRe.exec(content)) !== null) {
     m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
-      if (parts[0]) results.push({ name: parts[0], kind: "re-export" });
+      if (parts[0]) results.push({ name: parts[0], kind: "re-export", description: null });
     });
   }
   const reExportFromRe = /export\s+\{([^}]+)\}\s*from\s+['"][^'"]+['"]/g;
   while ((m = reExportFromRe.exec(content)) !== null) {
     m[1].split(",").map(s => s.trim().split(/\s+as\s+/)).forEach(parts => {
       const name = parts.length > 1 ? parts[1] : parts[0];
-      if (name) results.push({ name, kind: "re-export" });
+      if (name) results.push({ name, kind: "re-export", description: null });
     });
   }
   return results;
@@ -668,7 +680,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   const getFileId = db.prepare(`SELECT id FROM files WHERE path = ?`);
   const clearExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
   const clearDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ?`);
-  const insertExport = db.prepare(`INSERT INTO exports (file_id, name, kind) VALUES (?, ?, ?)`);
+  const insertExport = db.prepare(`INSERT INTO exports (file_id, name, kind, description) VALUES (?, ?, ?, ?)`);
   const insertDep = db.prepare(`INSERT OR IGNORE INTO dependencies (source_id, target_id, symbols) VALUES (?, ?, ?)`);
 
   let exportCount = 0;
@@ -709,7 +721,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
 
       if (PARSEABLE_EXTENSIONS.has(ext)) {
         for (const exp of parseExports(content)) {
-          insertExport.run(row.id, exp.name, exp.kind);
+          insertExport.run(row.id, exp.name, exp.kind, exp.description);
           exportCount++;
         }
       }
