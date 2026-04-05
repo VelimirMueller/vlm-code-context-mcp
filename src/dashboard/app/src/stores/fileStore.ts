@@ -60,6 +60,7 @@ export interface FileStore {
   loading: { files: boolean; detail: boolean; changes: boolean; graph: boolean };
   error: { files: string | null; detail: string | null };
 
+  clearError: () => void;
   fetchFiles: () => Promise<void>;
   fetchDirectories: () => Promise<void>;
   selectFile: (id: number) => Promise<void>;
@@ -78,6 +79,8 @@ export const useFileStore = create<FileStore>((set, getState) => ({
   stats: null,
   loading: { files: false, detail: false, changes: false, graph: false },
   error: { files: null, detail: null },
+
+  clearError: () => set({ error: { files: null, detail: null } }),
 
   fetchFiles: async () => {
     set((s) => ({ loading: { ...s.loading, files: true }, error: { ...s.error, files: null } }));

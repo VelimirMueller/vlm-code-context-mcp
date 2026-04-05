@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 
 interface ToastProps {
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'warning';
   onClose: () => void;
 }
 
@@ -11,12 +11,14 @@ export function Toast({ message, type, onClose }: ToastProps) {
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
+    const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const borderColor = type === 'success' ? 'var(--green)' : 'var(--red)';
-  const iconColor = type === 'success' ? 'var(--green)' : 'var(--red)';
+  const colorMap = { success: 'var(--green)', error: 'var(--red)', warning: 'var(--yellow, #f59e0b)' };
+  const iconMap = { success: '\u2713', error: '\u2715', warning: '\u26A0' };
+  const borderColor = colorMap[type];
+  const iconColor = colorMap[type];
 
   return (
     <motion.div
@@ -42,7 +44,7 @@ export function Toast({ message, type, onClose }: ToastProps) {
       aria-live="assertive"
     >
       <span style={{ color: iconColor, fontSize: 16, lineHeight: 1 }}>
-        {type === 'success' ? '✓' : '✕'}
+        {iconMap[type]}
       </span>
       <span style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>{message}</span>
     </motion.div>

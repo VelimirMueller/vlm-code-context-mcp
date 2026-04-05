@@ -1679,11 +1679,11 @@ const server = http.createServer(async (req, res) => {
         const sid = Number(parts[3]);
         const phase = parts[5];
         data = verifyPhaseGate(sid, phase);
-      } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
+      } else { res.writeHead(404); res.end('{"ok":false,"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));
     } catch (e: any) {
-      const payload: any = { error: e.message };
+      const payload: any = { ok: false, error: e.message };
       if (e.gate) payload.gate = e.gate;
       res.writeHead(e.status ?? 500);
       res.end(JSON.stringify(payload));

@@ -31,6 +31,7 @@ export interface PlanningStore {
   ganttData: Sprint[];
   backlog: Ticket[];
   loading: { milestones: boolean; vision: boolean; gantt: boolean; backlog: boolean };
+  error: string | null;
 
   fetchMilestones: () => Promise<void>;
   createMilestone: (data: CreateMilestoneInput) => Promise<void>;
@@ -50,6 +51,7 @@ export interface PlanningStore {
   fetchDiscoverySprints: () => Promise<void>;
   setDiscoveryFilter: (filters: Partial<PlanningStore['discoveryFilters']>) => void;
   linkDiscoveryToTicket: (discoveryId: number, ticketId: number) => Promise<void>;
+  clearError: () => void;
 }
 
 export const usePlanningStore = create<PlanningStore>((set, getState) => ({
@@ -58,6 +60,9 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   ganttData: [],
   backlog: [],
   loading: { milestones: false, vision: false, gantt: false, backlog: false },
+  error: null,
+
+  clearError: () => set({ error: null }),
 
   fetchMilestones: async () => {
     set((s) => ({ loading: { ...s.loading, milestones: true } }));

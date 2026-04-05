@@ -24,8 +24,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     console.error('[ErrorBoundary]', error, errorInfo);
   }
 
-  handleReload = () => {
-    window.location.reload();
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
   };
 
   render() {
@@ -69,11 +69,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           </div>
 
           <div style={{ fontSize: 13, color: 'var(--text3)', maxWidth: 360 }}>
-            An unexpected error occurred while rendering this page.
+            Something went wrong. Click to retry.
           </div>
 
           <button
-            onClick={this.handleReload}
+            onClick={this.handleRetry}
             style={{
               marginTop: 8,
               padding: '8px 20px',
@@ -94,7 +94,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               e.currentTarget.style.background = 'var(--surface2)';
             }}
           >
-            Reload
+            Retry
           </button>
         </div>
       );
