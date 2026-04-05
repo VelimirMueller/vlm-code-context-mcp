@@ -12,6 +12,7 @@ import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { Badge } from '@/components/atoms/Badge';
 import { Skeleton } from '@/components/atoms/Skeleton';
+import { ErrorBoundary } from '@/components/atoms/ErrorBoundary';
 import { fmtSize, langColors } from '@/lib/utils';
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
@@ -55,9 +56,9 @@ function DetailTab() {
   if (!fileDetail) return null;
 
   const d = fileDetail;
-  const exports = d.exports ?? [];
-  const imports = d.imports ?? [];
-  const importedBy = d.importedBy ?? [];
+  const exports = Array.isArray(d.exports) ? d.exports : [];
+  const imports = Array.isArray(d.imports) ? d.imports : [];
+  const importedBy = Array.isArray(d.importedBy) ? d.importedBy : [];
 
   return (
     <div>
@@ -109,9 +110,9 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imports ({imports.length})</h3>
           {imports.map((imp, i) => {
-            const path = typeof imp === 'string' ? imp : imp.path;
-            const symbols = typeof imp === 'string' ? imp : imp.symbols;
-            const short = path.split('/').slice(-2).join('/');
+            const path = typeof imp === 'string' ? imp : (imp?.path ?? '');
+            const symbols = typeof imp === 'string' ? imp : (imp?.symbols ?? '');
+            const short = path ? path.split('/').slice(-2).join('/') : '(unknown)';
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
@@ -127,9 +128,9 @@ function DetailTab() {
         <div className="detail-section">
           <h3>Imported By ({importedBy.length})</h3>
           {importedBy.map((dep, i) => {
-            const path = typeof dep === 'string' ? dep : dep.path;
-            const symbols = typeof dep === 'string' ? dep : dep.symbols;
-            const short = path.split('/').slice(-2).join('/');
+            const path = typeof dep === 'string' ? dep : (dep?.path ?? '');
+            const symbols = typeof dep === 'string' ? dep : (dep?.symbols ?? '');
+            const short = path ? path.split('/').slice(-2).join('/') : '(unknown)';
             return (
               <div key={i} className="dep-item">
                 <div className="dep-path">{short}</div>
@@ -166,7 +167,7 @@ function ChangesTab() {
     );
   }
 
-  if (!fileChanges.length) {
+  if (!fileChanges || !fileChanges.length) {
     return (
       <div className="empty" style={{ padding: '48px 40px', textAlign: 'center', color: 'var(--text3)' }}>
         <div className="empty-icon" style={{ fontSize: 28, marginBottom: 12, opacity: 0.3 }}>📋</div>
@@ -177,8 +178,9 @@ function ChangesTab() {
 
   return (
     <div>
-      {fileChanges.map((change) => {
-        const date = new Date(change.timestamp);
+      {(fileChanges ?? []).map((change) => {
+        if (!change) return null;
+        const date = new Date(change.timestamp ?? 0);
         const dateStr = isNaN(date.getTime())
           ? change.timestamp
           : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -344,7 +346,9 @@ export function CodeExplorer() {
               </span>
             </div>
             <div className="sidebar-body" style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', minHeight: 0 }}>
-              <FileTree />
+              <ErrorBoundary>
+                <FileTree />
+              </ErrorBoundary>
             </div>
           </div>
 
@@ -377,9 +381,11 @@ export function CodeExplorer() {
             </HeroText>
 
             <div style={{ flex: 1, overflowY: explorerTab === 'graph' ? 'hidden' : 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              {explorerTab === 'detail' && <DetailTab />}
-              {explorerTab === 'changes' && <ChangesTab />}
-              {explorerTab === 'graph' && <DependencyGraph />}
+              <ErrorBoundary key={explorerTab}>
+                {explorerTab === 'detail' && <DetailTab />}
+                {explorerTab === 'changes' && <ChangesTab />}
+                {explorerTab === 'graph' && <DependencyGraph />}
+              </ErrorBoundary>
             </div>
           </div>
         </div>
@@ -420,7 +426,7 @@ export function CodeExplorer() {
               </div>
             ))}
           </div>
-          {stats?.extensions && (
+          {stats?.extensions && Array.isArray(stats.extensions) && stats.extensions.length > 0 && (
             <div style={{ padding: '20px 20px 0' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>File Types</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

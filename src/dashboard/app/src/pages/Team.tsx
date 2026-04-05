@@ -18,26 +18,35 @@ const TEAM_TABS = [
 
 function WorkloadView() {
   const agents = useAgentStore((s) => s.agents);
-  const maxPts = Math.max(...agents.map((a) => a.done_tickets || 0), 1);
+  const maxActive = Math.max(...agents.map((a) => a.active_tickets || 0), 1);
 
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>Points per Agent</div>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>Active Tickets per Agent</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {agents.map((a) => {
-          const pts = a.done_tickets || 0;
-          const pct = (pts / maxPts) * 100;
+          const active = a.active_tickets || 0;
+          const blocked = a.blocked_tickets || 0;
+          const pct = (active / maxActive) * 100;
+          const barColor = active > 3 ? '#ef4444' : active >= 1 ? 'var(--accent)' : 'var(--text3)';
           return (
             <div key={a.role} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 140, fontSize: 12, fontWeight: 600, color: 'var(--text2)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
               <div style={{ flex: 1, height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 4, transition: 'width .3s' }} />
+                <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 4, transition: 'width .3s' }} />
               </div>
-              <div style={{ width: 40, fontSize: 11, fontWeight: 600, color: 'var(--text3)', fontFamily: 'var(--mono)', textAlign: 'right' }}>{pts}</div>
+              <div style={{ width: 60, fontSize: 11, fontWeight: 600, color: 'var(--text3)', fontFamily: 'var(--mono)', textAlign: 'right' }}>
+                {active}{blocked > 0 ? ` (${blocked}B)` : ''}
+              </div>
             </div>
           );
         })}
       </div>
+      {agents.some((a) => (a.active_tickets || 0) > 3) && (
+        <div style={{ marginTop: 16, padding: 12, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 8, fontSize: 12, color: '#ef4444', fontWeight: 600 }}>
+          Overloaded — {agents.filter((a) => (a.active_tickets || 0) > 3).length} agent(s) with more than 3 active tickets.
+        </div>
+      )}
     </div>
   );
 }
@@ -45,38 +54,27 @@ function WorkloadView() {
 function MoodView() {
   const agents = useAgentStore((s) => s.agents);
 
-  const moodEmoji = (mood: number) => {
-    if (mood <= 1) return '😰';
-    if (mood <= 2) return '😟';
-    if (mood <= 3) return '😐';
-    if (mood <= 4) return '😊';
-    return '🤩';
-  };
-
-  const moodColor = (mood: number) => {
-    if (mood <= 2) return '#ef4444';
-    if (mood <= 3) return '#f59e0b';
-    return '#10b981';
-  };
-
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
       <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>Team Mood</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-        {agents.map((a) => (
-          <div key={a.role} style={{ padding: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 24 }}>{moodEmoji(a.mood)}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{a.role}</div>
+        {agents.map((a) => {
+          const moodColor = a.mood >= 60 ? '#10b981' : a.mood >= 40 ? '#f59e0b' : '#ef4444';
+          return (
+            <div key={a.role} style={{ padding: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 24 }}>{a.mood_emoji || '😐'}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{a.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{a.mood_label || a.role}</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: moodColor, fontFamily: 'var(--mono)' }}>{a.mood}</div>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: moodColor(a.mood), fontFamily: 'var(--mono)' }}>{a.mood}/5</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-      {agents.some((a) => a.mood <= 2) && (
+      {agents.some((a) => a.mood < 40) && (
         <div style={{ marginTop: 16, padding: 12, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 8, fontSize: 12, color: '#ef4444', fontWeight: 600 }}>
-          Burnout risk detected — {agents.filter((a) => a.mood <= 2).length} agent(s) with mood ≤ 2. Reduce workload next sprint.
+          Burnout risk detected — {agents.filter((a) => a.mood < 40).length} agent(s) with low mood. Reduce workload next sprint.
         </div>
       )}
     </div>
@@ -91,6 +89,7 @@ export function Team() {
   const avgMood = agents.length > 0
     ? Math.round(agents.reduce((sum, a) => sum + a.mood, 0) / agents.length)
     : 0;
+  const totalActive = agents.reduce((sum, a) => sum + (a.active_tickets || 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -107,13 +106,22 @@ export function Team() {
         >
           <HeroText>
             <AnimatedNumber value={agents.length} />
-            {' agents active — '}
+            {' agents — '}
+            <AnimatedNumber value={totalActive} />
+            {' active tickets — mood '}
             <AnimatedNumber value={avgMood} />
-            {' average mood'}
           </HeroText>
-          {(activeTab === 'grid' || !['workload', 'mood'].includes(activeTab)) && <TeamGrid />}
-          {activeTab === 'workload' && <WorkloadView />}
-          {activeTab === 'mood' && <MoodView />}
+          {agents.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 14 }}>
+              No agents configured. Use <code style={{ fontFamily: 'var(--mono)', background: 'var(--surface)', padding: '2px 6px', borderRadius: 4 }}>create_agent</code> to add team members.
+            </div>
+          ) : (
+            <>
+              {(activeTab === 'grid' || !['workload', 'mood'].includes(activeTab)) && <TeamGrid />}
+              {activeTab === 'workload' && <WorkloadView />}
+              {activeTab === 'mood' && <MoodView />}
+            </>
+          )}
         </motion.div>
       </AnimatePresence>
     </div>

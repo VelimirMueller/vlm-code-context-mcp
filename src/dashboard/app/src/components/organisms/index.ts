@@ -9,8 +9,6 @@ export { GithubBoard } from './GithubBoard';
 export { GoogleAdsStrategy } from './GoogleAdsStrategy';
 export { KanbanBoard } from './KanbanBoard';
 export { LandingAnimation } from './LandingAnimation';
-export { LinearIssueGroup } from './LinearIssueGroup';
-export { LinearKanbanBoard } from './LinearKanbanBoard';
 export { MilestoneList } from './MilestoneList';
 export { PlanningInsights } from './PlanningInsights';
 export { ProcessFlow } from './ProcessFlow';

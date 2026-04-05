@@ -7,7 +7,6 @@ export function useFiles() {
   useEffect(() => {
     store.fetchFiles();
     store.fetchDirectories();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return store;

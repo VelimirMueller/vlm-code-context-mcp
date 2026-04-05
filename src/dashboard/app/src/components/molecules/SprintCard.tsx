@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { cardHover, listItemVariants } from '@/lib/motion';
-import { getPhaseStyle } from '@/lib/phases';
+import { getPhaseStyle, getPhaseLabel, mapLegacyPhase } from '@/lib/phases';
 import { useBridgeStore } from '@/stores/bridgeStore';
 import type { Sprint } from '@/types';
 import { StatusBadge, RetroDoneBadge, QaVerifiedBadge, QaPendingBadge, VelocityMetBadge, VelocityLowBadge } from '@/components/atoms';
@@ -96,7 +96,7 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
         }}
       >
         <span style={{ color, fontWeight: 700, textTransform: 'uppercase' }}>
-          {sprint.status}
+          {getPhaseLabel(sprint.status)}
         </span>
         <span>
           {sprint.done_count}/{sprint.ticket_count} tickets
@@ -134,7 +134,7 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
       </div>
 
       {/* Bridge action buttons */}
-      {!['closed', 'rest'].includes(sprint.status) && (
+      {!['done', 'rest'].includes(mapLegacyPhase(sprint.status)) && (
         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
           <button
             onClick={(e) => { e.stopPropagation(); queueAction('advance_sprint', 'sprint', sprint.id, { current_phase: sprint.status }); }}

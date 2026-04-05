@@ -10,7 +10,7 @@ import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
-import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus, loadLinearConfig, fetchAndSyncLinear, startLinearAutoSync, isLinearDirectSyncConfigured } from "./linear.js";
+
 import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured, loadGithubConfig, fetchAndSyncGithub, startGithubAutoSync } from "./github.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
@@ -21,7 +21,20 @@ function validateColor(hex: string) {
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw Object.assign(new Error('Invalid hex color'), { status: 400 });
 }
 function validateSprintTransition(current: string, next: string) {
-  const allowed: Record<string, string[]> = { preparation: ['kickoff'], kickoff: ['planning'], planning: ['implementation'], implementation: ['qa'], qa: ['refactoring', 'implementation'], refactoring: ['retro'], retro: ['review'], review: ['closed'], closed: ['rest'], rest: ['preparation'] };
+  const allowed: Record<string, string[]> = {
+    planning: ['implementation'],
+    implementation: ['done', 'qa'],
+    done: ['rest'],
+    rest: ['planning'],
+    // Legacy phases — map to nearest simplified transition
+    preparation: ['kickoff', 'implementation', 'planning'],
+    kickoff: ['planning', 'implementation'],
+    qa: ['refactoring', 'implementation', 'done', 'retro'],
+    refactoring: ['retro', 'done'],
+    retro: ['review', 'done', 'rest'],
+    review: ['closed', 'rest', 'done'],
+    closed: ['rest'],
+  };
   if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
 }
 
@@ -34,19 +47,21 @@ const PORT = Number(process.argv[3] ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
 
 const dbPath = path.resolve(DB_PATH);
-const db = new Database(dbPath, { readonly: true });
-db.pragma("journal_mode = WAL");
 
-// Writable connection for the watcher to re-index and log changes
+// Writable connection for the watcher to re-index and log changes (creates DB if needed)
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
+
+// Read-only connection for queries (opens after DB exists)
+const db = new Database(dbPath, { readonly: true });
+db.pragma("journal_mode = WAL");
 
 // Ensure schemas exist
 initSchema(writeDb);
 initScrumSchema(writeDb);
 runMigrations(writeDb);
-initLinearSchema(writeDb);
+
 ensureGithubTables(writeDb);
 
 // Soft-delete migration: add deleted_at columns if missing
@@ -241,9 +256,9 @@ interface SprintPhase {
 
 const DEFAULT_SPRINT_PHASES: SprintPhase[] = [
   { name: "Planning", criteria: ["Sprint goal defined", "Tickets assigned"], actions: ["Commit velocity"], duration: "1 day" },
-  { name: "Implementation", criteria: ["Sprint active"], actions: ["Start tickets"], duration: "3 days" },
-  { name: "QA", criteria: ["All tickets in review"], actions: ["Run test suite", "Security review"], duration: "0.5 day" },
-  { name: "Retro", criteria: ["QA passed"], actions: ["Collect findings", "Archive sprint"], duration: "0.5 day" },
+  { name: "Implementation", criteria: ["Sprint active"], actions: ["Start tickets", "QA verification", "Code reviews"], duration: "3-4 days" },
+  { name: "Done", criteria: ["Results reviewed"], actions: ["Sprint summary", "Retro findings", "Velocity review"], duration: "0.5 day" },
+  { name: "Rest", criteria: [], actions: ["Team recovery"], duration: "0.5 day" },
 ];
 
 function parseSprintPhasesMarkdown(md: string): SprintPhase[] {
@@ -695,7 +710,7 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'custom'];
 
 function apiCreateBridgeAction(body: any) {
   if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
@@ -767,7 +782,7 @@ function apiSprintGates(sprintId: number) {
 
 function apiDiscoveries(sprintId?: number, status?: string, category?: string, excludeStatus?: string) {
   try {
-    let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title, t.status as ticket_status
+    let sql = `SELECT d.*, s.name as sprint_name, s.status as sprint_status, t.title as ticket_title, t.status as ticket_status
       FROM discoveries d
       JOIN sprints s ON d.discovery_sprint_id = s.id
       LEFT JOIN tickets t ON d.implementation_ticket_id = t.id
@@ -959,68 +974,49 @@ function apiPlanSprint(body: any) {
 }
 
 // ─── Sprint Update API ──────────────────────────────────────────────────────
-const SPRINT_PHASE_ORDER = ['preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest'] as const;
+const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'done', 'rest', 'preparation', 'kickoff', 'qa', 'refactoring', 'retro', 'review', 'closed'] as const;
 const SPRINT_TRANSITIONS: Record<string, string> = {
-  preparation: 'kickoff',
-  kickoff: 'planning',
   planning: 'implementation',
-  implementation: 'qa',
-  qa: 'refactoring',
-  refactoring: 'retro',
-  retro: 'review',
-  review: 'closed',
+  implementation: 'done',
+  done: 'rest',
+  rest: 'planning',
+  // Legacy phase mappings for backward compat
+  preparation: 'implementation',
+  kickoff: 'implementation',
+  qa: 'done',
+  refactoring: 'done',
+  retro: 'rest',
+  review: 'rest',
   closed: 'rest',
 };
 
 function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition: boolean; blockers: string[]; warnings: string[] } {
-  const blockers: string[] = [];
   const warnings: string[] = [];
 
   const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
   if (!sprint) return { canTransition: false, blockers: ['Sprint not found'], warnings: [] };
 
   if (targetPhase === 'implementation') {
-    // Check: sprint has tickets assigned
     const ticketCount = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (ticketCount === 0) blockers.push('No tickets assigned to this sprint');
-    // Check: velocity committed
+    if (ticketCount === 0) warnings.push('No tickets assigned to this sprint');
     if (!sprint.velocity_committed) warnings.push('No velocity committed');
   }
 
-  if (targetPhase === 'qa') {
-    // Check: ALL tickets must be DONE
+  if (targetPhase === 'done' || targetPhase === 'qa') {
     const undone = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (undone > 0) blockers.push(`${undone} tickets not DONE`);
-    // Check: no open blockers
+    if (undone > 0) warnings.push(`${undone} tickets not DONE`);
     const openBlockers = (writeDb.prepare("SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'").get(sprintId) as any).c;
-    if (openBlockers > 0) blockers.push(`${openBlockers} open blockers`);
-  }
-
-  if (targetPhase === 'retro') {
-    // Check: all tickets qa_verified
-    const unverified = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND qa_verified = 0 AND status = 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (unverified > 0) warnings.push(`${unverified} tickets not QA verified`);
-  }
-
-  if (targetPhase === 'review') {
-    // Check: retro findings exist
-    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
-    if (retroCount === 0) blockers.push('No retro findings recorded — cannot proceed to review');
-  }
-
-  if (targetPhase === 'closed') {
-    // Check: retro findings exist
-    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
-    if (retroCount === 0) warnings.push('No retro findings recorded');
-    // Check: velocity completed is set
-    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
+    if (openBlockers > 0) warnings.push(`${openBlockers} open blockers`);
   }
 
   if (targetPhase === 'rest') {
-    // No blockers for rest — just a team recovery phase
+    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
+    if (retroCount === 0) warnings.push('No retro findings recorded');
+    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
   }
 
-  return { canTransition: blockers.length === 0, blockers, warnings };
+  // Advisory gates: always allow transition, just warn
+  return { canTransition: true, blockers: [], warnings };
 }
 
 function apiSprintUpdate(id: number, body: any) {
@@ -1030,15 +1026,13 @@ function apiSprintUpdate(id: number, body: any) {
 
   const sets: string[] = []; const vals: any[] = [];
 
-  // Phase gate verification before transition
+  // Phase gate verification before transition (advisory — never blocks)
+  const gateWarnings: string[] = [];
   if (body.status && body.status !== current.status) {
     const gate = verifyPhaseGate(id, body.status);
-    if (!gate.canTransition) {
-      throw Object.assign(new Error('Phase gate blocked'), { status: 409, gate });
-    }
-    // Store warnings for response
-    if (gate.warnings.length > 0) {
-      (body as any)._gate_warnings = gate.warnings;
+    gateWarnings.push(...gate.warnings);
+    if (gateWarnings.length > 0) {
+      (body as any)._gate_warnings = gateWarnings;
     }
   }
 
@@ -1047,18 +1041,18 @@ function apiSprintUpdate(id: number, body: any) {
     const newStatus = body.status;
     const currentStatus = current.status;
 
-    // Validate transition order: planning -> implementation -> qa -> retro -> closed
+    // Validate transition order
     validateEnum(newStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
     validateEnum(currentStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
     validateSprintTransition(currentStatus, newStatus);
 
-    // When transitioning to 'qa': check all tickets are DONE
-    if (newStatus === 'qa') {
+    // When transitioning to 'done' or 'qa': advisory warnings only
+    if (newStatus === 'done' || newStatus === 'qa') {
       const undone = (writeDb.prepare(
         `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL`
       ).get(id) as any).c;
       if (undone > 0) {
-        throw new Error(`Cannot transition to qa: ${undone} ticket(s) are not DONE`);
+        gateWarnings.push(`${undone} ticket(s) are not DONE`);
       }
 
       // M13-038: Review sign-off warning for senior role tickets
@@ -1070,15 +1064,14 @@ function apiSprintUpdate(id: number, body: any) {
            AND (review_status IS NULL OR review_status != 'approved')`
       ).all(id) as any[];
       if (unapproved.length > 0) {
-        // Non-blocking warning — attach to response
         (body as any)._review_warnings = unapproved.map((t: any) =>
           `${t.ticket_ref} (${t.assigned_to}): review_status=${t.review_status ?? 'none'}`
         );
       }
     }
 
-    // When transitioning to 'retro': auto-generate retro analysis
-    if (newStatus === 'retro') {
+    // When transitioning to 'done' or 'retro': auto-generate retro analysis
+    if (newStatus === 'done' || newStatus === 'retro') {
       const { donePoints } = generateSprintAutoAnalysis(id);
       sets.push("velocity_completed=?"); vals.push(donePoints);
     }
@@ -1099,6 +1092,20 @@ function apiSprintUpdate(id: number, body: any) {
   // Auto-rebuild marketing stats when a sprint is closed
   if (body.status === 'closed') {
     rebuildMarketingStats();
+
+    // Auto-archive discoveries: promote planned→implemented if ticket DONE, drop if not
+    try {
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+      `).run(id, id);
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+      `).run(id, id);
+    } catch {}
   }
 
   const result: any = { id, updated: true };
@@ -1334,34 +1341,6 @@ function apiProjectStatus() {
   };
 }
 
-// ─── Linear Proxy API ──────────────────────────────────────────────────────
-function apiLinearIssues(project?: string | null, state?: string | null) {
-  const issues = getLinearIssuesNormalized(writeDb, project, state);
-  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
-  const syncStatus = getLinearNormalizedSyncStatus(writeDb);
-  return { issues, columns, cachedAt: syncStatus.syncedAt, canSync: true };
-}
-
-function apiLinearStates() {
-  const states = getLinearStatesNormalized(writeDb);
-  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
-  return { states, availableColumns: columns };
-}
-
-function apiLinearMoveIssue(issueId: string, kanbanColumn: string) {
-  if (!issueId || issueId.length > 100 || typeof kanbanColumn !== 'string') throw Object.assign(new Error('Invalid parameters'), { status: 400 });
-  const result = moveLinearIssue(writeDb, issueId, kanbanColumn);
-  // Log to event_log for Claude reactivity
-  try {
-    writeDb.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', 0, 'status_changed', 'linear_status', ?, ?, 'dashboard-ui')`).run(result.previousState, result.newState);
-  } catch {}
-  return result;
-}
-
-function apiLinearSyncStatus() {
-  return getLinearNormalizedSyncStatus(writeDb);
-}
-
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -1377,6 +1356,14 @@ function readBody(req: http.IncomingMessage): Promise<any> {
 // ─── Server ──────────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+
+  // MCP→Dashboard notification endpoint (called by MCP tools after DB writes)
+  if (url.pathname === "/api/notify" && req.method === "POST") {
+    notifyClients();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
 
   // SSE endpoint for live updates
   if (url.pathname === "/api/events") {
@@ -1619,68 +1606,6 @@ const server = http.createServer(async (req, res) => {
         data = apiFileContext(id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
-      // ── Linear / Me tab endpoints ──────────────────────────────────────
-      else if (url.pathname === "/api/me/configured") {
-        const syncStatus = getLinearSyncStatus(writeDb);
-        data = { configured: isLinearConfigured(), ...syncStatus };
-      } else if (url.pathname === "/api/me/user") {
-        data = getLinearUser(writeDb);
-      } else if (url.pathname === "/api/me/issues") {
-        data = getLinearIssues(writeDb);
-      } else if (url.pathname === "/api/me/cycles") {
-        data = getLinearCycles(writeDb);
-      } else if (url.pathname === "/api/me/projects") {
-        data = getLinearProjects(writeDb);
-      } else if (url.pathname === "/api/me/sync" && req.method === "POST") {
-        // Only accept sync from localhost
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
-        const body = await readBody(req);
-        data = syncLinearData(writeDb, body);
-        // Also populate normalized tables
-        try { syncLinearNormalized(writeDb, body); } catch {}
-        notifyClients();
-      }
-      // ── Linear Proxy API (normalized) ─────────────────────────────────
-      else if (url.pathname === "/api/linear/issues") {
-        const project = url.searchParams.get("project");
-        const state = url.searchParams.get("state");
-        data = apiLinearIssues(project, state);
-      }
-      else if (url.pathname === "/api/linear/states") {
-        data = apiLinearStates();
-      }
-      else if (url.pathname.match(/^\/api\/linear\/issue\/[^/]+\/status$/) && req.method === "PATCH") {
-        const issueId = url.pathname.split("/")[4];
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"write only from localhost"}'); return; }
-        const body = await readBody(req);
-        data = apiLinearMoveIssue(issueId, body.kanbanColumn);
-        notifyClients();
-      }
-      else if (url.pathname === "/api/linear/sync" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only from localhost"}'); return; }
-        const body = await readBody(req);
-        try { syncLinearNormalized(writeDb, body); } catch {}
-        data = syncLinearData(writeDb, body);
-        notifyClients();
-      }
-      else if (url.pathname === "/api/linear/sync/status") {
-        data = apiLinearSyncStatus();
-      }
-      else if (url.pathname === "/api/linear/sync/trigger" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
-        // Direct sync — call Linear API with stored key (mirrors GitHub trigger pattern)
-        const result = await fetchAndSyncLinear(writeDb, dbPath);
-        if (result.ok) notifyClients();
-        data = result;
-      }
       // ── GitHub API ────────────────────────────────────────────────────
       else if (url.pathname === "/api/github/configured") {
         data = { configured: isGithubConfigured(), ...getGithubSyncStatus(writeDb) };
@@ -1756,11 +1681,11 @@ const server = http.createServer(async (req, res) => {
         const sid = Number(parts[3]);
         const phase = parts[5];
         data = verifyPhaseGate(sid, phase);
-      } else { res.writeHead(404); res.end('{"error":"unknown endpoint"}'); return; }
+      } else { res.writeHead(404); res.end('{"ok":false,"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));
     } catch (e: any) {
-      const payload: any = { error: e.message };
+      const payload: any = { ok: false, error: e.message };
       if (e.gate) payload.gate = e.gate;
       res.writeHead(e.status ?? 500);
       res.end(JSON.stringify(payload));
@@ -1842,460 +1767,9 @@ server.listen(PORT, () => {
   // Start GitHub auto-sync if .github.local.json exists
   startGithubAutoSync(writeDb, dbPath, () => notifyClients());
 
-  // Start Linear auto-sync if .linear.local.json exists
-  startLinearAutoSync(writeDb, dbPath, () => notifyClients());
 });
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HTML = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf-8");
 
-const _UNUSED = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VLM Code Context | AI Virtual IT Department</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #0a0a0b; --surface: #141416; --surface2: #1c1c20;
-    --border: #2a2a2e; --text: #e4e4e7; --text2: #a1a1aa;
-    --accent: #3b82f6; --accent2: #60a5fa; --green: #22c55e;
-    --orange: #f59e0b; --pink: #ec4899; --purple: #a855f7;
-    --radius: 8px; --font: 'Inter', -apple-system, system-ui, sans-serif;
-    --mono: 'JetBrains Mono', 'Fira Code', monospace;
-  }
-  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; }
-  a { color: var(--accent2); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-
-  .shell { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 16px; padding: 24px; height: 100vh; }
-  .header { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; }
-  .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
-  .stats { display: flex; gap: 12px; margin-left: auto; }
-  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; }
-  .stat .n { font-size: 20px; font-weight: 700; color: var(--accent2); font-family: var(--mono); }
-  .stat .l { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
-
-  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-  .panel-head { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--text2); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .panel-body { overflow-y: auto; padding: 8px; flex: 1; min-height: 0; }
-
-  .search { width: 280px; padding: 7px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; outline: none; }
-  .search:focus { border-color: var(--accent); }
-
-  .file-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background .15s; border: 1px solid transparent; }
-  .file-item:hover { background: var(--surface2); }
-  .file-item.active { background: rgba(59,130,246,.15); border-color: var(--accent); }
-  .file-path { font-family: var(--mono); font-size: 12px; color: var(--accent2); }
-  .file-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
-  .file-summary { font-size: 12px; color: var(--text2); margin-top: 4px; }
-
-  .detail-title { font-family: var(--mono); font-size: 13px; color: var(--accent2); word-break: break-all; }
-  .detail-section { margin: 12px 8px; }
-  .detail-section h3 { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: var(--mono); margin: 2px; }
-  .badge-fn { background: rgba(59,130,246,.15); color: var(--accent2); }
-  .badge-type { background: rgba(168,85,247,.15); color: var(--purple); }
-  .badge-const { background: rgba(34,197,94,.15); color: var(--green); }
-  .badge-class { background: rgba(245,158,11,.15); color: var(--orange); }
-  .badge-interface { background: rgba(236,72,153,.15); color: var(--pink); }
-  .badge-pkg { background: var(--surface2); color: var(--text2); }
-  .dep-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-  .dep-item:hover { background: var(--surface2); }
-  .dep-path { font-family: var(--mono); font-size: 11px; color: var(--accent2); }
-  .dep-symbols { font-size: 11px; color: var(--text2); }
-  .dep-summary { font-size: 11px; color: var(--text2); opacity: .7; }
-  .empty { padding: 32px; text-align: center; color: var(--text2); font-size: 13px; }
-
-  canvas { width: 100%; height: 100%; display: block; }
-
-  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .tab { padding: 8px 16px; font-size: 12px; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
-  .tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
-  .tab-content.active { display: block; }
-
-  .change-item { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 6px; }
-  .change-item:hover { background: var(--surface2); }
-  .change-header { display: flex; align-items: center; gap: 8px; }
-  .change-event { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
-  .change-event.add { background: rgba(34,197,94,.15); color: var(--green); }
-  .change-event.change { background: rgba(59,130,246,.15); color: var(--accent2); }
-  .change-event.delete { background: rgba(239,68,68,.15); color: #ef4444; }
-  .change-path { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .change-time { font-size: 10px; color: var(--text2); font-family: var(--mono); white-space: nowrap; }
-  .change-diff { font-size: 11px; color: var(--text2); margin-top: 4px; }
-  .change-diff .old { color: #ef4444; }
-  .change-diff .new { color: var(--green); }
-  .diff-block { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-top: 6px; font-family: var(--mono); font-size: 11px; line-height: 1.6; overflow-x: auto; white-space: pre; max-height: 300px; overflow-y: auto; }
-  .diff-block .dl { color: #ef4444; }
-  .diff-block .al { color: var(--green); }
-  .diff-block .ctx { color: var(--text2); }
-  .diff-block .sep { color: var(--text2); opacity: .4; }
-  .diff-toggle { font-size: 11px; color: var(--accent2); cursor: pointer; margin-top: 4px; }
-  .diff-toggle:hover { text-decoration: underline; }
-</style>
-</head>
-<body>
-<div class="shell">
-  <div class="header">
-    <h1>VLM Code Context</h1>
-    <input class="search" id="search" placeholder="Search files..." autocomplete="off">
-    <div class="stats" id="stats"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head">Files</div>
-    <div class="panel-body" id="file-list"></div>
-  </div>
-
-  <div class="panel" style="display:flex;flex-direction:column;">
-    <div class="tabs">
-      <div class="tab active" data-tab="detail">Detail</div>
-      <div class="tab" data-tab="changes">Changes</div>
-      <div class="tab" data-tab="graph">Graph</div>
-    </div>
-    <div class="tab-content active" id="tab-detail" style="flex:1;overflow-y:auto;">
-      <div class="empty" id="detail-empty">Select a file to view context</div>
-      <div id="detail" style="display:none;"></div>
-    </div>
-    <div class="tab-content" id="tab-changes" style="flex:1;overflow-y:auto;padding:8px;">
-      <div class="empty" id="changes-empty">No changes recorded yet</div>
-      <div id="changes-list"></div>
-    </div>
-    <div class="tab-content" id="tab-graph" style="flex:1;position:relative;">
-      <canvas id="graph"></canvas>
-    </div>
-  </div>
-</div>
-
-<script>
-const $ = s => document.querySelector(s);
-const $$ = s => document.querySelectorAll(s);
-let allFiles = [];
-let graphData = null;
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-async function init() {
-  const [files, stats, graph] = await Promise.all([
-    fetch('/api/files').then(r => r.json()),
-    fetch('/api/stats').then(r => r.json()),
-    fetch('/api/graph').then(r => r.json()),
-  ]);
-  allFiles = files;
-  graphData = graph;
-  renderStats(stats);
-  renderFiles(files);
-  renderGraph();
-}
-
-function renderStats(s) {
-  const el = $('#stats');
-  el.textContent = '';
-  function fmtSize(b) { if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
-  [{n: s.files, l: 'Files'}, {n: s.exports, l: 'Exports'}, {n: s.deps, l: 'Deps'}, {n: s.totalLines.toLocaleString(), l: 'Lines'}, {n: fmtSize(s.totalSize), l: 'Size'}].forEach(item => {
-    const div = document.createElement('div'); div.className = 'stat';
-    const nEl = document.createElement('div'); nEl.className = 'n'; nEl.textContent = item.n;
-    const lEl = document.createElement('div'); lEl.className = 'l'; lEl.textContent = item.l;
-    div.appendChild(nEl); div.appendChild(lEl);
-    el.appendChild(div);
-  });
-}
-
-function renderFiles(files) {
-  const el = $('#file-list');
-  el.textContent = '';
-  if (!files.length) {
-    const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No files indexed';
-    el.appendChild(empty); return;
-  }
-  files.forEach(f => {
-    const short = f.path.split('/').slice(-3).join('/');
-    const item = document.createElement('div');
-    item.className = 'file-item';
-    item.dataset.id = f.id;
-
-    function fmtSize(b) { if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
-    const pathEl = document.createElement('div'); pathEl.className = 'file-path'; pathEl.textContent = short;
-    const metaEl = document.createElement('div'); metaEl.className = 'file-meta';
-    metaEl.textContent = f.language + ' · ' + f.line_count + ' lines · ' + fmtSize(f.size_bytes) + ' · ' + f.export_count + ' exports · ' + f.imports_count + ' imports · ' + f.imported_by_count + ' dependents';
-    const timeEl = document.createElement('div'); timeEl.className = 'file-meta';
-    timeEl.textContent = 'Modified: ' + (f.modified_at || '—') + ' · Created: ' + (f.created_at || '—');
-    const sumEl = document.createElement('div'); sumEl.className = 'file-summary'; sumEl.textContent = f.summary || '';
-
-    item.appendChild(pathEl); item.appendChild(metaEl); item.appendChild(timeEl); item.appendChild(sumEl);
-    item.addEventListener('click', () => selectFile(f.id));
-    el.appendChild(item);
-  });
-}
-
-let selectedFileId = null;
-
-async function selectFile(id) {
-  selectedFileId = id;
-  $$('.file-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
-  const data = await fetch('/api/file/' + id).then(r => r.json());
-  renderDetail(data);
-  loadFileChanges(id);
-}
-
-function badgeClass(kind) {
-  const map = { 'function': 'badge-fn', 'type': 'badge-type', 'enum': 'badge-type', 'const': 'badge-const', 'class': 'badge-class', 'interface': 'badge-interface' };
-  return map[kind] || 'badge-pkg';
-}
-
-function createBadge(text, kind) {
-  const span = document.createElement('span');
-  span.className = 'badge ' + badgeClass(kind);
-  span.textContent = text + ' ' + kind;
-  return span;
-}
-
-function createDepItem(d) {
-  const short = d.path.split('/').slice(-3).join('/');
-  const item = document.createElement('div');
-  item.className = 'dep-item';
-  item.dataset.id = d.id;
-  const pathEl = document.createElement('div'); pathEl.className = 'dep-path'; pathEl.textContent = short;
-  const symEl = document.createElement('div'); symEl.className = 'dep-symbols'; symEl.textContent = d.symbols || '*';
-  const sumEl = document.createElement('div'); sumEl.className = 'dep-summary'; sumEl.textContent = d.summary || '';
-  item.appendChild(pathEl); item.appendChild(symEl); item.appendChild(sumEl);
-  item.addEventListener('click', () => selectFile(d.id));
-  return item;
-}
-
-function renderDetail(d) {
-  $('#detail-empty').style.display = 'none';
-  const el = $('#detail');
-  el.style.display = 'block';
-  el.textContent = '';
-
-  function fmtSize(b) { if (b<1024) return b+' B'; if (b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
-
-  // Title + metadata
-  const titleSection = document.createElement('div'); titleSection.className = 'detail-section';
-  const title = document.createElement('div'); title.className = 'detail-title'; title.textContent = d.path;
-  const meta1 = document.createElement('div'); meta1.style.cssText = 'font-size:12px;color:var(--text2);margin-top:4px;font-family:var(--mono);';
-  meta1.textContent = d.language + ' · ' + d.extension + ' · ' + (d.line_count || 0) + ' lines · ' + fmtSize(d.size_bytes || 0);
-  const meta2 = document.createElement('div'); meta2.style.cssText = 'font-size:11px;color:var(--text2);margin-top:2px;';
-  meta2.textContent = 'Created: ' + (d.created_at || '—') + ' · Modified: ' + (d.modified_at || '—') + ' · Indexed: ' + (d.indexed_at || '—');
-  const summary = document.createElement('div'); summary.style.cssText = 'font-size:12px;color:var(--text2);margin-top:6px;';
-  summary.textContent = d.summary || '';
-  titleSection.appendChild(title); titleSection.appendChild(meta1); titleSection.appendChild(meta2); titleSection.appendChild(summary);
-  el.appendChild(titleSection);
-
-  // Exports
-  const expSection = document.createElement('div'); expSection.className = 'detail-section';
-  const expH = document.createElement('h3'); expH.textContent = 'Exports (' + d.exports.length + ')';
-  expSection.appendChild(expH);
-  if (d.exports.length) { d.exports.forEach(e => expSection.appendChild(createBadge(e.name, e.kind))); }
-  else { const none = document.createElement('span'); none.style.cssText = 'color:var(--text2);font-size:12px;'; none.textContent = 'No exports'; expSection.appendChild(none); }
-  el.appendChild(expSection);
-
-  // External packages
-  const pkgSection = document.createElement('div'); pkgSection.className = 'detail-section';
-  const pkgH = document.createElement('h3'); pkgH.textContent = 'External Packages';
-  pkgSection.appendChild(pkgH);
-  if (d.external_imports) {
-    d.external_imports.split(', ').forEach(p => {
-      const span = document.createElement('span'); span.className = 'badge badge-pkg'; span.textContent = p;
-      pkgSection.appendChild(span);
-    });
-  } else { const none = document.createElement('span'); none.style.cssText = 'color:var(--text2);font-size:12px;'; none.textContent = 'None'; pkgSection.appendChild(none); }
-  el.appendChild(pkgSection);
-
-  // Imports from
-  const impSection = document.createElement('div'); impSection.className = 'detail-section';
-  const impH = document.createElement('h3'); impH.textContent = 'Imports From (' + d.imports.length + ')';
-  impSection.appendChild(impH);
-  if (d.imports.length) { d.imports.forEach(i => impSection.appendChild(createDepItem(i))); }
-  else { const none = document.createElement('span'); none.style.cssText = 'color:var(--text2);font-size:12px;'; none.textContent = 'No internal imports'; impSection.appendChild(none); }
-  el.appendChild(impSection);
-
-  // Imported by
-  const bySection = document.createElement('div'); bySection.className = 'detail-section';
-  const byH = document.createElement('h3'); byH.textContent = 'Imported By (' + d.importedBy.length + ')';
-  bySection.appendChild(byH);
-  if (d.importedBy.length) { d.importedBy.forEach(i => bySection.appendChild(createDepItem(i))); }
-  else { const none = document.createElement('span'); none.style.cssText = 'color:var(--text2);font-size:12px;'; none.textContent = 'Not imported by any indexed file'; bySection.appendChild(none); }
-  el.appendChild(bySection);
-}
-
-// Search
-$('#search').addEventListener('input', (e) => {
-  const q = e.target.value.toLowerCase();
-  renderFiles(allFiles.filter(f => f.path.toLowerCase().includes(q) || (f.summary || '').toLowerCase().includes(q)));
-});
-
-// Tabs
-$$('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    $$('.tab').forEach(t => t.classList.remove('active'));
-    $$('.tab-content').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    $('#tab-' + tab.dataset.tab).classList.add('active');
-    if (tab.dataset.tab === 'graph') renderGraph();
-    if (tab.dataset.tab === 'changes') loadFileChanges(selectedFileId);
-  });
-});
-
-// Graph
-function renderGraph() {
-  if (!graphData || !graphData.nodes.length) return;
-  const canvas = $('#graph');
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width * devicePixelRatio;
-  canvas.height = rect.height * devicePixelRatio;
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(devicePixelRatio, devicePixelRatio);
-  const W = rect.width, H = rect.height;
-
-  const nodes = graphData.nodes.map(n => ({
-    ...n, x: W/2 + (Math.random()-.5)*W*.6, y: H/2 + (Math.random()-.5)*H*.6, vx: 0, vy: 0,
-  }));
-  const idMap = {};
-  nodes.forEach(n => idMap[n.id] = n);
-  const edges = graphData.edges.filter(e => idMap[e.source] && idMap[e.target]);
-
-  for (let iter = 0; iter < 200; iter++) {
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i+1; j < nodes.length; j++) {
-        let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
-        let d = Math.sqrt(dx*dx + dy*dy) || 1;
-        let f = 8000 / (d * d);
-        nodes[i].vx -= dx/d*f; nodes[i].vy -= dy/d*f;
-        nodes[j].vx += dx/d*f; nodes[j].vy += dy/d*f;
-      }
-    }
-    for (const e of edges) {
-      const s = idMap[e.source], t = idMap[e.target];
-      let dx = t.x-s.x, dy = t.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-      let f = (d-120)*0.05;
-      s.vx += dx/d*f; s.vy += dy/d*f;
-      t.vx -= dx/d*f; t.vy -= dy/d*f;
-    }
-    for (const n of nodes) {
-      n.vx += (W/2-n.x)*0.01; n.vy += (H/2-n.y)*0.01;
-      n.x += n.vx*0.3; n.y += n.vy*0.3;
-      n.vx *= 0.6; n.vy *= 0.6;
-      n.x = Math.max(60, Math.min(W-60, n.x));
-      n.y = Math.max(30, Math.min(H-30, n.y));
-    }
-  }
-
-  ctx.clearRect(0, 0, W, H);
-  for (const e of edges) {
-    const s = idMap[e.source], t = idMap[e.target];
-    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-    ctx.strokeStyle = 'rgba(59,130,246,.3)'; ctx.lineWidth = 1.5; ctx.stroke();
-    const angle = Math.atan2(t.y-s.y, t.x-s.x);
-    const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
-    ctx.beginPath();
-    ctx.moveTo(mx+6*Math.cos(angle), my+6*Math.sin(angle));
-    ctx.lineTo(mx-6*Math.cos(angle-0.5), my-6*Math.sin(angle-0.5));
-    ctx.lineTo(mx-6*Math.cos(angle+0.5), my-6*Math.sin(angle+0.5));
-    ctx.fillStyle = 'rgba(59,130,246,.5)'; ctx.fill();
-  }
-  for (const n of nodes) {
-    ctx.beginPath(); ctx.arc(n.x, n.y, 6, 0, Math.PI*2);
-    ctx.fillStyle = '#3b82f6'; ctx.fill();
-    ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.font = '11px Inter, system-ui, sans-serif';
-    ctx.fillStyle = '#a1a1aa'; ctx.textAlign = 'center';
-    ctx.fillText(n.label, n.x, n.y+20);
-  }
-}
-
-window.addEventListener('resize', renderGraph);
-
-// Helper for safe DOM span creation
-function span(cls, text) { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; }
-
-async function loadFileChanges(id) {
-  const el = $('#changes-list');
-  const empty = $('#changes-empty');
-  el.textContent = '';
-
-  if (!id) { empty.textContent = 'Select a file to view its changes'; empty.style.display = 'block'; return; }
-
-  const changes = await fetch('/api/file/' + id + '/changes?limit=50').then(r => r.json());
-  if (!changes.length) { empty.textContent = 'No changes recorded for this file'; empty.style.display = 'block'; return; }
-  empty.style.display = 'none';
-
-  function fmtSize(b) { if (b == null) return '?'; if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
-
-  changes.forEach(c => {
-    const item = document.createElement('div'); item.className = 'change-item';
-
-    const header = document.createElement('div'); header.className = 'change-header';
-    const badge = document.createElement('span'); badge.className = 'change-event ' + c.event; badge.textContent = c.event;
-    const ts = document.createElement('span'); ts.className = 'change-time'; ts.textContent = c.timestamp;
-    header.appendChild(badge); header.appendChild(ts);
-    item.appendChild(header);
-
-    if (c.event === 'change') {
-      const diff = document.createElement('div'); diff.className = 'change-diff';
-      if (c.old_line_count !== c.new_line_count) {
-        diff.append('Lines: ', span('old', c.old_line_count), ' \u2192 ', span('new', c.new_line_count), '  ');
-      }
-      if (c.old_size_bytes !== c.new_size_bytes) {
-        diff.append('Size: ', span('old', fmtSize(c.old_size_bytes)), ' \u2192 ', span('new', fmtSize(c.new_size_bytes)), '  ');
-      }
-      if (c.old_summary !== c.new_summary) diff.append('Summary changed  ');
-      if (c.old_exports !== c.new_exports) diff.append('Exports changed');
-      if (diff.childNodes.length) item.appendChild(diff);
-
-      if (c.diff_text) {
-        const toggle = document.createElement('div'); toggle.className = 'diff-toggle'; toggle.textContent = 'Show diff';
-        const block = document.createElement('div'); block.className = 'diff-block'; block.style.display = 'none';
-        c.diff_text.split('\\n').forEach(line => {
-          const el = document.createElement('div');
-          if (line.startsWith('+ ')) { el.className = 'al'; }
-          else if (line.startsWith('- ')) { el.className = 'dl'; }
-          else if (line === '---') { el.className = 'sep'; }
-          else { el.className = 'ctx'; }
-          el.textContent = line;
-          block.appendChild(el);
-        });
-        toggle.addEventListener('click', () => {
-          const visible = block.style.display !== 'none';
-          block.style.display = visible ? 'none' : 'block';
-          toggle.textContent = visible ? 'Show diff' : 'Hide diff';
-        });
-        item.appendChild(toggle);
-        item.appendChild(block);
-      }
-    } else if (c.event === 'add') {
-      const diff = document.createElement('div'); diff.className = 'change-diff';
-      diff.appendChild(span('new', (c.new_line_count || 0) + ' lines \u00B7 ' + fmtSize(c.new_size_bytes)));
-      item.appendChild(diff);
-    } else if (c.event === 'delete') {
-      const diff = document.createElement('div'); diff.className = 'change-diff';
-      diff.appendChild(span('old', 'removed \u00B7 was ' + (c.old_line_count || 0) + ' lines'));
-      item.appendChild(diff);
-    }
-
-    el.appendChild(item);
-  });
-}
-
-init();
-loadFileChanges(null);
-
-// Live reload via SSE
-const es = new EventSource('/api/events');
-es.onmessage = (e) => {
-  if (e.data === 'updated') {
-    const activeId = document.querySelector('.file-item.active')?.dataset?.id;
-    init().then(() => { if (activeId) selectFile(Number(activeId)); else loadFileChanges(null); });
-  }
-};
-</script>
-</body>
-</html>`;

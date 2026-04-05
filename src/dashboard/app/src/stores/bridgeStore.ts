@@ -27,33 +27,40 @@ export interface BridgeStore {
   status: BridgeStatus | null;
   actions: PendingAction[];
   loading: boolean;
+  error: string | null;
 
   fetchStatus: () => Promise<void>;
   fetchActions: (status?: string) => Promise<void>;
   queueAction: (action: string, entityType?: string, entityId?: number, payload?: Record<string, unknown>) => Promise<void>;
+  clearError: () => void;
 }
 
 export const useBridgeStore = create<BridgeStore>((set, getState) => ({
   status: null,
   actions: [],
   loading: false,
+  error: null,
 
   fetchStatus: async () => {
     try {
       const status = await get<BridgeStatus>('/api/bridge/status');
       set({ status: status ?? null });
-    } catch {}
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 
   fetchActions: async (status = 'pending') => {
     try {
       const actions = await get<PendingAction[]>(`/api/bridge/actions?status=${status}`);
       set({ actions: Array.isArray(actions) ? actions : [] });
-    } catch {}
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 
   queueAction: async (action, entityType, entityId, payload) => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
       await post('/api/bridge/actions', {
         action,
@@ -63,8 +70,12 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
       });
       const state = getState();
       await state.fetchStatus();
+    } catch (e) {
+      set({ error: (e as Error).message });
     } finally {
       set({ loading: false });
     }
   },
+
+  clearError: () => set({ error: null }),
 }));

@@ -20,7 +20,7 @@ const RemotionRoot: React.FC = () => {
             { name: 'M1 — Foundation', status: 'completed' },
             { name: 'M2 — Scale', status: 'completed' },
             { name: 'M3 — Platform', status: 'completed' },
-            { name: 'M11 — Linear Integration', status: 'completed' },
+            { name: 'M11 — External Integrations', status: 'completed' },
           ],
           stats: { sprints: 40, tickets: 316, points: 500, agents: 16 },
         } satisfies VisionProps}

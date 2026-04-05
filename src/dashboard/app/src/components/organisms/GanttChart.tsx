@@ -4,7 +4,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import type { Sprint, Ticket } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
 import { get as apiGet } from '@/lib/api';
-import { PHASE_COLORS, PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
+import { PHASE_COLORS, PHASE_ORDER, getPhaseStyle, mapLegacyPhase } from '@/lib/phases';
 
 /* ─── Status Styles ────────────────────────────────────────────────────────── */
 
@@ -304,14 +304,14 @@ export function GanttChart() {
 
   const currentSprints = useMemo(
     () => [...ganttData]
-      .filter(s => s.status === 'implementation' || s.status === 'planning' || s.status === 'qa' || s.status === 'retro')
+      .filter(s => { const p = mapLegacyPhase(s.status); return p === 'planning' || p === 'implementation'; })
       .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
     [ganttData],
   );
 
   const archivedSprints = useMemo(
     () => [...ganttData]
-      .filter(s => s.status === 'closed' || s.status === 'rest')
+      .filter(s => { const p = mapLegacyPhase(s.status); return p === 'done' || p === 'rest'; })
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
       .slice(0, 20),
     [ganttData],

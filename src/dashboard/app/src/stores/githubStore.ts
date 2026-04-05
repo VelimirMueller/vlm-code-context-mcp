@@ -20,6 +20,7 @@ export interface GithubStore {
   fetchAll: (repoId?: number) => Promise<void>;
   syncNow: () => Promise<void>;
   setSelectedRepo: (id: number | null) => void;
+  clearError: () => void;
 }
 
 export const useGithubStore = create<GithubStore>((set, getState) => ({
@@ -101,6 +102,8 @@ export const useGithubStore = create<GithubStore>((set, getState) => ({
       set((s) => ({ error: (e as Error).message, loading: { ...s.loading, sync: false } }));
     }
   },
+
+  clearError: () => set({ error: null }),
 
   setSelectedRepo: (id) => {
     set({ selectedRepoId: id });
