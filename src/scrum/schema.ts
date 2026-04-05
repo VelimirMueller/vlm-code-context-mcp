@@ -443,7 +443,7 @@ export function runMigrations(db: Database.Database): void {
     const colList = hasDeletedAt
       ? "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id, deleted_at"
       : "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id";
-    const deletedAtCol = hasDeletedAt ? "" : ",\n        deleted_at TEXT DEFAULT NULL";
+    const deletedAtCol = hasDeletedAt ? ",\n        deleted_at TEXT DEFAULT NULL" : "";
     db.exec(`
       CREATE TABLE IF NOT EXISTS sprints_v3 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
