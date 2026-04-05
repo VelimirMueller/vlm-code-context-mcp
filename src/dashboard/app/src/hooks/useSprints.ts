@@ -6,7 +6,6 @@ export function useSprints() {
 
   useEffect(() => {
     store.fetchSprints();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return store;
