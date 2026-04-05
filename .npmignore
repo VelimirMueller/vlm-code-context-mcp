@@ -1,0 +1,40 @@
+# Source files (we ship dist/)
+src/
+*.ts
+*.tsx
+
+# Dev configuration
+.eslintrc*
+.prettierrc*
+tsconfig.json
+vite.config.ts
+vitest.config.ts
+playwright.config.ts
+
+# Dependencies (installed from package.json)
+node_modules/
+
+# Development artifacts
+.context/
+.claude/
+.history/
+*.log
+*.tgz
+
+# Tests
+test/
+tests/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+coverage/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Documentation not needed in package
+ARCHITECTURE.md
+CONTRIBUTING.md
+.DS_Store
