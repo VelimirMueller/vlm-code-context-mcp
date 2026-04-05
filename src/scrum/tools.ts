@@ -2,6 +2,16 @@ import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
+
+/** Fire-and-forget HTTP POST to dashboard so SSE clients refresh instantly. */
+function notifyDashboard(): void {
+  try {
+    const url = `http://localhost:${DASHBOARD_PORT}/api/notify`;
+    fetch(url, { method: "POST" }).catch(() => {});
+  } catch {}
+}
+
 /** Canonical phase transition map: current → next allowed phase. */
 const PHASE_TRANSITIONS: Record<string, string> = {
   preparation: "kickoff", kickoff: "planning", planning: "implementation",
@@ -215,6 +225,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ name, goal, start_date, end_date, milestone_id }) => {
       try {
         const result = db.prepare(`INSERT INTO sprints (name, goal, start_date, end_date, milestone_id, status) VALUES (?, ?, ?, ?, ?, 'planning')`).run(name, goal || null, start_date || null, end_date || null, milestone_id || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint created: ${name} (id: ${result.lastInsertRowid})` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -319,6 +330,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {}
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}` }] };
     }
   );
@@ -410,6 +422,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         rest: "Sprint complete. Call start_sprint now to begin the next sprint.",
       };
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
     }
   );
@@ -438,6 +451,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           if (ms) milestoneName = ms.name;
         }
         const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestoneName, milestone_id || null, epic_id || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -522,6 +536,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {}
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
     }
   );
@@ -538,6 +553,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, category, finding, role, action_owner }) => {
       db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role, action_owner) VALUES (?,?,?,?,?)`).run(sprint_id, category, finding, role || null, action_owner || null);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Retro finding added: [${category}] ${finding}` }] };
     }
   );
@@ -554,6 +570,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, description, ticket_id, reported_by, escalated_to }) => {
       db.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to) VALUES (?,?,?,?,?)`).run(sprint_id, ticket_id || null, description, reported_by || null, escalated_to || null);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Blocker reported: ${description}` }] };
     }
   );
@@ -564,6 +581,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     { blocker_id: z.number().describe("Blocker ID") },
     async ({ blocker_id }) => {
       db.prepare(`UPDATE blockers SET status='resolved', resolved_at=datetime('now') WHERE id=?`).run(blocker_id);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Blocker #${blocker_id} resolved.` }] };
     }
   );
@@ -596,6 +614,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         }
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Bug logged: [${severity}] ${description}${regressionNote}` }] };
     }
   );
@@ -608,6 +627,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       try {
         const { seedDefaults } = await import("./defaults.js");
         const result = seedDefaults(db);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Seed check: ${result.agents} agents seeded, ${result.skills} skills seeded (0 means tables already had data)` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Sync error: ${e.message}` }], isError: true };
@@ -683,6 +703,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ name, description, target_date, status }) => {
       try {
         const result = db.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run(name, description || null, target_date || null, status);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Milestone created: ${name} (id: ${result.lastInsertRowid})` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -710,6 +731,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sets.push("updated_at=datetime('now')");
       vals.push(milestone_id);
       db.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} updated.` }] };
     }
   );
@@ -726,6 +748,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         const milestone = db.prepare(`SELECT id, name FROM milestones WHERE id=?`).get(milestone_id) as any;
         if (!milestone) return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} not found.` }], isError: true };
         db.prepare(`UPDATE tickets SET milestone_id=?, milestone=?, updated_at=datetime('now') WHERE id=?`).run(milestone_id, milestone.name, ticket_id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} linked to milestone "${milestone.name}" (id: ${milestone_id}).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -742,6 +765,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ content }) => {
       try {
         db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES ('PRODUCT_VISION', ?, 'product-owner') ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`).run(content);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Product vision updated (${content.length} chars).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -784,6 +808,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         for (const tid of ticket_ids) {
           updateStmt.run(sprintId, tid);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint "${name}" created (id: ${sprintId}) with ${ticket_ids.length} tickets assigned.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -906,6 +931,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: [
           `# Sprint Created: ${name} (id: ${sprintId})`,
           `Goal: ${goal}`,
@@ -1014,6 +1040,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         transaction();
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `# Restore Complete\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1106,6 +1133,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         });
         transaction();
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `# Restored from ${input_path}\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1306,6 +1334,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         steps.push(`✅ ${fileCount} files indexed`);
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `# Onboarding Complete\n\n${steps.join("\n")}` }] };
     }
   );
@@ -1409,6 +1438,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         }
 
         const result = await syncRes.json() as any;
+        notifyDashboard();
         return {
           content: [{ type: "text" as const, text: `GitHub data synced for ${owner}/${repo}: ${repos.length} repo, ${issues.length} issues, ${pullRequests.length} PRs, ${commits.length} commits` }],
         };
@@ -1429,6 +1459,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetAgents } = await import("./defaults.js");
       const count = resetAgents(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Reset complete: ${count} agents restored to factory defaults.` }] };
     }
   );
@@ -1440,6 +1471,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetSkills } = await import("./defaults.js");
       const count = resetSkills(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Reset complete: ${count} skills restored to factory defaults.` }] };
     }
   );
@@ -1451,6 +1483,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetSprintProcess } = await import("./defaults.js");
       resetSprintProcess(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Sprint process reset to factory defaults.` }] };
     }
   );
@@ -1539,6 +1572,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const result = db.prepare(
           `INSERT INTO epics (name, description, milestone_id, color, priority) VALUES (?, ?, ?, ?, ?)`
         ).run(name, description ?? null, milestone_id ?? null, color, priority);
+        notifyDashboard();
         return {
           content: [{ type: "text" as const, text: `Epic created — id: ${result.lastInsertRowid}, name: "${name}"` }],
         };
@@ -1576,6 +1610,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (result.changes === 0) {
           return { content: [{ type: "text" as const, text: `Epic ${epic_id} not found.` }] };
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Epic ${epic_id} updated (${fields.length} field(s)).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error updating epic: ${e.message}` }], isError: true };
@@ -1621,6 +1656,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} not found.` }] };
         }
         const action = epic_id === null ? "unlinked from epic" : `linked to epic ${epic_id}`;
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} ${action}.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error linking ticket: ${e.message}` }], isError: true };
@@ -1645,6 +1681,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ title, rationale, alternatives, outcome, category }) => {
       try {
         const result = db.prepare(`INSERT INTO decisions (title, rationale, alternatives, outcome, category) VALUES (?,?,?,?,?)`).run(title, rationale || null, alternatives || null, outcome || null, category);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Decision logged: #${result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1775,6 +1812,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(
           `INSERT INTO skills (name, content, owner_role) VALUES ('SPRINT_PROCESS', ?, 'scrum-master') ON CONFLICT(name) DO UPDATE SET content=excluded.content, owner_role='scrum-master', updated_at=datetime('now')`
         ).run(content);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint process config updated (${content.length} chars).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1800,6 +1838,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const remaining = tickets.filter(t => t.status !== "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
         const completed = tickets.filter(t => t.status === "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
         db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprint_id, d, remaining, completed);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Snapshot ${d}: ${completed}pts done, ${remaining}pts remaining` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1848,6 +1887,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           if (circular) return { content: [{ type: "text" as const, text: "Circular dependency detected — target already blocks source" }], isError: true };
         }
         db.prepare(`INSERT INTO ticket_dependencies (source_ticket_id, target_ticket_id, dependency_type) VALUES (?, ?, ?)`).run(source_ticket_id, target_ticket_id, dependency_type);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Dependency added: ticket ${source_ticket_id} ${dependency_type} ticket ${target_ticket_id}` }] };
       } catch (e: any) {
         if (e.message.includes("UNIQUE")) return { content: [{ type: "text" as const, text: "Dependency already exists" }], isError: true };
@@ -1866,6 +1906,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ source_ticket_id, target_ticket_id }) => {
       try {
         const result = db.prepare(`DELETE FROM ticket_dependencies WHERE source_ticket_id = ? AND target_ticket_id = ?`).run(source_ticket_id, target_ticket_id);
+        if (result.changes > 0) notifyDashboard();
         return { content: [{ type: "text" as const, text: result.changes > 0 ? "Dependency removed." : "No dependency found." }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1928,6 +1969,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(`INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)`).run(tag_name, color || "#6b7280");
         const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
         db.prepare(`INSERT OR IGNORE INTO ticket_tags (ticket_id, tag_id) VALUES (?, ?)`).run(ticket_id, tag.id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Tag '${tag_name}' added to ticket ${ticket_id}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1947,6 +1989,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
         if (!tag) return { content: [{ type: "text" as const, text: `Tag '${tag_name}' not found` }], isError: true };
         db.prepare(`DELETE FROM ticket_tags WHERE ticket_id = ? AND tag_id = ?`).run(ticket_id, tag.id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Tag '${tag_name}' removed from ticket ${ticket_id}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1990,6 +2033,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (sets.length === 0) return { content: [{ type: "text" as const, text: "Provide estimated_hours or actual_hours" }], isError: true };
         vals.push(ticket_id);
         db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Time logged on ticket ${ticket_id}${estimated_hours !== undefined ? ` — est: ${estimated_hours}h` : ""}${actual_hours !== undefined ? ` — actual: ${actual_hours}h` : ""}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2040,6 +2084,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       try {
         db.prepare(`INSERT INTO agent_mood_history (agent_id, sprint_id, mood, workload_points, notes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(agent_id, sprint_id) DO UPDATE SET mood=excluded.mood, workload_points=excluded.workload_points, notes=excluded.notes`).run(agent_id, sprint_id, mood, workload_points || 0, notes || null);
         const warning = mood <= 2 ? "\n⚠️ BURNOUT RISK — mood ≤ 2. Reduce workload next sprint." : "";
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Mood recorded: agent ${agent_id}, sprint ${sprint_id}, mood ${mood}/5${warning}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2134,6 +2179,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ entity_type, entity_id, action, field_name, old_value, new_value, actor }) => {
       try {
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(entity_type, entity_id, action, field_name || null, old_value || null, new_value || null, actor || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Event logged: ${entity_type} #${entity_id} ${action}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2225,6 +2271,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         ).run(sprint_id, finding, cat, pri, created_by || null, resolution_plan || null);
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'created', 'status', NULL, 'discovered', ?)`).run(result.lastInsertRowid, created_by || 'mcp');
         const planNote = resolution_plan ? " (with resolution plan)" : " (no resolution plan)";
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${result.lastInsertRowid} created in sprint "${sprint.name}" [${cat}] ${pri}${planNote}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2289,6 +2336,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (status && status !== existing.status) {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, existing.status, status);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} updated.${status ? ` Status: ${existing.status} → ${status}` : ""}${priority ? ` Priority: ${priority}` : ""}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2315,6 +2363,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (newStatus !== discovery.status) {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, discovery.status, newStatus);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} linked to ticket #${ticket_id} "${ticket.title}" — status: ${newStatus}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };

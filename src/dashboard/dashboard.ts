@@ -1364,6 +1364,14 @@ function readBody(req: http.IncomingMessage): Promise<any> {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
+  // MCP→Dashboard notification endpoint (called by MCP tools after DB writes)
+  if (url.pathname === "/api/notify" && req.method === "POST") {
+    notifyClients();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+
   // SSE endpoint for live updates
   if (url.pathname === "/api/events") {
     res.writeHead(200, {
