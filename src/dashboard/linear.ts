@@ -107,7 +107,8 @@ export function isLinearConfigured(): boolean {
 // ─── Direct sync config (.linear.local.json) ──────────────────────────────
 
 export interface LinearConfig {
-  apiKey: string;
+  apiKey?: string;
+  oauthToken?: string;
   teamId?: string;
   autoSync?: boolean;
   syncIntervalMinutes?: number;
@@ -123,7 +124,8 @@ export function loadLinearConfig(dbPath: string): LinearConfig | null {
     try {
       const raw = fs.readFileSync(p, "utf-8");
       const cfg = JSON.parse(raw) as LinearConfig;
-      if (cfg.apiKey?.trim()) return cfg;
+      // Accept either apiKey or oauthToken
+      if (cfg.apiKey?.trim() || cfg.oauthToken?.trim()) return cfg;
     } catch { /* skip */ }
   }
   return null;
@@ -131,12 +133,18 @@ export function loadLinearConfig(dbPath: string): LinearConfig | null {
 
 function getLinearToken(configKey?: string): string | null {
   if (configKey?.trim()) return configKey.trim();
+  // Support both API key and OAuth token via env vars
   if (process.env.LINEAR_API_KEY?.trim()) return process.env.LINEAR_API_KEY.trim();
+  if (process.env.LINEAR_OAUTH_TOKEN?.trim()) return process.env.LINEAR_OAUTH_TOKEN.trim();
+  if (process.env.LINEAR_TOKEN?.trim()) return process.env.LINEAR_TOKEN.trim();
   return null;
 }
 
 export function isLinearDirectSyncConfigured(dbPath: string): boolean {
-  return !!loadLinearConfig(dbPath);
+  const config = loadLinearConfig(dbPath);
+  if (config) return true;
+  // Also consider configured if any Linear token env var is set
+  return !!(process.env.LINEAR_API_KEY?.trim() || process.env.LINEAR_OAUTH_TOKEN?.trim() || process.env.LINEAR_TOKEN?.trim());
 }
 
 export async function fetchAndSyncLinear(
@@ -145,8 +153,8 @@ export async function fetchAndSyncLinear(
   configApiKey?: string,
 ): Promise<{ ok: boolean; error?: string; counts?: Record<string, number> }> {
   const config = loadLinearConfig(dbPath);
-  const token = getLinearToken(configApiKey ?? config?.apiKey);
-  if (!token) return { ok: false, error: "No Linear API key. Create .linear.local.json with {\"apiKey\": \"lin_api_...\"} or set LINEAR_API_KEY env var." };
+  const token = getLinearToken(configApiKey ?? config?.oauthToken ?? config?.apiKey);
+  if (!token) return { ok: false, error: "No Linear token configured. Options: (1) Set LINEAR_API_KEY or LINEAR_OAUTH_TOKEN env var, (2) Create .linear.local.json with {\"apiKey\": \"...\"}, or (3) Use Claude's sync_linear_data MCP tool to push data from the Linear MCP integration." };
 
   const headers: Record<string, string> = {
     Authorization: token,
