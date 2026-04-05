@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { get as apiGet, post as apiPost, patch as apiPatch } from '@/lib/api';
-import { getPhaseStyle } from '@/lib/phases';
+import { getPhaseStyle, mapLegacyPhase } from '@/lib/phases';
 import type { MilestoneSprintGroup, Ticket, Milestone } from '@/types';
 
 interface SprintTickets {
@@ -72,7 +72,7 @@ export function SprintPlanningView() {
   const filteredGroups = milestoneGroups
     .map((g) => ({
       ...g,
-      sprints: g.sprints.filter((s) => s.status === 'implementation' || s.status === 'planning' || s.status === 'qa' || s.status === 'retro'),
+      sprints: g.sprints.filter((s) => { const p = mapLegacyPhase(s.status); return p === 'planning' || p === 'implementation'; }),
     }))
     .filter((g) => g.sprints.length > 0)
     .sort((a, b) => {

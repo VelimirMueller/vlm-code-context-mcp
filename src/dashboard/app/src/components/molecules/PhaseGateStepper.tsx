@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
+import { PHASE_ORDER, getPhaseStyle, mapLegacyPhase } from '@/lib/phases';
 import { post } from '@/lib/api';
 
 interface PhaseGateStepperProps {
@@ -18,7 +18,8 @@ export function PhaseGateStepper({ currentPhase, sprintId, updatedAt }: PhaseGat
   const [stuckSent, setStuckSent] = useState(false);
   const [sending, setSending] = useState(false);
 
-  const currentIdx = PHASE_ORDER.indexOf(currentPhase);
+  const mappedPhase = mapLegacyPhase(currentPhase);
+  const currentIdx = PHASE_ORDER.indexOf(mappedPhase);
 
   // Check if phase has been the same for > 10 minutes
   useEffect(() => {
