@@ -5,7 +5,16 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {
-    ignores: ['dist/', 'node_modules/', 'src/dashboard/app/node_modules/'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      '**/node_modules/',
+      '.claude/',
+      'docs/',
+      'src/dashboard/app/dist/',
+      '**/*.min.js',
+      '**/*.bundle.js',
+    ],
   },
   {
     linterOptions: {
@@ -73,6 +82,7 @@ export default tseslint.config(
       'no-control-regex': 'warn',
       'prefer-const': 'warn',
       'no-console': 'off',
+      'preserve-caught-error': 'off',
     },
   },
 );

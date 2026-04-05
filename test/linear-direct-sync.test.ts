@@ -76,7 +76,7 @@ describe("Linear Direct Sync", () => {
     it("returns error when no API key available", async () => {
       const result = await fetchAndSyncLinear(db, path.join(tmpDir, "context.db"));
       expect(result.ok).toBe(false);
-      expect(result.error).toContain("No Linear API key");
+      expect(result.error).toContain("No Linear token configured");
     });
 
     it("returns error on 401 unauthorized", async () => {

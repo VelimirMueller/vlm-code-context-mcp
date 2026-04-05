@@ -8,7 +8,6 @@ export function usePlanning() {
     store.fetchMilestones();
     store.fetchVision();
     store.fetchGantt();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return store;

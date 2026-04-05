@@ -77,7 +77,6 @@ function renderMarkdown(md: string): string {
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
   const html = renderMarkdown(content);
   // Content is server-controlled markdown; HTML entities are escaped before processing
-  // eslint-disable-next-line react/no-danger
   return (
     <div
       className={`md-content ${className}`}
