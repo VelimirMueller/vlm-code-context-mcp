@@ -202,15 +202,13 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            <ErrorBoundary>
-              <Suspense fallback={<PageSkeleton />}>
-                {normalizedPage === 'dashboard' && <Dashboard />}
-                {normalizedPage === 'planning' && <ProjectManagement />}
-                {normalizedPage === 'code' && <CodeExplorer />}
-                {normalizedPage === 'team' && <Team />}
-                {normalizedPage === 'retro' && <Retro />}
-              </Suspense>
-            </ErrorBoundary>
+            <Suspense fallback={<PageSkeleton />}>
+              {normalizedPage === 'dashboard' && <ErrorBoundary><Dashboard /></ErrorBoundary>}
+              {normalizedPage === 'planning' && <ErrorBoundary><ProjectManagement /></ErrorBoundary>}
+              {normalizedPage === 'code' && <ErrorBoundary><CodeExplorer /></ErrorBoundary>}
+              {normalizedPage === 'team' && <ErrorBoundary><Team /></ErrorBoundary>}
+              {normalizedPage === 'retro' && <ErrorBoundary><Retro /></ErrorBoundary>}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>

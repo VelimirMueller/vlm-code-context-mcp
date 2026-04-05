@@ -34,6 +34,7 @@ export interface SprintStore {
   fetchBurndown: (sprintId: number) => Promise<void>;
   fetchBlockers: (sprintId: number) => Promise<void>;
   fetchBugs: (sprintId: number) => Promise<void>;
+  clearError: () => void;
   setTicketFilter: (filter: TicketFilter) => void;
   setCurrentUserName: (name: string) => void;
   getFilteredTickets: () => Ticket[];
@@ -166,6 +167,8 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set({ bugs: [] });
     }
   },
+
+  clearError: () => set({ error: { sprints: null, detail: null } }),
 
   setTicketFilter: (filter: TicketFilter) => {
     set({ ticketFilter: filter });
