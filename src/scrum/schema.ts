@@ -447,6 +447,7 @@ export function runMigrations(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_workflow_step_log_workflow ON workflow_step_log(workflow_id);
     ` },
     { version: 14, name: 'add_retro_linked_ticket_id', sql: `SELECT 1` },
+    { version: 15, name: 'add_resolution_plan_to_discoveries', sql: `SELECT 1` },
   ];
   for (const m of migrations) {
     if (m.version > current) {
@@ -459,5 +460,10 @@ export function runMigrations(db: Database.Database): void {
   const retroCols = db.pragma("table_info(retro_findings)") as Array<{ name: string }>;
   if (!retroCols.some((c) => c.name === "linked_ticket_id")) {
     db.exec("ALTER TABLE retro_findings ADD COLUMN linked_ticket_id INTEGER REFERENCES tickets(id)");
+  }
+
+  const discoveryCols = db.pragma("table_info(discoveries)") as Array<{ name: string }>;
+  if (!discoveryCols.some((c) => c.name === "resolution_plan")) {
+    db.exec("ALTER TABLE discoveries ADD COLUMN resolution_plan TEXT");
   }
 }

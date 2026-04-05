@@ -71,6 +71,12 @@ export function DiscoveryRow({ discovery, onLinkTicket, onClickTicket }: Props) 
             style={{ overflow: 'hidden', marginTop: 8, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}
           >
             <div>{discovery.finding}</div>
+            {discovery.resolution_plan && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 6, borderLeft: '3px solid var(--accent)' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>Resolution Plan</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{discovery.resolution_plan}</div>
+              </div>
+            )}
             {discovery.drop_reason && (
               <div style={{ marginTop: 4, color: '#ef4444' }}>Drop reason: {discovery.drop_reason}</div>
             )}
