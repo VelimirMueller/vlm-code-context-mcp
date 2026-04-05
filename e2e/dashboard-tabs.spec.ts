@@ -9,7 +9,6 @@ import { test, expect, type Page } from "@playwright/test";
  * - Code Explorer tab: file tree, file selection
  * - Team tab: agent list, workload data
  * - Retro tab: retro findings, sub-tab switching
- * - Marketing tab: releases, positioning, sub-tabs
  * - Full navigation flow: visit every tab in sequence
  *
  * Prerequisites: dashboard server running on localhost:3333
@@ -276,51 +275,6 @@ test.describe("Retro Tab", () => {
   });
 });
 
-// ─── Marketing Tab ──────────────────────────────────────────────────────────
-
-test.describe("Marketing Tab", () => {
-  test.beforeEach(async ({ page }) => {
-    await waitForAppReady(page);
-    await navigateToTab(page, "Marketing");
-  });
-
-  test("renders with sub-tabs", async ({ page }) => {
-    // Marketing has sub-tabs: Releases, Positioning, Release Timeline, Metrics, Campaigns
-    for (const label of ["Releases", "Positioning"]) {
-      const tab = page.getByRole("tab", { name: new RegExp(label, "i") });
-      await expect(tab).toBeVisible({ timeout: 5000 });
-    }
-  });
-
-  test("Releases tab shows sprint/feature content", async ({ page }) => {
-    // Releases is the default sub-tab
-    const pageContent = page.locator(".page-content");
-    await expect(pageContent).toBeVisible();
-    const childCount = await pageContent.locator("> *").count();
-    expect(childCount).toBeGreaterThan(0);
-  });
-
-  test("can switch between all Marketing sub-tabs without crash", async ({
-    page,
-  }) => {
-    const subTabs = [
-      "Releases",
-      "Positioning",
-      "Release Timeline",
-      "Metrics",
-      "Campaigns",
-    ];
-    for (const tabName of subTabs) {
-      const tab = page.getByRole("tab", { name: new RegExp(tabName, "i") });
-      if (await tab.isVisible().catch(() => false)) {
-        await tab.click();
-        await page.waitForTimeout(400);
-        await expect(page.locator(".page-content")).toBeVisible();
-      }
-    }
-  });
-});
-
 // ─── Full Navigation Flow ───────────────────────────────────────────────────
 
 test.describe("Navigation Flow", () => {
@@ -333,7 +287,6 @@ test.describe("Navigation Flow", () => {
       "Code",
       "Team",
       "Retro",
-      "Marketing",
     ];
 
     for (const tabLabel of tabs) {
@@ -381,9 +334,9 @@ test.describe("Navigation Flow", () => {
     await expect(tablist).toBeVisible();
     await expect(tablist).toHaveAttribute("aria-label", "Main navigation");
 
-    // Should have exactly 6 tabs
+    // Should have exactly 5 tabs
     const tabButtons = tablist.locator('button[role="tab"]');
-    await expect(tabButtons).toHaveCount(6);
+    await expect(tabButtons).toHaveCount(5);
 
     // Exactly one tab should be selected
     const selectedTabs = tablist.locator(
