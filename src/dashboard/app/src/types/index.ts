@@ -301,6 +301,7 @@ export interface Discovery {
   category: string;
   status: 'discovered' | 'planned' | 'implemented' | 'dropped';
   priority: string;
+  resolution_plan: string | null;
   implementation_ticket_id: number | null;
   drop_reason: string | null;
   created_by: string | null;

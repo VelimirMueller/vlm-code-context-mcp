@@ -2248,21 +2248,23 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     {
       sprint_id: z.number().describe("Discovery sprint ID"),
       finding: z.string().describe("The discovery finding text"),
+      resolution_plan: z.string().optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
       category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Finding category (default: general)"),
       priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("Priority (default: P1)"),
       created_by: z.string().optional().describe("Agent role that created this finding"),
     },
-    async ({ sprint_id, finding, category, priority, created_by }) => {
+    async ({ sprint_id, finding, resolution_plan, category, priority, created_by }) => {
       try {
         const sprint = db.prepare("SELECT id, name, status FROM sprints WHERE id = ?").get(sprint_id) as any;
         if (!sprint) return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} not found.` }] };
         const cat = category || "general";
         const pri = priority || "P1";
         const result = db.prepare(
-          `INSERT INTO discoveries (discovery_sprint_id, finding, category, status, priority, created_by) VALUES (?, ?, ?, 'discovered', ?, ?)`
-        ).run(sprint_id, finding, cat, pri, created_by || null);
+          `INSERT INTO discoveries (discovery_sprint_id, finding, category, status, priority, created_by, resolution_plan) VALUES (?, ?, ?, 'discovered', ?, ?, ?)`
+        ).run(sprint_id, finding, cat, pri, created_by || null, resolution_plan || null);
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'created', 'status', NULL, 'discovered', ?)`).run(result.lastInsertRowid, created_by || 'mcp');
-        return { content: [{ type: "text" as const, text: `Discovery #${result.lastInsertRowid} created in sprint "${sprint.name}" [${cat}] ${pri}` }] };
+        const planNote = resolution_plan ? " (with resolution plan)" : " (no resolution plan)";
+        return { content: [{ type: "text" as const, text: `Discovery #${result.lastInsertRowid} created in sprint "${sprint.name}" [${cat}] ${pri}${planNote}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -2307,8 +2309,9 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("New status"),
       priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("New priority"),
       drop_reason: z.string().optional().describe("Why this discovery was dropped"),
+      resolution_plan: z.string().optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
     },
-    async ({ discovery_id, status, priority, drop_reason }) => {
+    async ({ discovery_id, status, priority, drop_reason, resolution_plan }) => {
       try {
         const existing = db.prepare("SELECT * FROM discoveries WHERE id = ?").get(discovery_id) as any;
         if (!existing) return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} not found.` }] };
@@ -2317,6 +2320,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (status) { sets.push("status = ?"); vals.push(status); }
         if (priority) { sets.push("priority = ?"); vals.push(priority); }
         if (drop_reason) { sets.push("drop_reason = ?"); vals.push(drop_reason); }
+        if (resolution_plan) { sets.push("resolution_plan = ?"); vals.push(resolution_plan); }
         sets.push("updated_at = datetime('now')");
         if (sets.length === 1) return { content: [{ type: "text" as const, text: "No fields to update." }] };
         vals.push(discovery_id);
