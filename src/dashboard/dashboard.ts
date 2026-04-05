@@ -47,13 +47,15 @@ const PORT = Number(process.argv[3] ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
 
 const dbPath = path.resolve(DB_PATH);
-const db = new Database(dbPath, { readonly: true });
-db.pragma("journal_mode = WAL");
 
-// Writable connection for the watcher to re-index and log changes
+// Writable connection for the watcher to re-index and log changes (creates DB if needed)
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
+
+// Read-only connection for queries (opens after DB exists)
+const db = new Database(dbPath, { readonly: true });
+db.pragma("journal_mode = WAL");
 
 // Ensure schemas exist
 initSchema(writeDb);
