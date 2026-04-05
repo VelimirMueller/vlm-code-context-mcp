@@ -430,14 +430,14 @@ describe("advance_sprint — checkSprintGates", () => {
     expect(gates.warnings.some(g => g.includes("No tickets assigned"))).toBe(true);
   });
 
-  it("warns implementation with unassigned tickets", () => {
+  it("does NOT warn for unassigned tickets (assignment is optional)", () => {
     const sprintId = createSprint("gate-3", "planning", { velocity_committed: 10 });
     createTicket(sprintId, "T-G03", "Unassigned", { story_points: 3 });
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
     expect(gates.canProceed).toBe(true);
-    expect(gates.warnings.some(g => g.includes("unassigned"))).toBe(true);
+    expect(gates.warnings.some(g => g.includes("unassigned"))).toBe(false);
   });
 
   it("warns implementation with missing story points", () => {
