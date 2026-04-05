@@ -10,7 +10,6 @@ import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SprintList } from '@/components/organisms/SprintList';
 import { SprintDetail } from '@/components/organisms/SprintDetail';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
-import { LinearKanbanBoard } from '@/components/organisms/LinearKanbanBoard';
 import { GithubBoard } from '@/components/organisms/GithubBoard';
 import { pageVariants, pageTransition } from '@/lib/motion';
 import { get } from '@/lib/api';
@@ -18,7 +17,6 @@ import { get } from '@/lib/api';
 const DASHBOARD_TABS = [
   { key: 'board', label: 'Board' },
   { key: 'overview', label: 'Overview' },
-  { key: 'linear', label: 'Linear' },
   { key: 'github', label: 'GitHub' },
 ];
 
@@ -153,7 +151,7 @@ export function Dashboard() {
     }
   }, [sprints, selectedSprintId, selectSprint]);
 
-  const dashTab = ['board', 'overview', 'linear', 'github'].includes(activeTab) ? activeTab : 'board';
+  const dashTab = ['board', 'overview', 'github'].includes(activeTab) ? activeTab : 'board';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -180,11 +178,6 @@ export function Dashboard() {
       )}
 
       {dashTab === 'overview' && <ActivityFeed />}
-      {dashTab === 'linear' && (
-        <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px' }}>
-          <LinearKanbanBoard />
-        </div>
-      )}
       {dashTab === 'github' && (
         <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px' }}>
           <GithubBoard />

@@ -45,7 +45,7 @@ const features = [
   {
     emoji: '\u{1F50C}',
     title: 'Integrations',
-    description: 'GitHub sync, Linear sync, real-time SSE updates, and bridge status monitoring.',
+    description: 'GitHub sync, real-time SSE updates, bridge status monitoring — extensible via MCP.',
     color: 'var(--blue)',
   },
 ];
