@@ -18,7 +18,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m
 const Team = lazy(() => import('@/pages/Team').then(m => ({ default: m.Team })));
 const Retro = lazy(() => import('@/pages/Retro').then(m => ({ default: m.Retro })));
 const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
-const Marketing = lazy(() => import('@/pages/Marketing').then(m => ({ default: m.Marketing })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
@@ -210,7 +209,6 @@ export function App() {
                 {normalizedPage === 'code' && <CodeExplorer />}
                 {normalizedPage === 'team' && <Team />}
                 {normalizedPage === 'retro' && <Retro />}
-                {normalizedPage === 'marketing' && <Marketing />}
               </Suspense>
             </ErrorBoundary>
           </motion.div>
