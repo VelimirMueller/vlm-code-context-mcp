@@ -6,7 +6,6 @@ import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { useLinearStore } from '@/stores/linearStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useGithubStore } from '@/stores/githubStore';
 import { useBridgeStore } from '@/stores/bridgeStore';
@@ -101,9 +100,6 @@ export function App() {
   const refreshFiles = useFileStore((s) => s.refresh);
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
-  const fetchLinearIssues = useLinearStore((s) => s.fetchIssues);
-  const fetchLinearSync = useLinearStore((s) => s.fetchSyncStatus);
-
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
   const fetchRetro = useSprintStore((s) => s.fetchRetro);
@@ -128,8 +124,6 @@ export function App() {
       refreshFiles();
       fetchSprints();
       fetchAgents();
-      fetchLinearSync();
-      fetchLinearIssues();
       fetchMilestones();
       fetchBacklog();
       fetchDiscoveries();

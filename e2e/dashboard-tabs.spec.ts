@@ -47,7 +47,7 @@ test.describe("Dashboard Tab", () => {
   });
 
   test("renders with sub-tabs and sprint content", async ({ page }) => {
-    // The Dashboard page has sub-tabs: Board, Overview, Linear, GitHub
+    // The Dashboard page has sub-tabs: Board, Overview, GitHub
     const tablist = page.locator('[role="tablist"]').nth(1); // second tablist = sub-tabs
     await expect(tablist).toBeVisible({ timeout: 5000 });
 
@@ -80,7 +80,7 @@ test.describe("Dashboard Tab", () => {
   test("can switch between all Dashboard sub-tabs without crash", async ({
     page,
   }) => {
-    for (const tabName of ["Board", "Overview", "Linear", "GitHub"]) {
+    for (const tabName of ["Board", "Overview", "GitHub"]) {
       const tab = page.getByRole("tab", { name: new RegExp(tabName, "i") });
       if (await tab.isVisible().catch(() => false)) {
         await tab.click();

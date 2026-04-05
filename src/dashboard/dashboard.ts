@@ -10,7 +10,7 @@ import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
-import { isLinearConfigured, getLinearUser, getLinearIssues, getLinearCycles, getLinearProjects, getLinearSyncStatus, syncLinearData, initLinearSchema, syncLinearNormalized, getLinearIssuesNormalized, getLinearStatesNormalized, moveLinearIssue, getLinearNormalizedSyncStatus, loadLinearConfig, fetchAndSyncLinear, startLinearAutoSync, isLinearDirectSyncConfigured } from "./linear.js";
+
 import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured, loadGithubConfig, fetchAndSyncGithub, startGithubAutoSync } from "./github.js";
 
 // ─── Input validation helpers ─────────────────────────────────────────────
@@ -46,7 +46,7 @@ writeDb.pragma("foreign_keys = ON");
 initSchema(writeDb);
 initScrumSchema(writeDb);
 runMigrations(writeDb);
-initLinearSchema(writeDb);
+
 ensureGithubTables(writeDb);
 
 // Soft-delete migration: add deleted_at columns if missing
@@ -695,7 +695,7 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'sync_linear', 'custom'];
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'custom'];
 
 function apiCreateBridgeAction(body: any) {
   if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
@@ -1348,34 +1348,6 @@ function apiProjectStatus() {
   };
 }
 
-// ─── Linear Proxy API ──────────────────────────────────────────────────────
-function apiLinearIssues(project?: string | null, state?: string | null) {
-  const issues = getLinearIssuesNormalized(writeDb, project, state);
-  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
-  const syncStatus = getLinearNormalizedSyncStatus(writeDb);
-  return { issues, columns, cachedAt: syncStatus.syncedAt, canSync: true };
-}
-
-function apiLinearStates() {
-  const states = getLinearStatesNormalized(writeDb);
-  const columns = ['TODO', 'IN_PROGRESS', 'DONE', 'NOT_DONE'];
-  return { states, availableColumns: columns };
-}
-
-function apiLinearMoveIssue(issueId: string, kanbanColumn: string) {
-  if (!issueId || issueId.length > 100 || typeof kanbanColumn !== 'string') throw Object.assign(new Error('Invalid parameters'), { status: 400 });
-  const result = moveLinearIssue(writeDb, issueId, kanbanColumn);
-  // Log to event_log for Claude reactivity
-  try {
-    writeDb.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', 0, 'status_changed', 'linear_status', ?, ?, 'dashboard-ui')`).run(result.previousState, result.newState);
-  } catch {}
-  return result;
-}
-
-function apiLinearSyncStatus() {
-  return getLinearNormalizedSyncStatus(writeDb);
-}
-
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -1633,77 +1605,6 @@ const server = http.createServer(async (req, res) => {
         data = apiFileContext(id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
-      // ── Linear / Me tab endpoints ──────────────────────────────────────
-      else if (url.pathname === "/api/me/configured") {
-        const syncStatus = getLinearSyncStatus(writeDb);
-        data = { configured: isLinearConfigured(), ...syncStatus };
-      } else if (url.pathname === "/api/me/user") {
-        data = getLinearUser(writeDb);
-      } else if (url.pathname === "/api/me/issues") {
-        data = getLinearIssues(writeDb);
-      } else if (url.pathname === "/api/me/cycles") {
-        data = getLinearCycles(writeDb);
-      } else if (url.pathname === "/api/me/projects") {
-        data = getLinearProjects(writeDb);
-      } else if (url.pathname === "/api/me/sync" && req.method === "POST") {
-        // Only accept sync from localhost
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
-        const body = await readBody(req);
-        data = syncLinearData(writeDb, body);
-        // Also populate normalized tables
-        try { syncLinearNormalized(writeDb, body); } catch {}
-        notifyClients();
-      }
-      // ── Linear Proxy API (normalized) ─────────────────────────────────
-      else if (url.pathname === "/api/linear/issues") {
-        const project = url.searchParams.get("project");
-        const state = url.searchParams.get("state");
-        data = apiLinearIssues(project, state);
-      }
-      else if (url.pathname === "/api/linear/states") {
-        data = apiLinearStates();
-      }
-      else if (url.pathname.match(/^\/api\/linear\/issue\/[^/]+\/status$/) && req.method === "PATCH") {
-        const issueId = url.pathname.split("/")[4];
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"write only from localhost"}'); return; }
-        const body = await readBody(req);
-        data = apiLinearMoveIssue(issueId, body.kanbanColumn);
-        notifyClients();
-      }
-      else if (url.pathname === "/api/linear/sync" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only from localhost"}'); return; }
-        const body = await readBody(req);
-        try { syncLinearNormalized(writeDb, body); } catch {}
-        data = syncLinearData(writeDb, body);
-        notifyClients();
-      }
-      else if (url.pathname === "/api/linear/sync/status") {
-        data = apiLinearSyncStatus();
-      }
-      else if (url.pathname === "/api/linear/sync/trigger" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
-        // Try direct sync if token is available, otherwise delegate to bridge
-        const result = await fetchAndSyncLinear(writeDb, dbPath);
-        if (result.ok) {
-          notifyClients();
-          data = result;
-        } else {
-          // No token — create bridge pending action for MCP-based sync
-          const bridgeResult = writeDb.prepare(
-            `INSERT INTO pending_actions (action, entity_type, payload, source) VALUES ('sync_linear', 'workspace', '{"trigger":"dashboard_button"}', 'dashboard')`
-          ).run();
-          notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(bridgeResult.lastInsertRowid), change: { action: "sync_linear" } });
-          data = { ok: true, bridge: true, actionId: bridgeResult.lastInsertRowid, message: "Linear sync requested via bridge. Claude will pick this up and sync via MCP tools." };
-        }
-      }
       // ── GitHub API ────────────────────────────────────────────────────
       else if (url.pathname === "/api/github/configured") {
         data = { configured: isGithubConfigured(), ...getGithubSyncStatus(writeDb) };
@@ -1865,8 +1766,6 @@ server.listen(PORT, () => {
   // Start GitHub auto-sync if .github.local.json exists
   startGithubAutoSync(writeDb, dbPath, () => notifyClients());
 
-  // Start Linear auto-sync if .linear.local.json exists
-  startLinearAutoSync(writeDb, dbPath, () => notifyClients());
 });
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
