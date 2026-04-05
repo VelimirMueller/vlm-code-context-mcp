@@ -111,9 +111,17 @@ export function Team() {
             {' active tickets — mood '}
             <AnimatedNumber value={avgMood} />
           </HeroText>
-          {(activeTab === 'grid' || !['workload', 'mood'].includes(activeTab)) && <TeamGrid />}
-          {activeTab === 'workload' && <WorkloadView />}
-          {activeTab === 'mood' && <MoodView />}
+          {agents.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 14 }}>
+              No agents configured. Use <code style={{ fontFamily: 'var(--mono)', background: 'var(--surface)', padding: '2px 6px', borderRadius: 4 }}>create_agent</code> to add team members.
+            </div>
+          ) : (
+            <>
+              {(activeTab === 'grid' || !['workload', 'mood'].includes(activeTab)) && <TeamGrid />}
+              {activeTab === 'workload' && <WorkloadView />}
+              {activeTab === 'mood' && <MoodView />}
+            </>
+          )}
         </motion.div>
       </AnimatePresence>
     </div>

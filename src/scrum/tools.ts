@@ -48,8 +48,7 @@ export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: 
 
   if (nextPhase === "implementation") {
     if (tickets.length === 0) warnings.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
-    const unassigned = tickets.filter((t: any) => !t.assigned_to);
-    if (unassigned.length > 0) warnings.push(`${unassigned.length} ticket(s) unassigned: ${unassigned.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to assign them.`);
+    // Assignment is optional — no warning for unassigned tickets
     const noPoints = tickets.filter((t: any) => t.story_points == null);
     if (noPoints.length > 0) warnings.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
     if (!sprint.velocity_committed || sprint.velocity_committed <= 0) warnings.push("velocity_committed not set. Use update_sprint to set committed velocity.");
@@ -498,7 +497,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const gates: string[] = [];
 
       if (status === "DONE") {
-        if (!ticket.assigned_to && !assigned_to) gates.push("Ticket has no assignee — assign before marking DONE");
+        // Assignment is optional — no gate for unassigned tickets
         if (ticket.sprint_id && !["implementation", "qa", "done"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation, qa, or done`);
       }
       if (status === "IN_PROGRESS") {

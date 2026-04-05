@@ -75,13 +75,13 @@ describe("checkSprintGates", () => {
       expect(gates.warnings.some((g) => g.includes("No tickets"))).toBe(true);
     });
 
-    it("warns if tickets are unassigned", () => {
+    it("does NOT warn for unassigned tickets (assignment is optional)", () => {
       const sid = createSprint(db, "s1", "planning", 10);
       createTicket(db, sid, { ticket_ref: "T-1", story_points: 3 }); // no assigned_to
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
       expect(gates.canProceed).toBe(true);
-      expect(gates.warnings.some((g) => g.includes("unassigned"))).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("unassigned"))).toBe(false);
     });
 
     it("warns if tickets are missing story points", () => {

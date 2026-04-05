@@ -163,14 +163,14 @@ describe("Sprint Lifecycle — advisory gate warnings", () => {
     expect(getSprintStatus(sprintId)).toBe("implementation");
   });
 
-  it("warns planning -> implementation with unassigned tickets", () => {
+  it("does NOT warn for unassigned tickets (assignment is optional)", () => {
     const sprintId = createSprint("Unassigned Sprint", "planning", 10);
     db.prepare(
       "INSERT INTO tickets (sprint_id, ticket_ref, title, priority, status, story_points) VALUES (?, ?, ?, 'P1', 'TODO', ?)"
     ).run(sprintId, "T-UA-01", "Unassigned work", 3);
 
     const warnings = advanceSprint(sprintId);
-    expect(warnings.some(g => g.includes("unassigned"))).toBe(true);
+    expect(warnings.some(g => g.includes("unassigned"))).toBe(false);
     // Still advances
     expect(getSprintStatus(sprintId)).toBe("implementation");
   });
