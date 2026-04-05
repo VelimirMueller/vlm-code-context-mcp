@@ -294,25 +294,16 @@ Run before every sprint ships:
 
 export const SPRINT_PROCESS_DEFAULT = {
   phases: [
-    { name: "Preparation", duration: "0.5 day", mandatory: true, ceremonies: ["SM + PO Sprint Prep", "Backlog Refinement", "Capacity Check"], criteria: ["Previous sprint closed", "Backlog groomed by PO", "Team availability confirmed"] },
-    { name: "Kickoff", duration: "0.5 day", mandatory: true, ceremonies: ["Sprint Planning Meeting", "Goal Setting", "Ticket Estimation"], criteria: ["Sprint goal defined", "Tickets estimated", "Team committed"] },
-    { name: "Planning", duration: "0.5 day", mandatory: true, ceremonies: ["Task Breakdown", "Subtask Assignment", "Dependency Mapping"], criteria: ["All tickets have subtasks", "Dependencies identified", "No unassigned tickets"] },
-    { name: "Implementation", duration: "2-3 days", mandatory: true, ceremonies: ["Daily Standups", "Pair Programming", "Code Reviews"], criteria: ["All tickets IN_PROGRESS or DONE", "No stale tickets (>24h without update)"] },
-    { name: "QA", duration: "1 day", mandatory: true, ceremonies: ["Full Test Suite", "Acceptance Criteria Verification", "Security Review"], criteria: ["All DONE tickets QA verified", "No CRITICAL/HIGH bugs open", "Security review passed"] },
-    { name: "Refactoring", duration: "0.5 day", mandatory: false, ceremonies: ["Code Cleanup", "Tech Debt Reduction"], criteria: ["No new features added", "Tests still pass"] },
-    { name: "Retro", duration: "0.5 day", mandatory: true, ceremonies: ["What Went Well", "What Went Wrong", "Action Items"], criteria: ["Every role contributed findings", "At least 1 actionable change identified"] },
-    { name: "Review", duration: "0.5 day", mandatory: true, ceremonies: ["Sprint Summary", "Milestone Review", "Stakeholder Update"], criteria: ["Sprint summary written", "Velocity recorded", "Milestone progress updated"] },
+    { name: "Planning", duration: "1 day", mandatory: true, ceremonies: ["Sprint Planning", "Goal Setting", "Ticket Assignment"], criteria: ["Sprint goal defined", "Tickets assigned", "Velocity committed"] },
+    { name: "Implementation", duration: "3-4 days", mandatory: true, ceremonies: ["Daily Standups", "Code Reviews", "QA Verification"], criteria: ["All tickets IN_PROGRESS or DONE", "No stale tickets"] },
+    { name: "Done", duration: "0.5 day", mandatory: true, ceremonies: ["Sprint Summary", "Retro Findings", "Velocity Review"], criteria: ["Results reviewed", "Retro findings logged"] },
+    { name: "Rest", duration: "0.5 day", mandatory: false, ceremonies: ["Team Recovery"], criteria: [] },
   ],
   transitions: {
-    preparation: "kickoff",
-    kickoff: "planning",
     planning: "implementation",
-    implementation: "qa",
-    qa: "refactoring",
-    refactoring: "retro",
-    retro: "review",
-    review: "closed",
-    closed: "rest",
+    implementation: "done",
+    done: "rest",
+    rest: "planning",
   },
 };
 
@@ -332,7 +323,7 @@ export const SKILL_DEFAULTS: SkillDefault[] = [
   },
   {
     name: "SPRINT_PHASES",
-    content: "preparation → kickoff → planning → implementation → qa → refactoring → retro → review → closed → rest",
+    content: "planning → implementation → done → rest",
     owner_role: "scrum-master",
   },
 ];

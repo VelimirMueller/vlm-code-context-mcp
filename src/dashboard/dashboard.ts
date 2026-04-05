@@ -21,7 +21,20 @@ function validateColor(hex: string) {
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw Object.assign(new Error('Invalid hex color'), { status: 400 });
 }
 function validateSprintTransition(current: string, next: string) {
-  const allowed: Record<string, string[]> = { preparation: ['kickoff'], kickoff: ['planning'], planning: ['implementation'], implementation: ['qa'], qa: ['refactoring', 'implementation'], refactoring: ['retro'], retro: ['review'], review: ['closed'], closed: ['rest'], rest: ['preparation'] };
+  const allowed: Record<string, string[]> = {
+    planning: ['implementation'],
+    implementation: ['done', 'qa'],
+    done: ['rest'],
+    rest: ['planning'],
+    // Legacy phases — map to nearest simplified transition
+    preparation: ['kickoff', 'implementation', 'planning'],
+    kickoff: ['planning', 'implementation'],
+    qa: ['refactoring', 'implementation', 'done', 'retro'],
+    refactoring: ['retro', 'done'],
+    retro: ['review', 'done', 'rest'],
+    review: ['closed', 'rest', 'done'],
+    closed: ['rest'],
+  };
   if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
 }
 
@@ -241,9 +254,9 @@ interface SprintPhase {
 
 const DEFAULT_SPRINT_PHASES: SprintPhase[] = [
   { name: "Planning", criteria: ["Sprint goal defined", "Tickets assigned"], actions: ["Commit velocity"], duration: "1 day" },
-  { name: "Implementation", criteria: ["Sprint active"], actions: ["Start tickets"], duration: "3 days" },
-  { name: "QA", criteria: ["All tickets in review"], actions: ["Run test suite", "Security review"], duration: "0.5 day" },
-  { name: "Retro", criteria: ["QA passed"], actions: ["Collect findings", "Archive sprint"], duration: "0.5 day" },
+  { name: "Implementation", criteria: ["Sprint active"], actions: ["Start tickets", "QA verification", "Code reviews"], duration: "3-4 days" },
+  { name: "Done", criteria: ["Results reviewed"], actions: ["Sprint summary", "Retro findings", "Velocity review"], duration: "0.5 day" },
+  { name: "Rest", criteria: [], actions: ["Team recovery"], duration: "0.5 day" },
 ];
 
 function parseSprintPhasesMarkdown(md: string): SprintPhase[] {
@@ -959,68 +972,49 @@ function apiPlanSprint(body: any) {
 }
 
 // ─── Sprint Update API ──────────────────────────────────────────────────────
-const SPRINT_PHASE_ORDER = ['preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest'] as const;
+const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'done', 'rest', 'preparation', 'kickoff', 'qa', 'refactoring', 'retro', 'review', 'closed'] as const;
 const SPRINT_TRANSITIONS: Record<string, string> = {
-  preparation: 'kickoff',
-  kickoff: 'planning',
   planning: 'implementation',
-  implementation: 'qa',
-  qa: 'refactoring',
-  refactoring: 'retro',
-  retro: 'review',
-  review: 'closed',
+  implementation: 'done',
+  done: 'rest',
+  rest: 'planning',
+  // Legacy phase mappings for backward compat
+  preparation: 'implementation',
+  kickoff: 'implementation',
+  qa: 'done',
+  refactoring: 'done',
+  retro: 'rest',
+  review: 'rest',
   closed: 'rest',
 };
 
 function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition: boolean; blockers: string[]; warnings: string[] } {
-  const blockers: string[] = [];
   const warnings: string[] = [];
 
   const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
   if (!sprint) return { canTransition: false, blockers: ['Sprint not found'], warnings: [] };
 
   if (targetPhase === 'implementation') {
-    // Check: sprint has tickets assigned
     const ticketCount = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (ticketCount === 0) blockers.push('No tickets assigned to this sprint');
-    // Check: velocity committed
+    if (ticketCount === 0) warnings.push('No tickets assigned to this sprint');
     if (!sprint.velocity_committed) warnings.push('No velocity committed');
   }
 
-  if (targetPhase === 'qa') {
-    // Check: ALL tickets must be DONE
+  if (targetPhase === 'done' || targetPhase === 'qa') {
     const undone = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (undone > 0) blockers.push(`${undone} tickets not DONE`);
-    // Check: no open blockers
+    if (undone > 0) warnings.push(`${undone} tickets not DONE`);
     const openBlockers = (writeDb.prepare("SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'").get(sprintId) as any).c;
-    if (openBlockers > 0) blockers.push(`${openBlockers} open blockers`);
-  }
-
-  if (targetPhase === 'retro') {
-    // Check: all tickets qa_verified
-    const unverified = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND qa_verified = 0 AND status = 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (unverified > 0) warnings.push(`${unverified} tickets not QA verified`);
-  }
-
-  if (targetPhase === 'review') {
-    // Check: retro findings exist
-    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
-    if (retroCount === 0) blockers.push('No retro findings recorded — cannot proceed to review');
-  }
-
-  if (targetPhase === 'closed') {
-    // Check: retro findings exist
-    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
-    if (retroCount === 0) warnings.push('No retro findings recorded');
-    // Check: velocity completed is set
-    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
+    if (openBlockers > 0) warnings.push(`${openBlockers} open blockers`);
   }
 
   if (targetPhase === 'rest') {
-    // No blockers for rest — just a team recovery phase
+    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
+    if (retroCount === 0) warnings.push('No retro findings recorded');
+    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
   }
 
-  return { canTransition: blockers.length === 0, blockers, warnings };
+  // Advisory gates: always allow transition, just warn
+  return { canTransition: true, blockers: [], warnings };
 }
 
 function apiSprintUpdate(id: number, body: any) {
@@ -1030,15 +1024,13 @@ function apiSprintUpdate(id: number, body: any) {
 
   const sets: string[] = []; const vals: any[] = [];
 
-  // Phase gate verification before transition
+  // Phase gate verification before transition (advisory — never blocks)
+  const gateWarnings: string[] = [];
   if (body.status && body.status !== current.status) {
     const gate = verifyPhaseGate(id, body.status);
-    if (!gate.canTransition) {
-      throw Object.assign(new Error('Phase gate blocked'), { status: 409, gate });
-    }
-    // Store warnings for response
-    if (gate.warnings.length > 0) {
-      (body as any)._gate_warnings = gate.warnings;
+    gateWarnings.push(...gate.warnings);
+    if (gateWarnings.length > 0) {
+      (body as any)._gate_warnings = gateWarnings;
     }
   }
 
@@ -1047,18 +1039,18 @@ function apiSprintUpdate(id: number, body: any) {
     const newStatus = body.status;
     const currentStatus = current.status;
 
-    // Validate transition order: planning -> implementation -> qa -> retro -> closed
+    // Validate transition order
     validateEnum(newStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
     validateEnum(currentStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
     validateSprintTransition(currentStatus, newStatus);
 
-    // When transitioning to 'qa': check all tickets are DONE
-    if (newStatus === 'qa') {
+    // When transitioning to 'done' or 'qa': advisory warnings only
+    if (newStatus === 'done' || newStatus === 'qa') {
       const undone = (writeDb.prepare(
         `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL`
       ).get(id) as any).c;
       if (undone > 0) {
-        throw new Error(`Cannot transition to qa: ${undone} ticket(s) are not DONE`);
+        gateWarnings.push(`${undone} ticket(s) are not DONE`);
       }
 
       // M13-038: Review sign-off warning for senior role tickets
@@ -1070,15 +1062,14 @@ function apiSprintUpdate(id: number, body: any) {
            AND (review_status IS NULL OR review_status != 'approved')`
       ).all(id) as any[];
       if (unapproved.length > 0) {
-        // Non-blocking warning — attach to response
         (body as any)._review_warnings = unapproved.map((t: any) =>
           `${t.ticket_ref} (${t.assigned_to}): review_status=${t.review_status ?? 'none'}`
         );
       }
     }
 
-    // When transitioning to 'retro': auto-generate retro analysis
-    if (newStatus === 'retro') {
+    // When transitioning to 'done' or 'retro': auto-generate retro analysis
+    if (newStatus === 'done' || newStatus === 'retro') {
       const { donePoints } = generateSprintAutoAnalysis(id);
       sets.push("velocity_completed=?"); vals.push(donePoints);
     }

@@ -12,52 +12,71 @@ function notifyDashboard(): void {
   } catch {}
 }
 
-/** Canonical phase transition map: current → next allowed phase. */
+/** Canonical phase transition map: current → next allowed phase (simplified 4-phase). */
 const PHASE_TRANSITIONS: Record<string, string> = {
-  preparation: "kickoff", kickoff: "planning", planning: "implementation",
-  implementation: "qa", qa: "retro", refactoring: "retro",
-  retro: "review", review: "closed", closed: "rest",
+  planning: "implementation",
+  implementation: "done",
+  done: "rest",
+  rest: "planning",
+};
+
+/** Map legacy phases to their nearest simplified phase. */
+const LEGACY_PHASE_MAP: Record<string, string> = {
+  preparation: "planning",
+  kickoff: "planning",
+  qa: "implementation",
+  refactoring: "implementation",
+  retro: "done",
+  review: "done",
+  closed: "done",
 };
 
 /**
- * Shared gate checks used by both advance_sprint and get_sprint_playbook.
- * Returns an array of gate-failure strings (empty = all gates pass).
+ * Resolve a sprint's effective phase — maps legacy phases to the nearest simplified phase.
  */
-export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: string): string[] {
-  const gates: string[] = [];
+function resolvePhase(status: string): string {
+  return LEGACY_PHASE_MAP[status] || status;
+}
+
+/**
+ * Shared gate checks used by both advance_sprint and get_sprint_playbook.
+ * Returns an advisory object: warnings are informational, canProceed is always true.
+ */
+export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: string): { warnings: string[]; canProceed: boolean } {
+  const warnings: string[] = [];
   const tickets = db.prepare('SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL').all(sprint.id) as any[];
 
   if (nextPhase === "implementation") {
-    if (tickets.length === 0) gates.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
+    if (tickets.length === 0) warnings.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
     const unassigned = tickets.filter((t: any) => !t.assigned_to);
-    if (unassigned.length > 0) gates.push(`${unassigned.length} ticket(s) unassigned: ${unassigned.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to assign them.`);
+    if (unassigned.length > 0) warnings.push(`${unassigned.length} ticket(s) unassigned: ${unassigned.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to assign them.`);
     const noPoints = tickets.filter((t: any) => t.story_points == null);
-    if (noPoints.length > 0) gates.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
-    if (!sprint.velocity_committed || sprint.velocity_committed <= 0) gates.push("velocity_committed not set. Use update_sprint to set committed velocity.");
+    if (noPoints.length > 0) warnings.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
+    if (!sprint.velocity_committed || sprint.velocity_committed <= 0) warnings.push("velocity_committed not set. Use update_sprint to set committed velocity.");
   }
-  if (nextPhase === "qa") {
+  if (nextPhase === "done" || nextPhase === "qa") {
     const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-    if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to mark them DONE/BLOCKED/NOT_DONE.`);
+    if (undone.length > 0) warnings.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to mark them DONE/BLOCKED/NOT_DONE.`);
     const openBlockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprint.id) as any).c;
-    if (openBlockerCount > 0) gates.push(`${openBlockerCount} open blocker(s) — resolve before advancing to QA. Use resolve_blocker to close them.`);
+    if (openBlockerCount > 0) warnings.push(`${openBlockerCount} open blocker(s). Use resolve_blocker to close them.`);
   }
   if (nextPhase === "closed" || nextPhase === "review") {
     const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
     if (doneNoQA.length > 0) {
       const ticketList = doneNoQA.map((t: any) => `${t.ticket_ref || '#' + t.id} ${t.title}`).join(", ");
-      gates.push(`Tickets need QA verification: ${ticketList}. Use update_ticket to verify them (qa_verified=true).`);
+      warnings.push(`Tickets need QA verification: ${ticketList}. Use update_ticket to verify them (qa_verified=true).`);
     }
   }
   if (nextPhase === "retro") {
     const inProgress = tickets.filter((t: any) => t.status === "IN_PROGRESS");
-    if (inProgress.length > 0) gates.push(`${inProgress.length} ticket(s) still IN_PROGRESS: ${inProgress.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Complete or mark as NOT_DONE before retro.`);
+    if (inProgress.length > 0) warnings.push(`${inProgress.length} ticket(s) still IN_PROGRESS: ${inProgress.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Complete or mark as NOT_DONE before retro.`);
   }
   if (nextPhase === "rest") {
     const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
-    if (retroCount === 0) gates.push("No retro findings — use add_retro_finding before advancing to rest.");
+    if (retroCount === 0) warnings.push("No retro findings — consider using add_retro_finding before rest.");
   }
 
-  return gates;
+  return { warnings, canProceed: true };
 }
 
 /**
@@ -92,7 +111,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "list_sprints",
     "List all sprints with status and ticket counts",
-    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional().describe("Filter by status") },
+    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional().describe("Filter by status") },
     async ({ status }) => {
       let q = `SELECT s.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM sprints s LEFT JOIN tickets t ON t.sprint_id=s.id`;
       const params: any[] = [];
@@ -238,7 +257,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Update sprint status or details",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional(),
+      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional(),
       goal: z.string().optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
@@ -248,17 +267,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
-      // ─── Phase transition gates ─────────────────────────────────
+      // ─── Phase transition gates (advisory) ─────────────────────
+      let gateWarnings: string[] = [];
       if (status) {
-        const allowed = PHASE_TRANSITIONS[sprint.status];
-        if (allowed !== status) {
-          return { content: [{ type: "text" as const, text: `Cannot transition ${sprint.status} → ${status}. Expected: ${allowed}` }], isError: true };
+        const effectivePhase = resolvePhase(sprint.status);
+        const allowed = PHASE_TRANSITIONS[effectivePhase];
+        if (allowed && allowed !== status) {
+          // Allow the transition but warn
+          gateWarnings.push(`Unusual transition: ${sprint.status} → ${status}. Expected next: ${allowed}`);
         }
 
         const gates = checkSprintGates(db, sprint, status);
-        if (gates.length > 0) {
-          return { content: [{ type: "text" as const, text: `Gate blocked for sprint ${sprint.name} (${sprint.status} → ${status}):\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
-        }
+        gateWarnings = gateWarnings.concat(gates.warnings);
       }
 
       // ─── Apply updates ──────────────────────────────────────────
@@ -281,9 +301,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {}
       }
 
-      // M12-015: Auto-generate retro analysis when sprint is closed
+      // M12-015: Auto-generate retro analysis when sprint is done or closed
       let retroNote = "";
-      if (status === "closed") {
+      if (status === "closed" || status === "done") {
         try {
           const sprint = db.prepare(`SELECT * FROM sprints WHERE id=?`).get(sprint_id) as any;
           const tickets = db.prepare(`SELECT id, status, story_points FROM tickets WHERE sprint_id=?`).all(sprint_id) as any[];
@@ -331,7 +351,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       }
 
       notifyDashboard();
-      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}` }] };
+      const warningText = gateWarnings.length > 0 ? `\nWarnings:\n${gateWarnings.map(w => `- ${w}`).join("\n")}` : "";
+      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}${warningText}` }] };
     }
   );
 
@@ -348,23 +369,24 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
-      const nextPhase = PHASE_TRANSITIONS[sprint.status];
+      // Resolve legacy phases to the nearest simplified phase for transition lookup
+      const effectivePhase = resolvePhase(sprint.status);
+      const nextPhase = PHASE_TRANSITIONS[effectivePhase];
       if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
 
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
 
-      // Use shared gate checks
+      // Use shared gate checks (advisory — never blocks)
       const gates = checkSprintGates(db, sprint, nextPhase);
 
       // Auto-calculate velocity_completed from DONE tickets if not provided
-      if ((nextPhase === "closed") && !velocity_completed && !sprint.velocity_completed) {
+      if ((nextPhase === "done" || nextPhase === "closed") && !velocity_completed && !sprint.velocity_completed) {
         const autoVelocity = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
         velocity_completed = autoVelocity;
       }
 
-      if (gates.length > 0) {
-        return { content: [{ type: "text" as const, text: `Cannot advance "${sprint.name}" from ${sprint.status} → ${nextPhase}:\n${gates.map(g => `- ${g}`).join("\n")}\n\nResolve these gates and call advance_sprint again.` }], isError: true };
-      }
+      // Gates are advisory — always proceed, but include warnings in response
+      const warningText = gates.warnings.length > 0 ? `\nWarnings:\n${gates.warnings.map(w => `- ${w}`).join("\n")}` : "";
 
       // Advance the sprint
       const sets = ["status=?", "updated_at=datetime('now')"];
@@ -378,9 +400,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
       } catch {}
 
-      // Auto retro analysis on close
+      // Auto retro analysis when reaching done or closed
       let retroNote = "";
-      if (nextPhase === "closed") {
+      if (nextPhase === "done" || nextPhase === "closed") {
         try {
           const totalTickets = tickets.length;
           const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
@@ -412,18 +434,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
-        kickoff: "Define sprint goal, estimate tickets, get team commitment. Then call advance_sprint to proceed to planning.",
-        planning: "Break tickets into subtasks, assign agents, map dependencies. Then call advance_sprint to start implementation.",
         implementation: "Agents work on tickets. Update ticket status via update_ticket as work progresses. Call advance_sprint once all tickets are DONE.",
-        qa: "QA verifies each DONE ticket via update_ticket with qa_verified=true. Security review runs alongside. Call advance_sprint once all verified.",
-        retro: "Each role adds retro findings via add_retro_finding. Identify at least 1 actionable change. Call advance_sprint to proceed to review.",
-        review: "Write sprint summary, update milestone progress, record velocity. Call advance_sprint to close the sprint.",
-        closed: "Sprint closed. Call advance_sprint now to move to rest.",
-        rest: "Sprint complete. Call start_sprint now to begin the next sprint.",
+        done: "Sprint work complete. Review results, add retro findings via add_retro_finding, then call advance_sprint to move to rest.",
+        rest: "Sprint complete. Call start_sprint to begin the next sprint.",
+        planning: "Assign tickets, set velocity, then call advance_sprint to start implementation.",
       };
 
       notifyDashboard();
-      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
+      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}${warningText}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
     }
   );
 
@@ -481,10 +499,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       if (status === "DONE") {
         if (!ticket.assigned_to && !assigned_to) gates.push("Ticket has no assignee — assign before marking DONE");
-        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+        if (ticket.sprint_id && !["implementation", "qa", "done"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation, qa, or done`);
       }
       if (status === "IN_PROGRESS") {
-        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+        if (ticket.sprint_id && !["implementation", "qa", "done"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation, qa, or done`);
       }
 
       if (gates.length > 0) {
@@ -845,19 +863,23 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
 
       // Gate check for next phase (uses shared function)
-      const nextPhase = PHASE_TRANSITIONS[sprint.status] || "done";
-      const gates = nextPhase !== "done" ? checkSprintGates(db, sprint, nextPhase) : [];
+      const effectivePhase = resolvePhase(sprint.status);
+      const nextPhase = PHASE_TRANSITIONS[effectivePhase] || "done";
+      const gates = checkSprintGates(db, sprint, nextPhase);
 
       const ACTIONS: Record<string, string[]> = {
-        preparation: ["Review backlog", "PO grooms tickets", "Check team capacity", "Call advance_sprint to proceed to kickoff"],
-        kickoff: ["Define sprint goal", "Estimate tickets", "Get team commitment", "Call advance_sprint to proceed to planning"],
-        planning: ["Break tickets into subtasks", "Assign agents", "Map dependencies", "Call advance_sprint to start implementation"],
+        planning: ["Assign tickets, set velocity", "Call advance_sprint to start implementation"],
         implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Call advance_sprint once all tickets are DONE"],
-        qa: ["QA verifies each DONE ticket", "Call update_ticket with qa_verified=true", "Security review alongside QA", "Call advance_sprint once all tickets are QA verified"],
-        refactoring: ["Optional cleanup", "No new features", "Call advance_sprint to proceed to retro"],
-        retro: ["Add retro findings via add_retro_finding", "Each role contributes", "Call advance_sprint once findings are logged"],
-        review: ["Write sprint summary", "Update milestone progress", "Record velocity", "Call advance_sprint to close the sprint"],
-        closed: ["Sprint closed", "Call advance_sprint now to move to rest"],
+        done: ["Review results, add retro findings via add_retro_finding", "Call advance_sprint to move to rest"],
+        rest: ["Sprint complete", "Call start_sprint to begin next sprint"],
+        // Legacy phase actions for backward compat
+        preparation: ["Review backlog", "Call advance_sprint to proceed"],
+        kickoff: ["Define sprint goal", "Call advance_sprint to proceed"],
+        qa: ["QA verifies tickets", "Call advance_sprint to proceed"],
+        refactoring: ["Optional cleanup", "Call advance_sprint to proceed"],
+        retro: ["Add retro findings", "Call advance_sprint to proceed"],
+        review: ["Write sprint summary", "Call advance_sprint to proceed"],
+        closed: ["Sprint closed", "Call advance_sprint to move to rest"],
       };
 
       const lines = [
@@ -870,7 +892,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         ...Object.entries(byStatus).map(([s, c]) => `  ${s}: ${c}`),
         ``,
         `## Gate Status for ${sprint.status} → ${nextPhase}`,
-        gates.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.map(g => `  BLOCKED: ${g}`).join("\n"),
+        gates.warnings.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.warnings.map(g => `  WARNING: ${g}`).join("\n"),
         ``,
         `## What To Do Now`,
         ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
@@ -947,7 +969,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           `2. Review tickets, adjust assignments if needed`,
           `3. Use \`advance_sprint(${sprintId})\` to move to implementation`,
           `4. Update tickets via \`update_ticket\` as work progresses`,
-          `5. Use \`advance_sprint\` to move through qa → retro → review → closed`,
+          `5. Use \`advance_sprint\` to move through implementation → done → rest`,
         ].filter(Boolean).join("\n") }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error creating sprint: ${e.message}` }], isError: true };
