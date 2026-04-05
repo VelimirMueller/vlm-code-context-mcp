@@ -418,41 +418,46 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
-    expect(gates).toEqual([]);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings).toEqual([]);
   });
 
-  it("blocks implementation with no tickets", () => {
+  it("warns implementation with no tickets", () => {
     const sprintId = createSprint("gate-2", "planning", { velocity_committed: 10 });
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
-    expect(gates.some(g => g.includes("No tickets assigned"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("No tickets assigned"))).toBe(true);
   });
 
-  it("blocks implementation with unassigned tickets", () => {
+  it("warns implementation with unassigned tickets", () => {
     const sprintId = createSprint("gate-3", "planning", { velocity_committed: 10 });
     createTicket(sprintId, "T-G03", "Unassigned", { story_points: 3 });
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
-    expect(gates.some(g => g.includes("unassigned"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("unassigned"))).toBe(true);
   });
 
-  it("blocks implementation with missing story points", () => {
+  it("warns implementation with missing story points", () => {
     const sprintId = createSprint("gate-4", "planning", { velocity_committed: 10 });
     createTicket(sprintId, "T-G04", "No points", { assigned_to: "dev" });
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
-    expect(gates.some(g => g.includes("missing story points"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("missing story points"))).toBe(true);
   });
 
-  it("blocks implementation without velocity_committed", () => {
+  it("warns implementation without velocity_committed", () => {
     const sprintId = createSprint("gate-5", "planning");
     createTicket(sprintId, "T-G05", "Task", { assigned_to: "dev", story_points: 3 });
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
-    expect(gates.some(g => g.includes("velocity_committed not set"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("velocity_committed not set"))).toBe(true);
   });
 
   it("passes qa gate when all tickets are DONE/BLOCKED/NOT_DONE", () => {
@@ -464,20 +469,22 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "qa");
-    expect(gates).toEqual([]);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings).toEqual([]);
   });
 
-  it("blocks qa with IN_PROGRESS tickets", () => {
+  it("warns qa with IN_PROGRESS tickets", () => {
     const sprintId = createSprint("gate-7", "implementation", { velocity_committed: 10 });
     const t1 = createTicket(sprintId, "T-G08", "WIP", { assigned_to: "dev", story_points: 5 });
     db.prepare("UPDATE tickets SET status = 'IN_PROGRESS' WHERE id = ?").run(t1);
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "qa");
-    expect(gates.some(g => g.includes("still in progress"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("still in progress"))).toBe(true);
   });
 
-  it("blocks qa with open blockers", () => {
+  it("warns qa with open blockers", () => {
     const sprintId = createSprint("gate-8", "implementation", { velocity_committed: 10 });
     const t1 = createTicket(sprintId, "T-G09", "Done task", { assigned_to: "dev", story_points: 5 });
     db.prepare("UPDATE tickets SET status = 'DONE' WHERE id = ?").run(t1);
@@ -485,20 +492,23 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "qa");
-    expect(gates.some(g => g.includes("open blocker"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("open blocker"))).toBe(true);
   });
 
-  it("blocks review/closed with unverified DONE tickets", () => {
+  it("warns review/closed with unverified DONE tickets", () => {
     const sprintId = createSprint("gate-9", "review", { velocity_committed: 10 });
     const t1 = createTicket(sprintId, "T-G10", "Unverified", { assigned_to: "dev", story_points: 5 });
     db.prepare("UPDATE tickets SET status = 'DONE' WHERE id = ?").run(t1);
 
     const sprint = getSprint(sprintId);
     const gatesReview = checkSprintGates(db, sprint, "review");
-    expect(gatesReview.some(g => g.includes("QA verification"))).toBe(true);
+    expect(gatesReview.canProceed).toBe(true);
+    expect(gatesReview.warnings.some(g => g.includes("QA verification"))).toBe(true);
 
     const gatesClosed = checkSprintGates(db, sprint, "closed");
-    expect(gatesClosed.some(g => g.includes("QA verification"))).toBe(true);
+    expect(gatesClosed.canProceed).toBe(true);
+    expect(gatesClosed.warnings.some(g => g.includes("QA verification"))).toBe(true);
   });
 
   it("passes review gate with qa_verified tickets", () => {
@@ -508,25 +518,28 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "review");
-    expect(gates).toEqual([]);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings).toEqual([]);
   });
 
-  it("blocks retro with IN_PROGRESS tickets", () => {
+  it("warns retro with IN_PROGRESS tickets", () => {
     const sprintId = createSprint("gate-11", "qa", { velocity_committed: 10 });
     const t1 = createTicket(sprintId, "T-G12", "Still WIP", { assigned_to: "dev", story_points: 5 });
     db.prepare("UPDATE tickets SET status = 'IN_PROGRESS' WHERE id = ?").run(t1);
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "retro");
-    expect(gates.some(g => g.includes("IN_PROGRESS"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("IN_PROGRESS"))).toBe(true);
   });
 
-  it("blocks rest without retro findings", () => {
+  it("warns rest without retro findings", () => {
     const sprintId = createSprint("gate-12", "closed", { velocity_committed: 10 });
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "rest");
-    expect(gates.some(g => g.includes("No retro findings"))).toBe(true);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings.some(g => g.includes("retro"))).toBe(true);
   });
 
   it("passes rest gate with retro findings", () => {
@@ -536,7 +549,8 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "rest");
-    expect(gates).toEqual([]);
+    expect(gates.canProceed).toBe(true);
+    expect(gates.warnings).toEqual([]);
   });
 
   it("excludes soft-deleted tickets from gate checks", () => {
@@ -549,37 +563,43 @@ describe("advance_sprint — checkSprintGates", () => {
 
     const sprint = getSprint(sprintId);
     const gates = checkSprintGates(db, sprint, "implementation");
+    expect(gates.canProceed).toBe(true);
     // Should not complain about unassigned — the unassigned one is deleted
-    expect(gates.filter(g => g.includes("unassigned"))).toHaveLength(0);
+    expect(gates.warnings.filter(g => g.includes("unassigned"))).toHaveLength(0);
   });
 });
 
 // ── advance_sprint — full transition ───────────────────────────────────────
 
 describe("advance_sprint — phase transitions and discovery archival", () => {
-  const TRANSITIONS: Record<string, string> = {
-    preparation: "kickoff",
+  const LEGACY_PHASE_MAP: Record<string, string> = {
+    preparation: "planning",
     kickoff: "planning",
+    qa: "implementation",
+    refactoring: "implementation",
+    retro: "done",
+    review: "done",
+    closed: "done",
+  };
+  const TRANSITIONS: Record<string, string> = {
     planning: "implementation",
-    implementation: "qa",
-    qa: "retro",
-    refactoring: "retro",
-    retro: "review",
-    review: "closed",
-    closed: "rest",
+    implementation: "done",
+    done: "rest",
+    rest: "planning",
   };
 
   function advanceSprint(sprintId: number, velocityCompleted?: number): string[] {
     const sprint = getSprint(sprintId);
-    const nextPhase = TRANSITIONS[sprint.status];
+    const effectivePhase = LEGACY_PHASE_MAP[sprint.status] || sprint.status;
+    const nextPhase = TRANSITIONS[effectivePhase];
     if (!nextPhase) throw new Error(`No transition from ${sprint.status}`);
 
     const gates = checkSprintGates(db, sprint, nextPhase);
-    if (gates.length > 0) return gates;
+    // Gates are advisory — always proceed
 
     const tickets = db.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sprintId) as any[];
 
-    if ((nextPhase === "closed") && !velocityCompleted && !sprint.velocity_completed) {
+    if ((nextPhase === "done" || nextPhase === "closed") && !velocityCompleted && !sprint.velocity_completed) {
       velocityCompleted = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
     }
 
@@ -589,8 +609,8 @@ describe("advance_sprint — phase transitions and discovery archival", () => {
     vals.push(sprintId);
     db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
 
-    // Auto retro analysis on close
-    if (nextPhase === "closed") {
+    // Auto retro analysis when done
+    if (nextPhase === "done" || nextPhase === "closed") {
       const totalTickets = tickets.length;
       const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
       const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
@@ -599,31 +619,32 @@ describe("advance_sprint — phase transitions and discovery archival", () => {
       db.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')").run(sprintId, summary);
     }
 
-    return [];
+    return gates.warnings;
   }
 
-  it("advances through preparation -> kickoff -> planning", () => {
-    const sprintId = createSprint("trans-1", "preparation");
-    expect(advanceSprint(sprintId)).toEqual([]);
-    expect(getSprint(sprintId).status).toBe("kickoff");
+  it("advances through planning -> implementation -> done -> rest", () => {
+    const sprintId = createSprint("trans-1", "planning", { velocity_committed: 10 });
+    createTicket(sprintId, "T-T00", "Task", { assigned_to: "dev", story_points: 5 });
 
-    expect(advanceSprint(sprintId)).toEqual([]);
-    expect(getSprint(sprintId).status).toBe("planning");
+    advanceSprint(sprintId); // planning -> implementation
+    expect(getSprint(sprintId).status).toBe("implementation");
+
+    db.prepare("UPDATE tickets SET status = 'DONE' WHERE sprint_id = ?").run(sprintId);
+    advanceSprint(sprintId); // implementation -> done
+    expect(getSprint(sprintId).status).toBe("done");
+
+    advanceSprint(sprintId); // done -> rest
+    expect(getSprint(sprintId).status).toBe("rest");
   });
 
-  it("generates auto retro analysis on close", () => {
+  it("generates auto retro analysis when reaching done", () => {
     const sprintId = createSprint("trans-2", "planning", { velocity_committed: 10 });
     const t1 = createTicket(sprintId, "T-T01", "Done task", { assigned_to: "dev", story_points: 5 });
     const t2 = createTicket(sprintId, "T-T02", "Also done", { assigned_to: "dev", story_points: 5 });
 
     advanceSprint(sprintId); // planning -> implementation
     db.prepare("UPDATE tickets SET status = 'DONE' WHERE id IN (?, ?)").run(t1, t2);
-    advanceSprint(sprintId); // implementation -> qa
-    db.prepare("UPDATE tickets SET qa_verified = 1 WHERE id IN (?, ?)").run(t1, t2);
-    advanceSprint(sprintId); // qa -> retro
-    db.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'went_well', 'All done', 'team')").run(sprintId);
-    advanceSprint(sprintId); // retro -> review
-    advanceSprint(sprintId); // review -> closed
+    advanceSprint(sprintId); // implementation -> done
 
     const retro = db.prepare("SELECT * FROM retro_findings WHERE sprint_id = ? AND category = 'auto_analysis'").get(sprintId) as any;
     expect(retro).toBeDefined();
@@ -641,25 +662,19 @@ describe("advance_sprint — phase transitions and discovery archival", () => {
     advanceSprint(sprintId); // -> implementation
     db.prepare("UPDATE tickets SET status = 'DONE' WHERE id IN (?, ?)").run(t1, t2);
     db.prepare("UPDATE tickets SET status = 'NOT_DONE' WHERE id = ?").run(t3);
-    advanceSprint(sprintId); // -> qa
-    db.prepare("UPDATE tickets SET qa_verified = 1 WHERE id IN (?, ?)").run(t1, t2);
-    advanceSprint(sprintId); // -> retro
-    db.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'went_well', 'Good', 'team')").run(sprintId);
-    advanceSprint(sprintId); // -> review
-    advanceSprint(sprintId); // -> closed
+    advanceSprint(sprintId); // -> done
 
     const sprint = getSprint(sprintId);
     expect(sprint.velocity_completed).toBe(13); // 5 + 8
-    expect(sprint.status).toBe("closed");
+    expect(sprint.status).toBe("done");
   });
 
-  it("handles refactoring -> retro transition", () => {
-    // Directly set to refactoring (alternative path)
+  it("handles legacy refactoring phase via mapping to implementation -> done", () => {
+    // Directly set to refactoring (legacy path — maps to implementation)
     const sprintId = createSprint("trans-4", "refactoring", { velocity_committed: 10 });
 
-    const gates = advanceSprint(sprintId);
-    expect(gates).toEqual([]);
-    expect(getSprint(sprintId).status).toBe("retro");
+    advanceSprint(sprintId);
+    expect(getSprint(sprintId).status).toBe("done");
   });
 });
 
