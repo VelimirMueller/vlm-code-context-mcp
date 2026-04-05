@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSprints } from '@/hooks/useSprints';
 import { useSprintStore } from '@/stores/sprintStore';
@@ -10,8 +10,6 @@ import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
 import { BentoGrid } from '@/components/organisms/BentoGrid';
 import { tabVariants, tabTransition } from '@/lib/motion';
-import { get } from '@/lib/api';
-import type { RetroFinding } from '@/types';
 
 const RETRO_TABS = [
   { key: 'insights', label: 'Findings' },
@@ -20,14 +18,12 @@ const RETRO_TABS = [
 ];
 
 function HistoryView() {
-  const [allFindings, setAllFindings] = useState<(RetroFinding & { sprint_name?: string })[]>([]);
-  const sprints = useSprintStore((s) => s.sprints);
+  const allFindings = useSprintStore((s) => s.allRetroFindings);
+  const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
 
   useEffect(() => {
-    get<(RetroFinding & { sprint_name?: string })[]>('/api/retro/all')
-      .then((f) => setAllFindings(Array.isArray(f) ? f : []))
-      .catch(() => setAllFindings([]));
-  }, [sprints.length]);
+    fetchAllRetro();
+  }, [fetchAllRetro]);
 
   const byCategory = (cat: string) => allFindings.filter((f) => f.category === cat);
   const categories = [
@@ -67,17 +63,14 @@ function HistoryView() {
 }
 
 function PatternsView() {
-  const [autoFindings, setAutoFindings] = useState<(RetroFinding & { sprint_name?: string })[]>([]);
-  const sprints = useSprintStore((s) => s.sprints);
+  const allFindings = useSprintStore((s) => s.allRetroFindings);
+  const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
 
   useEffect(() => {
-    get<(RetroFinding & { sprint_name?: string })[]>('/api/retro/all')
-      .then((findings) => {
-        const auto = (Array.isArray(findings) ? findings : []).filter((f) => f.category === 'auto_analysis');
-        setAutoFindings(auto);
-      })
-      .catch(() => setAutoFindings([]));
-  }, [sprints.length]);
+    fetchAllRetro();
+  }, [fetchAllRetro]);
+
+  const autoFindings = allFindings.filter((f) => f.category === 'auto_analysis');
 
   if (autoFindings.length === 0) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>No auto-analysis patterns yet. Close a sprint to generate analysis.</div>;
@@ -103,7 +96,7 @@ function PatternsView() {
 export function Retro() {
   useSprints();
 
-  const retroFindings = useSprintStore((s) => s.retroFindings);
+  const allRetroFindings = useSprintStore((s) => s.allRetroFindings);
   const sprints = useSprintStore((s) => s.sprints);
   const activeTab = useUIStore((s) => s.activeTab);
 
@@ -121,7 +114,7 @@ export function Retro() {
           style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
         >
           <HeroText>
-            <AnimatedNumber value={retroFindings.length} />
+            <AnimatedNumber value={allRetroFindings.length} />
             {' findings across '}
             <AnimatedNumber value={sprints.length} />
             {" sprints — here's what we learned"}

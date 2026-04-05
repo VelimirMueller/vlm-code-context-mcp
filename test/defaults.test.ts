@@ -57,12 +57,11 @@ describe("seedDefaults", () => {
 
   it("seeds all agent fields correctly", () => {
     seedDefaults(db);
-    const architect = db.prepare("SELECT * FROM agents WHERE role = 'architect'").get() as any;
-    expect(architect).toBeDefined();
-    expect(architect.name).toBe("Architect agent");
-    expect(architect.model).toBe("claude-opus-4-5");
-    expect(architect.system_prompt).toContain("Architect");
-    expect(architect.description).toContain("infrastructure");
+    const dev = db.prepare("SELECT * FROM agents WHERE role = 'developer'").get() as any;
+    expect(dev).toBeDefined();
+    expect(dev.name).toBe("Developer");
+    expect(dev.model).toBe("claude-sonnet-4-6");
+    expect(dev.description).toContain("Implements");
   });
 });
 
@@ -82,8 +81,8 @@ describe("resetAgents", () => {
     expect(custom).toBeUndefined();
 
     // Factory agents present
-    const backend = db.prepare("SELECT * FROM agents WHERE role = 'backend-developer'").get();
-    expect(backend).toBeDefined();
+    const dev = db.prepare("SELECT * FROM agents WHERE role = 'developer'").get();
+    expect(dev).toBeDefined();
   });
 });
 
@@ -110,8 +109,8 @@ describe("resetSprintProcess", () => {
 });
 
 describe("AGENT_DEFAULTS integrity", () => {
-  it("has 15 agents", () => {
-    expect(AGENT_DEFAULTS.length).toBe(15);
+  it("has 4 agents", () => {
+    expect(AGENT_DEFAULTS.length).toBe(4);
   });
 
   it("all agents have required fields", () => {
@@ -123,13 +122,9 @@ describe("AGENT_DEFAULTS integrity", () => {
     }
   });
 
-  it("core agents have system prompts", () => {
-    const core = ["architect", "backend-developer", "frontend-developer", "lead-developer", "manager", "product-owner", "qa", "scrum-master", "security-specialist"];
-    for (const role of core) {
-      const agent = AGENT_DEFAULTS.find(a => a.role === role);
-      expect(agent, `${role} missing`).toBeDefined();
-      expect(agent!.system_prompt.length, `${role} has no system prompt`).toBeGreaterThan(50);
-    }
+  it("has the 4 core roles", () => {
+    const roles = AGENT_DEFAULTS.map(a => a.role).sort();
+    expect(roles).toEqual(["developer", "devops", "product-owner", "qa"]);
   });
 
   it("no duplicate roles", () => {

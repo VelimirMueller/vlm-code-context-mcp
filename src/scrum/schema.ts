@@ -24,7 +24,7 @@ export function initScrumSchema(db: Database.Database): void {
       goal TEXT,
       start_date TEXT,
       end_date TEXT,
-      status TEXT NOT NULL DEFAULT 'preparation' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest')),
+      status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest', 'done')),
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
       deleted_at TEXT DEFAULT NULL,
@@ -229,46 +229,6 @@ export function initScrumSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE TABLE IF NOT EXISTS linear_states (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'backlog' CHECK (type IN ('backlog', 'unstarted', 'started', 'completed', 'cancelled')),
-      color TEXT,
-      position INTEGER DEFAULT 0,
-      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS linear_issues (
-      id TEXT PRIMARY KEY,
-      identifier TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      state_id TEXT,
-      priority INTEGER DEFAULT 4,
-      priority_label TEXT,
-      assignee_id TEXT,
-      assignee_name TEXT,
-      project_name TEXT,
-      cycle_name TEXT,
-      labels TEXT,
-      url TEXT,
-      created_at TEXT,
-      updated_at TEXT,
-      synced_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (state_id) REFERENCES linear_states(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS linear_labels (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      color TEXT,
-      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_linear_issues_state ON linear_issues(state_id);
-    CREATE INDEX IF NOT EXISTS idx_linear_issues_assignee ON linear_issues(assignee_id);
-    CREATE INDEX IF NOT EXISTS idx_linear_issues_project ON linear_issues(project_name);
-
     CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
     CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
     CREATE INDEX IF NOT EXISTS idx_epics_milestone ON epics(milestone_id);
@@ -448,6 +408,13 @@ export function runMigrations(db: Database.Database): void {
     ` },
     { version: 14, name: 'add_retro_linked_ticket_id', sql: `SELECT 1` },
     { version: 15, name: 'add_resolution_plan_to_discoveries', sql: `SELECT 1` },
+    { version: 16, name: 'drop_linear_tables', sql: `
+      DROP TABLE IF EXISTS linear_cache;
+      DROP TABLE IF EXISTS linear_issues;
+      DROP TABLE IF EXISTS linear_states;
+      DROP TABLE IF EXISTS linear_labels;
+    ` },
+    { version: 17, name: 'simplify_sprint_phases_add_done', sql: `SELECT 1` },
   ];
   for (const m of migrations) {
     if (m.version > current) {
@@ -465,5 +432,56 @@ export function runMigrations(db: Database.Database): void {
   const discoveryCols = db.pragma("table_info(discoveries)") as Array<{ name: string }>;
   if (!discoveryCols.some((c) => c.name === "resolution_plan")) {
     db.exec("ALTER TABLE discoveries ADD COLUMN resolution_plan TEXT");
+  }
+
+  // Migration 17: Rebuild sprints table with 'done' in CHECK constraint (idempotent)
+  // Check if the current sprints CHECK constraint already includes 'done'
+  const sprintTableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sprints'").get() as any)?.sql ?? "";
+  if (!sprintTableSql.includes("'done'")) {
+    const sprintCols = db.pragma("table_info(sprints)") as Array<{ name: string }>;
+    const hasDeletedAt = sprintCols.some((c) => c.name === "deleted_at");
+    const colList = hasDeletedAt
+      ? "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id, deleted_at"
+      : "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id";
+    const deletedAtCol = hasDeletedAt ? ",\n        deleted_at TEXT DEFAULT NULL" : "";
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sprints_v3 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        goal TEXT,
+        start_date TEXT,
+        end_date TEXT,
+        status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest', 'done')),
+        velocity_committed INTEGER DEFAULT 0,
+        velocity_completed INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        milestone_id INTEGER REFERENCES milestones(id)${deletedAtCol}
+      );
+    `);
+    // If source has deleted_at, copy it; otherwise let it default to NULL
+    if (hasDeletedAt) {
+      db.exec(`INSERT OR IGNORE INTO sprints_v3 (${colList}) SELECT ${colList} FROM sprints;`);
+    } else {
+      db.exec(`INSERT OR IGNORE INTO sprints_v3 (id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id) SELECT id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id FROM sprints;`);
+    }
+    db.exec(`DROP VIEW IF EXISTS velocity_trends;`);
+    db.exec(`DROP TABLE sprints;`);
+    db.exec(`ALTER TABLE sprints_v3 RENAME TO sprints;`);
+    // Recreate velocity_trends view
+    db.exec(`
+      CREATE VIEW IF NOT EXISTS velocity_trends AS
+      SELECT
+        s.id as sprint_id, s.name as sprint_name, s.status,
+        s.velocity_committed as committed, s.velocity_completed as completed,
+        CASE WHEN s.velocity_committed > 0 THEN ROUND(CAST(s.velocity_completed AS REAL) / s.velocity_committed * 100, 1) ELSE 0 END as completion_rate,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as tickets_done,
+        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as tickets_total,
+        (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id) as bugs_found,
+        (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id AND status = 'fixed') as bugs_fixed,
+        s.start_date, s.end_date, s.created_at
+      FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC;
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);`);
   }
 }

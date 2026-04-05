@@ -67,35 +67,39 @@ describe("checkSprintGates", () => {
   // ─── planning → implementation ───────────────────────────────────────
 
   describe("planning -> implementation", () => {
-    it("blocks if no tickets", () => {
+    it("warns if no tickets", () => {
       const sid = createSprint(db, "s1", "planning", 10);
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
-      expect(gates.some((g) => g.includes("No tickets"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("No tickets"))).toBe(true);
     });
 
-    it("blocks if tickets are unassigned", () => {
+    it("does NOT warn for unassigned tickets (assignment is optional)", () => {
       const sid = createSprint(db, "s1", "planning", 10);
       createTicket(db, sid, { ticket_ref: "T-1", story_points: 3 }); // no assigned_to
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
-      expect(gates.some((g) => g.includes("unassigned"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("unassigned"))).toBe(false);
     });
 
-    it("blocks if tickets are missing story points", () => {
+    it("warns if tickets are missing story points", () => {
       const sid = createSprint(db, "s1", "planning", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev" }); // no story_points
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
-      expect(gates.some((g) => g.includes("missing story points"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("missing story points"))).toBe(true);
     });
 
-    it("blocks if velocity_committed is 0", () => {
+    it("warns if velocity_committed is 0", () => {
       const sid = createSprint(db, "s1", "planning", 0);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 3 });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
-      expect(gates.some((g) => g.includes("velocity_committed"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("velocity_committed"))).toBe(true);
     });
 
     it("passes when all conditions are met", () => {
@@ -104,28 +108,31 @@ describe("checkSprintGates", () => {
       createTicket(db, sid, { ticket_ref: "T-2", assigned_to: "dev2", story_points: 3 });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "implementation");
-      expect(gates).toHaveLength(0);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings).toHaveLength(0);
     });
   });
 
   // ─── implementation → qa ─────────────────────────────────────────────
 
   describe("implementation -> qa", () => {
-    it("blocks if tickets are still IN_PROGRESS", () => {
+    it("warns if tickets are still IN_PROGRESS", () => {
       const sid = createSprint(db, "s1", "implementation", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 3, status: "IN_PROGRESS" });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "qa");
-      expect(gates.some((g) => g.includes("still in progress"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("still in progress"))).toBe(true);
     });
 
-    it("blocks if open blockers exist", () => {
+    it("warns if open blockers exist", () => {
       const sid = createSprint(db, "s1", "implementation", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 3, status: "DONE" });
       db.prepare(`INSERT INTO blockers (sprint_id, description, status) VALUES (?, ?, ?)`).run(sid, "External API down", "open");
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "qa");
-      expect(gates.some((g) => g.includes("open blocker"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("open blocker"))).toBe(true);
     });
 
     it("passes when all tickets are DONE/BLOCKED and no open blockers", () => {
@@ -134,19 +141,21 @@ describe("checkSprintGates", () => {
       createTicket(db, sid, { ticket_ref: "T-2", assigned_to: "dev2", story_points: 2, status: "BLOCKED" });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "qa");
-      expect(gates).toHaveLength(0);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings).toHaveLength(0);
     });
   });
 
   // ─── qa → retro ─────────────────────────────────────────────────────
 
   describe("qa -> retro", () => {
-    it("blocks if tickets are IN_PROGRESS", () => {
+    it("warns if tickets are IN_PROGRESS", () => {
       const sid = createSprint(db, "s1", "qa", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 3, status: "IN_PROGRESS" });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "retro");
-      expect(gates.some((g) => g.includes("IN_PROGRESS"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("IN_PROGRESS"))).toBe(true);
     });
 
     it("passes when no tickets are IN_PROGRESS", () => {
@@ -155,27 +164,30 @@ describe("checkSprintGates", () => {
       createTicket(db, sid, { ticket_ref: "T-2", assigned_to: "dev2", story_points: 2, status: "NOT_DONE" });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "retro");
-      expect(gates).toHaveLength(0);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings).toHaveLength(0);
     });
   });
 
   // ─── review/closed (QA verification) ─────────────────────────────────
 
   describe("review/closed gates (QA verification)", () => {
-    it("blocks if DONE tickets are not QA verified (review)", () => {
+    it("warns if DONE tickets are not QA verified (review)", () => {
       const sid = createSprint(db, "s1", "qa", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 3, status: "DONE", qa_verified: 0 });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "review");
-      expect(gates.some((g) => g.includes("QA verification"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("QA verification"))).toBe(true);
     });
 
-    it("blocks if DONE tickets are not QA verified (closed)", () => {
+    it("warns if DONE tickets are not QA verified (closed)", () => {
       const sid = createSprint(db, "s1", "review", 10);
       createTicket(db, sid, { ticket_ref: "T-1", assigned_to: "dev", story_points: 5, status: "DONE", qa_verified: 0 });
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "closed");
-      expect(gates.some((g) => g.includes("QA verification"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("QA verification"))).toBe(true);
     });
 
     it("passes when all DONE tickets are QA verified", () => {
@@ -184,18 +196,20 @@ describe("checkSprintGates", () => {
       createTicket(db, sid, { ticket_ref: "T-2", assigned_to: "dev2", story_points: 2, status: "NOT_DONE" }); // NOT_DONE doesn't need QA
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "closed");
-      expect(gates).toHaveLength(0);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings).toHaveLength(0);
     });
   });
 
   // ─── closed → rest ───────────────────────────────────────────────────
 
   describe("closed -> rest", () => {
-    it("blocks if no retro findings exist", () => {
+    it("warns if no retro findings exist", () => {
       const sid = createSprint(db, "s1", "closed", 10);
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "rest");
-      expect(gates.some((g) => g.includes("No retro findings"))).toBe(true);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings.some((g) => g.includes("retro"))).toBe(true);
     });
 
     it("passes when retro findings exist", () => {
@@ -205,7 +219,8 @@ describe("checkSprintGates", () => {
       );
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
       const gates = checkSprintGates(db, sprint, "rest");
-      expect(gates).toHaveLength(0);
+      expect(gates.canProceed).toBe(true);
+      expect(gates.warnings).toHaveLength(0);
     });
   });
 });

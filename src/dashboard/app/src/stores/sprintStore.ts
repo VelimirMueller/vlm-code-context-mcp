@@ -15,6 +15,7 @@ export interface SprintStore {
   sprintDetail: SprintDetail | null;
   tickets: Ticket[];
   retroFindings: RetroFinding[];
+  allRetroFindings: (RetroFinding & { sprint_name?: string })[];
   selectedRetroFindings: RetroFinding[];
   burndown: BurndownData | null;
   blockers: Blocker[];
@@ -29,9 +30,11 @@ export interface SprintStore {
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
   fetchRetro: (sprintId: number) => Promise<void>;
+  fetchAllRetro: () => Promise<void>;
   fetchBurndown: (sprintId: number) => Promise<void>;
   fetchBlockers: (sprintId: number) => Promise<void>;
   fetchBugs: (sprintId: number) => Promise<void>;
+  clearError: () => void;
   setTicketFilter: (filter: TicketFilter) => void;
   setCurrentUserName: (name: string) => void;
   getFilteredTickets: () => Ticket[];
@@ -50,6 +53,7 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   sprintDetail: null,
   tickets: [],
   retroFindings: [],
+  allRetroFindings: [],
   selectedRetroFindings: [],
   burndown: null,
   blockers: [],
@@ -128,6 +132,15 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
     }
   },
 
+  fetchAllRetro: async () => {
+    try {
+      const findings = await get<(RetroFinding & { sprint_name?: string })[]>('/api/retro/all');
+      set({ allRetroFindings: Array.isArray(findings) ? findings : [] });
+    } catch {
+      set({ allRetroFindings: [] });
+    }
+  },
+
   fetchBurndown: async (sprintId: number) => {
     try {
       const burndown = await get<BurndownData>(`/api/sprint/${sprintId}/burndown`);
@@ -154,6 +167,8 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set({ bugs: [] });
     }
   },
+
+  clearError: () => set({ error: { sprints: null, detail: null } }),
 
   setTicketFilter: (filter: TicketFilter) => {
     set({ ticketFilter: filter });

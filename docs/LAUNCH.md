@@ -13,7 +13,7 @@ We just open-sourced `vlm-code-context-mcp` — an MCP server that turns Claude,
 - **Code intelligence**: Pre-indexes your codebase into SQLite. AI queries files, exports, dependencies, and change history through 10 MCP tools — 3x fewer tokens than reading raw source.
 - **9-agent scrum team**: Product Owner, Scrum Master, Architect, 3 Frontend Devs, Backend Dev, QA, Security Specialist, Lead Dev, Manager, and 2 Marketing leads. Each has defined responsibilities and runs real sprint processes.
 - **33 scrum MCP tools**: Create sprints, manage tickets, run retrospectives, track blockers, plan milestones, generate reports — all through MCP.
-- **React dashboard**: Enterprise-grade UI with kanban board, Gantt charts, velocity tracking, code explorer with dependency graphs, Linear integration, and team health indicators.
+- **React dashboard**: Enterprise-grade UI with kanban board, Gantt charts, velocity tracking, code explorer with dependency graphs, and team health indicators.
 - **One-command setup**: `npx code-context-mcp setup .` bootstraps everything — agents, skills, database, MCP config — in under 60 seconds.
 
 **Built by its own scrum process.** 40 sprints, 316 tickets, 11 milestones. Every line reviewed by AI agents. Every sprint closed with retrospectives.
@@ -52,7 +52,7 @@ Excited to share vlm-code-context-mcp v2.0.0 — an open-source MCP server that 
 
 Instead of AI reading raw source files (burning context windows), it pre-indexes your codebase into structured metadata. Then 9 specialized AI agents run real scrum processes: sprint planning, ticket management, retrospectives, QA verification, and security audits.
 
-The included React dashboard provides kanban boards, Gantt charts, velocity tracking, code dependency graphs, and Linear workspace integration.
+The included React dashboard provides kanban boards, Gantt charts, velocity tracking, and code dependency graphs.
 
 What makes this different:
 - 43 MCP tools (10 code intelligence + 33 scrum management)

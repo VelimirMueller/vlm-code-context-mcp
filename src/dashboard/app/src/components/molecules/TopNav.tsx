@@ -3,7 +3,7 @@
 import React from 'react';
 
 interface TopNavProps {
-  activeTab: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
+  activeTab: 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
   onTabChange: (tab: string) => void;
   badgeCounts?: {
     myTickets?: number;
@@ -13,7 +13,7 @@ interface TopNavProps {
 }
 
 interface NavItem {
-  id: 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'marketing';
+  id: 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
   label: string;
   icon: React.ReactNode;
 }
@@ -25,7 +25,6 @@ const navItems: NavItem[] = [
   { id: 'code', label: 'Code', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5.5 4L2 8l3.5 4M10.5 4L14 8l-3.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
   { id: 'team', label: 'Team', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M1.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="2" stroke="currentColor" strokeWidth="1.2"/><path d="M12.5 14c0-1.5-.8-2.8-2-3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg> },
   { id: 'retro', label: 'Retro', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v4l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.5 5A6 6 0 1 1 2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M3.5 2v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { id: 'marketing', label: 'Marketing', icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 2L5 6H2.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5H5l8 4V2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M5 6v4" stroke="currentColor" strokeWidth="1.5"/></svg> },
 ];
 
 export function TopNav({ activeTab, onTabChange, badgeCounts }: TopNavProps) {

@@ -71,7 +71,7 @@ const WhatItDoesScene: React.FC = () => {
     { icon: '>', text: 'Sprint planning, tickets & retros via MCP tools', color: BLUE },
     { icon: '>', text: '16 AI agents — PO, SM, devs, QA, security, architect', color: PURPLE },
     { icon: '>', text: 'Real-time dashboard with code explorer & Gantt charts', color: PINK },
-    { icon: '>', text: 'Linear sync, onboarding, and refinement lifecycle', color: ORANGE },
+    { icon: '>', text: 'Extensible via MCP — onboarding and refinement lifecycle', color: ORANGE },
   ];
 
   return (
@@ -200,7 +200,7 @@ const RoadmapScene: React.FC = () => {
 
   const phases = [
     { label: 'Foundation', detail: 'MCP server, scrum DB, dashboard, agents', status: 'shipped', color: ACCENT },
-    { label: 'Scale', detail: 'Linear sync, Gantt, sprint insights, code explorer', status: 'shipped', color: ACCENT },
+    { label: 'Scale', detail: 'Gantt, sprint insights, code explorer', status: 'shipped', color: ACCENT },
     { label: 'Platform', detail: 'Marketing, CHANGELOG, Remotion animations', status: 'shipped', color: ACCENT },
     { label: 'Publish', detail: 'npm registry, one-command install for any project', status: 'next', color: ORANGE },
     { label: 'Ecosystem', detail: 'Multi-project support, GitHub/GitLab sync', status: 'planned', color: BLUE },
@@ -266,7 +266,6 @@ const IntegrationsScene: React.FC = () => {
   const { fps } = useVideoConfig();
 
   const integrations = [
-    { name: 'Linear', desc: 'Two-way issue sync', color: '#5E6AD2' },
     { name: 'Notion', desc: 'Docs & knowledge base', color: W },
     { name: 'Airtable', desc: 'Custom workflows', color: '#18BFFF' },
     { name: 'GitHub', desc: 'PRs, issues, actions', color: W },

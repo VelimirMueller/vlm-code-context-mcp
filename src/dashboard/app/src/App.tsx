@@ -6,7 +6,6 @@ import { useUIStore, type PageType } from '@/stores/uiStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { useLinearStore } from '@/stores/linearStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useGithubStore } from '@/stores/githubStore';
 import { useBridgeStore } from '@/stores/bridgeStore';
@@ -19,7 +18,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m
 const Team = lazy(() => import('@/pages/Team').then(m => ({ default: m.Team })));
 const Retro = lazy(() => import('@/pages/Retro').then(m => ({ default: m.Retro })));
 const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
-const Marketing = lazy(() => import('@/pages/Marketing').then(m => ({ default: m.Marketing })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
@@ -101,12 +99,10 @@ export function App() {
   const refreshFiles = useFileStore((s) => s.refresh);
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
-  const fetchLinearIssues = useLinearStore((s) => s.fetchIssues);
-  const fetchLinearSync = useLinearStore((s) => s.fetchSyncStatus);
-
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
   const fetchRetro = useSprintStore((s) => s.fetchRetro);
+  const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
   const fetchBurndown = useSprintStore((s) => s.fetchBurndown);
   const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
@@ -127,8 +123,6 @@ export function App() {
       refreshFiles();
       fetchSprints();
       fetchAgents();
-      fetchLinearSync();
-      fetchLinearIssues();
       fetchMilestones();
       fetchBacklog();
       fetchDiscoveries();
@@ -138,6 +132,7 @@ export function App() {
       fetchGithubAll(githubSelectedRepoId ?? undefined);
       fetchBridgeStatus();
       fetchBridgeActions();
+      fetchAllRetro();
       // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
@@ -207,16 +202,13 @@ export function App() {
             transition={prefersReducedMotion ? { duration: 0 } : pageTransition}
             style={{ height: '100%' }}
           >
-            <ErrorBoundary>
-              <Suspense fallback={<PageSkeleton />}>
-                {normalizedPage === 'dashboard' && <Dashboard />}
-                {normalizedPage === 'planning' && <ProjectManagement />}
-                {normalizedPage === 'code' && <CodeExplorer />}
-                {normalizedPage === 'team' && <Team />}
-                {normalizedPage === 'retro' && <Retro />}
-                {normalizedPage === 'marketing' && <Marketing />}
-              </Suspense>
-            </ErrorBoundary>
+            <Suspense fallback={<PageSkeleton />}>
+              {normalizedPage === 'dashboard' && <ErrorBoundary><Dashboard /></ErrorBoundary>}
+              {normalizedPage === 'planning' && <ErrorBoundary><ProjectManagement /></ErrorBoundary>}
+              {normalizedPage === 'code' && <ErrorBoundary><CodeExplorer /></ErrorBoundary>}
+              {normalizedPage === 'team' && <ErrorBoundary><Team /></ErrorBoundary>}
+              {normalizedPage === 'retro' && <ErrorBoundary><Retro /></ErrorBoundary>}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>

@@ -121,9 +121,6 @@ describe('sprintStore', () => {
   });
 });
 
-// meStore was removed in Sprint 63 (Linear tab consolidation).
-// Linear data is now managed by linearStore — see linear-kanban.test.tsx.
-
 // ─── agentStore ────────────────────────────────────────────────────────
 
 describe('agentStore', () => {

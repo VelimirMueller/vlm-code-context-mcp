@@ -7,7 +7,7 @@ import { patch, put, get } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { BurndownChart } from './BurndownChart';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
-import { PHASE_ORDER, getPhaseStyle } from '@/lib/phases';
+import { PHASE_ORDER, getPhaseStyle, getPhaseLabel } from '@/lib/phases';
 import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
 import type { RetroFinding } from '@/types';
 
@@ -160,7 +160,7 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
               color: 'white',
             }}
           >
-            {sprintDetail.status}
+            {getPhaseLabel(sprintDetail.status)}
           </div>
         </div>
       </div>

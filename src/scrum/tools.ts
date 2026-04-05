@@ -2,45 +2,80 @@ import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
+
+/** Fire-and-forget HTTP POST to dashboard so SSE clients refresh instantly. */
+function notifyDashboard(): void {
+  try {
+    const url = `http://localhost:${DASHBOARD_PORT}/api/notify`;
+    fetch(url, { method: "POST" }).catch(() => {});
+  } catch {}
+}
+
+/** Canonical phase transition map: current → next allowed phase (simplified 4-phase). */
+const PHASE_TRANSITIONS: Record<string, string> = {
+  planning: "implementation",
+  implementation: "done",
+  done: "rest",
+  rest: "planning",
+};
+
+/** Map legacy phases to their nearest simplified phase. */
+const LEGACY_PHASE_MAP: Record<string, string> = {
+  preparation: "planning",
+  kickoff: "planning",
+  qa: "implementation",
+  refactoring: "implementation",
+  retro: "done",
+  review: "done",
+  closed: "done",
+};
+
+/**
+ * Resolve a sprint's effective phase — maps legacy phases to the nearest simplified phase.
+ */
+function resolvePhase(status: string): string {
+  return LEGACY_PHASE_MAP[status] || status;
+}
+
 /**
  * Shared gate checks used by both advance_sprint and get_sprint_playbook.
- * Returns an array of gate-failure strings (empty = all gates pass).
+ * Returns an advisory object: warnings are informational, canProceed is always true.
  */
-export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: string): string[] {
-  const gates: string[] = [];
+export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: string): { warnings: string[]; canProceed: boolean } {
+  const warnings: string[] = [];
   const tickets = db.prepare('SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL').all(sprint.id) as any[];
 
   if (nextPhase === "implementation") {
-    if (tickets.length === 0) gates.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
-    const unassigned = tickets.filter((t: any) => !t.assigned_to);
-    if (unassigned.length > 0) gates.push(`${unassigned.length} ticket(s) unassigned: ${unassigned.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to assign them.`);
+    if (tickets.length === 0) warnings.push("No tickets assigned to this sprint. Use create_ticket to add tickets.");
+    // Assignment is optional — no warning for unassigned tickets
     const noPoints = tickets.filter((t: any) => t.story_points == null);
-    if (noPoints.length > 0) gates.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
-    if (!sprint.velocity_committed || sprint.velocity_committed <= 0) gates.push("velocity_committed not set. Use update_sprint to set committed velocity.");
+    if (noPoints.length > 0) warnings.push(`${noPoints.length} ticket(s) missing story points: ${noPoints.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to estimate them.`);
+    if (!sprint.velocity_committed || sprint.velocity_committed <= 0) warnings.push("velocity_committed not set. Use update_sprint to set committed velocity.");
   }
-  if (nextPhase === "qa") {
+  if (nextPhase === "done" || nextPhase === "qa") {
     const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-    if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to mark them DONE/BLOCKED/NOT_DONE.`);
+    if (undone.length > 0) warnings.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Use update_ticket to mark them DONE/BLOCKED/NOT_DONE.`);
     const openBlockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprint.id) as any).c;
-    if (openBlockerCount > 0) gates.push(`${openBlockerCount} open blocker(s) — resolve before advancing to QA. Use resolve_blocker to close them.`);
+    if (openBlockerCount > 0) warnings.push(`${openBlockerCount} open blocker(s). Use resolve_blocker to close them.`);
   }
   if (nextPhase === "closed" || nextPhase === "review") {
     const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
     if (doneNoQA.length > 0) {
       const ticketList = doneNoQA.map((t: any) => `${t.ticket_ref || '#' + t.id} ${t.title}`).join(", ");
-      gates.push(`Tickets need QA verification: ${ticketList}. Use update_ticket to verify them (qa_verified=true).`);
+      warnings.push(`Tickets need QA verification: ${ticketList}. Use update_ticket to verify them (qa_verified=true).`);
     }
   }
   if (nextPhase === "retro") {
     const inProgress = tickets.filter((t: any) => t.status === "IN_PROGRESS");
-    if (inProgress.length > 0) gates.push(`${inProgress.length} ticket(s) still IN_PROGRESS: ${inProgress.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Complete or mark as NOT_DONE before retro.`);
+    if (inProgress.length > 0) warnings.push(`${inProgress.length} ticket(s) still IN_PROGRESS: ${inProgress.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}. Complete or mark as NOT_DONE before retro.`);
   }
   if (nextPhase === "rest") {
     const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
-    if (retroCount === 0) gates.push("No retro findings — use add_retro_finding before advancing to rest.");
+    if (retroCount === 0) warnings.push("No retro findings — consider using add_retro_finding before rest.");
   }
 
-  return gates;
+  return { warnings, canProceed: true };
 }
 
 /**
@@ -75,7 +110,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "list_sprints",
     "List all sprints with status and ticket counts",
-    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional().describe("Filter by status") },
+    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional().describe("Filter by status") },
     async ({ status }) => {
       let q = `SELECT s.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM sprints s LEFT JOIN tickets t ON t.sprint_id=s.id`;
       const params: any[] = [];
@@ -208,6 +243,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ name, goal, start_date, end_date, milestone_id }) => {
       try {
         const result = db.prepare(`INSERT INTO sprints (name, goal, start_date, end_date, milestone_id, status) VALUES (?, ?, ?, ?, ?, 'planning')`).run(name, goal || null, start_date || null, end_date || null, milestone_id || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint created: ${name} (id: ${result.lastInsertRowid})` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -220,7 +256,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Update sprint status or details",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest"]).optional(),
+      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional(),
       goal: z.string().optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
@@ -230,34 +266,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
-      // ─── Phase transition gates ─────────────────────────────────
+      // ─── Phase transition gates (advisory) ─────────────────────
+      let gateWarnings: string[] = [];
       if (status) {
-        const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-        const allowed = TRANSITIONS[sprint.status];
-        if (allowed !== status) {
-          return { content: [{ type: "text" as const, text: `Cannot transition ${sprint.status} → ${status}. Expected: ${allowed}` }], isError: true };
+        const effectivePhase = resolvePhase(sprint.status);
+        const allowed = PHASE_TRANSITIONS[effectivePhase];
+        if (allowed && allowed !== status) {
+          // Allow the transition but warn
+          gateWarnings.push(`Unusual transition: ${sprint.status} → ${status}. Expected next: ${allowed}`);
         }
 
-        const gates: string[] = [];
-        const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
-
-        if (status === "qa") {
-          const undone = tickets.filter((t: any) => !["DONE", "BLOCKED", "NOT_DONE"].includes(t.status));
-          if (undone.length > 0) gates.push(`${undone.length} tickets still in progress: ${undone.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-        }
-        if (status === "closed") {
-          const doneNoQA = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified);
-          if (doneNoQA.length > 0) gates.push(`${doneNoQA.length} DONE tickets not QA verified: ${doneNoQA.map((t: any) => t.ticket_ref || `#${t.id}`).join(", ")}`);
-          if (!velocity_completed && !sprint.velocity_completed) gates.push("velocity_completed not set — pass it with this update");
-        }
-        if (status === "rest") {
-          const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint_id) as any).c;
-          if (retroCount === 0) gates.push("No retro findings — add at least 1 finding before closing to rest");
-        }
-
-        if (gates.length > 0) {
-          return { content: [{ type: "text" as const, text: `Gate blocked for sprint ${sprint.name} (${sprint.status} → ${status}):\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
-        }
+        const gates = checkSprintGates(db, sprint, status);
+        gateWarnings = gateWarnings.concat(gates.warnings);
       }
 
       // ─── Apply updates ──────────────────────────────────────────
@@ -280,9 +300,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {}
       }
 
-      // M12-015: Auto-generate retro analysis when sprint is closed
+      // M12-015: Auto-generate retro analysis when sprint is done or closed
       let retroNote = "";
-      if (status === "closed") {
+      if (status === "closed" || status === "done") {
         try {
           const sprint = db.prepare(`SELECT * FROM sprints WHERE id=?`).get(sprint_id) as any;
           const tickets = db.prepare(`SELECT id, status, story_points FROM tickets WHERE sprint_id=?`).all(sprint_id) as any[];
@@ -313,9 +333,25 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {
           // Non-fatal — don't block the update
         }
+
+        // Auto-archive discoveries linked to this sprint
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+          `).run(sprint_id, sprint_id);
+          db.prepare(`
+            UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+          `).run(sprint_id, sprint_id);
+        } catch {}
       }
 
-      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}` }] };
+      notifyDashboard();
+      const warningText = gateWarnings.length > 0 ? `\nWarnings:\n${gateWarnings.map(w => `- ${w}`).join("\n")}` : "";
+      return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} updated.${retroNote}${warningText}` }] };
     }
   );
 
@@ -332,24 +368,24 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
 
-      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-      const nextPhase = TRANSITIONS[sprint.status];
+      // Resolve legacy phases to the nearest simplified phase for transition lookup
+      const effectivePhase = resolvePhase(sprint.status);
+      const nextPhase = PHASE_TRANSITIONS[effectivePhase];
       if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
 
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
 
-      // Use shared gate checks
+      // Use shared gate checks (advisory — never blocks)
       const gates = checkSprintGates(db, sprint, nextPhase);
 
       // Auto-calculate velocity_completed from DONE tickets if not provided
-      if ((nextPhase === "closed") && !velocity_completed && !sprint.velocity_completed) {
+      if ((nextPhase === "done" || nextPhase === "closed") && !velocity_completed && !sprint.velocity_completed) {
         const autoVelocity = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
         velocity_completed = autoVelocity;
       }
 
-      if (gates.length > 0) {
-        return { content: [{ type: "text" as const, text: `Cannot advance "${sprint.name}" from ${sprint.status} → ${nextPhase}:\n${gates.map(g => `- ${g}`).join("\n")}\n\nResolve these gates and call advance_sprint again.` }], isError: true };
-      }
+      // Gates are advisory — always proceed, but include warnings in response
+      const warningText = gates.warnings.length > 0 ? `\nWarnings:\n${gates.warnings.map(w => `- ${w}`).join("\n")}` : "";
 
       // Advance the sprint
       const sets = ["status=?", "updated_at=datetime('now')"];
@@ -363,9 +399,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
       } catch {}
 
-      // Auto retro analysis on close
+      // Auto retro analysis when reaching done or closed
       let retroNote = "";
-      if (nextPhase === "closed") {
+      if (nextPhase === "done" || nextPhase === "closed") {
         try {
           const totalTickets = tickets.length;
           const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
@@ -375,21 +411,36 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
           retroNote = "\nAuto retro analysis generated.";
         } catch {}
+
+        // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+          `).run(sprint_id, sprint_id);
+        } catch {}
+
+        // Auto-drop discoveries that were planned but ticket was not completed
+        try {
+          db.prepare(`
+            UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+            WHERE discovery_sprint_id = ? AND status = 'planned'
+              AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+          `).run(sprint_id, sprint_id);
+        } catch {}
       }
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
-        kickoff: "Define sprint goal, estimate tickets, get team commitment. Then call advance_sprint to proceed to planning.",
-        planning: "Break tickets into subtasks, assign agents, map dependencies. Then call advance_sprint to start implementation.",
         implementation: "Agents work on tickets. Update ticket status via update_ticket as work progresses. Call advance_sprint once all tickets are DONE.",
-        qa: "QA verifies each DONE ticket via update_ticket with qa_verified=true. Security review runs alongside. Call advance_sprint once all verified.",
-        retro: "Each role adds retro findings via add_retro_finding. Identify at least 1 actionable change. Call advance_sprint to proceed to review.",
-        review: "Write sprint summary, update milestone progress, record velocity. Call advance_sprint to close the sprint.",
-        closed: "Sprint closed. Call advance_sprint now to move to rest.",
-        rest: "Sprint complete. Call start_sprint now to begin the next sprint.",
+        done: "Sprint work complete. Review results, add retro findings via add_retro_finding, then call advance_sprint to move to rest.",
+        rest: "Sprint complete. Call start_sprint to begin the next sprint.",
+        planning: "Assign tickets, set velocity, then call advance_sprint to start implementation.",
       };
 
-      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
+      notifyDashboard();
+      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}${warningText}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
     }
   );
 
@@ -405,10 +456,19 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       assigned_to: z.string().optional(),
       story_points: z.number().optional(),
       milestone: z.string().optional(),
+      milestone_id: z.number().optional().describe("Milestone ID to link to"),
+      epic_id: z.number().optional().describe("Epic ID to link to"),
     },
-    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone }) => {
+    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id }) => {
       try {
-        const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone) VALUES (?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestone || null);
+        // Resolve milestone name from milestone_id if not provided directly
+        let milestoneName = milestone || null;
+        if (milestone_id && !milestoneName) {
+          const ms = db.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
+          if (ms) milestoneName = ms.name;
+        }
+        const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestoneName, milestone_id || null, epic_id || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -418,7 +478,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "update_ticket",
-    "Update a ticket's status, assignment, or QA verification",
+    "Update a ticket's status, assignment, milestone, epic, or QA verification",
     {
       ticket_id: z.number().describe("Ticket ID"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
@@ -426,8 +486,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       qa_verified: z.boolean().optional(),
       verified_by: z.string().optional(),
       notes: z.string().optional(),
+      milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
+      epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
     },
-    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes }) => {
+    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id }) => {
       const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
       if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
 
@@ -435,11 +497,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const gates: string[] = [];
 
       if (status === "DONE") {
-        if (!ticket.assigned_to && !assigned_to) gates.push("Ticket has no assignee — assign before marking DONE");
-        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+        // Assignment is optional — no gate for unassigned tickets
+        if (ticket.sprint_id && !["implementation", "qa", "done"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation, qa, or done`);
       }
       if (status === "IN_PROGRESS") {
-        if (ticket.sprint_id && !["implementation", "qa"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation or qa`);
+        if (ticket.sprint_id && !["implementation", "qa", "done"].includes(ticket.sprint_status)) gates.push(`Sprint "${ticket.sprint_name}" is in ${ticket.sprint_status} phase — must be in implementation, qa, or done`);
       }
 
       if (gates.length > 0) {
@@ -454,6 +516,16 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(qa_verified ? 1 : 0); }
       if (verified_by) { sets.push("verified_by=?"); vals.push(verified_by); }
       if (notes) { sets.push("notes=?"); vals.push(notes); }
+      if (epic_id !== undefined) { sets.push("epic_id=?"); vals.push(epic_id); }
+      if (milestone_id !== undefined) {
+        sets.push("milestone_id=?"); vals.push(milestone_id);
+        if (milestone_id) {
+          const ms = db.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
+          sets.push("milestone=?"); vals.push(ms?.name || null);
+        } else {
+          sets.push("milestone=?"); vals.push(null);
+        }
+      }
       if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
@@ -481,6 +553,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch {}
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
     }
   );
@@ -497,6 +570,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, category, finding, role, action_owner }) => {
       db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role, action_owner) VALUES (?,?,?,?,?)`).run(sprint_id, category, finding, role || null, action_owner || null);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Retro finding added: [${category}] ${finding}` }] };
     }
   );
@@ -513,6 +587,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, description, ticket_id, reported_by, escalated_to }) => {
       db.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to) VALUES (?,?,?,?,?)`).run(sprint_id, ticket_id || null, description, reported_by || null, escalated_to || null);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Blocker reported: ${description}` }] };
     }
   );
@@ -523,6 +598,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     { blocker_id: z.number().describe("Blocker ID") },
     async ({ blocker_id }) => {
       db.prepare(`UPDATE blockers SET status='resolved', resolved_at=datetime('now') WHERE id=?`).run(blocker_id);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Blocker #${blocker_id} resolved.` }] };
     }
   );
@@ -555,6 +631,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         }
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Bug logged: [${severity}] ${description}${regressionNote}` }] };
     }
   );
@@ -567,6 +644,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       try {
         const { seedDefaults } = await import("./defaults.js");
         const result = seedDefaults(db);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Seed check: ${result.agents} agents seeded, ${result.skills} skills seeded (0 means tables already had data)` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Sync error: ${e.message}` }], isError: true };
@@ -642,6 +720,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ name, description, target_date, status }) => {
       try {
         const result = db.prepare(`INSERT INTO milestones (name, description, target_date, status) VALUES (?, ?, ?, ?)`).run(name, description || null, target_date || null, status);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Milestone created: ${name} (id: ${result.lastInsertRowid})` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -669,6 +748,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sets.push("updated_at=datetime('now')");
       vals.push(milestone_id);
       db.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} updated.` }] };
     }
   );
@@ -685,6 +765,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         const milestone = db.prepare(`SELECT id, name FROM milestones WHERE id=?`).get(milestone_id) as any;
         if (!milestone) return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} not found.` }], isError: true };
         db.prepare(`UPDATE tickets SET milestone_id=?, milestone=?, updated_at=datetime('now') WHERE id=?`).run(milestone_id, milestone.name, ticket_id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} linked to milestone "${milestone.name}" (id: ${milestone_id}).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -701,6 +782,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     async ({ content }) => {
       try {
         db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES ('PRODUCT_VISION', ?, 'product-owner') ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`).run(content);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Product vision updated (${content.length} chars).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -743,6 +825,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         for (const tid of ticket_ids) {
           updateStmt.run(sprintId, tid);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint "${name}" created (id: ${sprintId}) with ${ticket_ids.length} tickets assigned.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -779,20 +862,23 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
 
       // Gate check for next phase (uses shared function)
-      const TRANSITIONS: Record<string, string> = { preparation: "kickoff", kickoff: "planning", planning: "implementation", implementation: "qa", qa: "retro", refactoring: "retro", retro: "review", review: "closed", closed: "rest" };
-      const nextPhase = TRANSITIONS[sprint.status] || "done";
-      const gates = nextPhase !== "done" ? checkSprintGates(db, sprint, nextPhase) : [];
+      const effectivePhase = resolvePhase(sprint.status);
+      const nextPhase = PHASE_TRANSITIONS[effectivePhase] || "done";
+      const gates = checkSprintGates(db, sprint, nextPhase);
 
       const ACTIONS: Record<string, string[]> = {
-        preparation: ["Review backlog", "PO grooms tickets", "Check team capacity", "Call advance_sprint to proceed to kickoff"],
-        kickoff: ["Define sprint goal", "Estimate tickets", "Get team commitment", "Call advance_sprint to proceed to planning"],
-        planning: ["Break tickets into subtasks", "Assign agents", "Map dependencies", "Call advance_sprint to start implementation"],
+        planning: ["Assign tickets, set velocity", "Call advance_sprint to start implementation"],
         implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Call advance_sprint once all tickets are DONE"],
-        qa: ["QA verifies each DONE ticket", "Call update_ticket with qa_verified=true", "Security review alongside QA", "Call advance_sprint once all tickets are QA verified"],
-        refactoring: ["Optional cleanup", "No new features", "Call advance_sprint to proceed to retro"],
-        retro: ["Add retro findings via add_retro_finding", "Each role contributes", "Call advance_sprint once findings are logged"],
-        review: ["Write sprint summary", "Update milestone progress", "Record velocity", "Call advance_sprint to close the sprint"],
-        closed: ["Sprint closed", "Call advance_sprint now to move to rest"],
+        done: ["Review results, add retro findings via add_retro_finding", "Call advance_sprint to move to rest"],
+        rest: ["Sprint complete", "Call start_sprint to begin next sprint"],
+        // Legacy phase actions for backward compat
+        preparation: ["Review backlog", "Call advance_sprint to proceed"],
+        kickoff: ["Define sprint goal", "Call advance_sprint to proceed"],
+        qa: ["QA verifies tickets", "Call advance_sprint to proceed"],
+        refactoring: ["Optional cleanup", "Call advance_sprint to proceed"],
+        retro: ["Add retro findings", "Call advance_sprint to proceed"],
+        review: ["Write sprint summary", "Call advance_sprint to proceed"],
+        closed: ["Sprint closed", "Call advance_sprint to move to rest"],
       };
 
       const lines = [
@@ -805,7 +891,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         ...Object.entries(byStatus).map(([s, c]) => `  ${s}: ${c}`),
         ``,
         `## Gate Status for ${sprint.status} → ${nextPhase}`,
-        gates.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.map(g => `  BLOCKED: ${g}`).join("\n"),
+        gates.warnings.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.warnings.map(g => `  WARNING: ${g}`).join("\n"),
         ``,
         `## What To Do Now`,
         ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
@@ -866,6 +952,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: [
           `# Sprint Created: ${name} (id: ${sprintId})`,
           `Goal: ${goal}`,
@@ -881,7 +968,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           `2. Review tickets, adjust assignments if needed`,
           `3. Use \`advance_sprint(${sprintId})\` to move to implementation`,
           `4. Update tickets via \`update_ticket\` as work progresses`,
-          `5. Use \`advance_sprint\` to move through qa → retro → review → closed`,
+          `5. Use \`advance_sprint\` to move through implementation → done → rest`,
         ].filter(Boolean).join("\n") }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error creating sprint: ${e.message}` }], isError: true };
@@ -974,6 +1061,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         transaction();
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `# Restore Complete\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1066,6 +1154,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         });
         transaction();
 
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `# Restored from ${input_path}\n\nVersion: ${dump.version}\nExported: ${dump.exported_at}\n\n${results.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1266,86 +1355,8 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         steps.push(`✅ ${fileCount} files indexed`);
       }
 
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `# Onboarding Complete\n\n${steps.join("\n")}` }] };
-    }
-  );
-
-  server.tool(
-    "sync_linear_data",
-    "Sync Linear workspace data to the dashboard. Pass user, issues, cycles, and projects fetched from Linear MCP tools.",
-    {
-      user: z.object({
-        id: z.string(),
-        name: z.string(),
-        email: z.string(),
-        avatarUrl: z.string().nullable(),
-      }).optional().describe("Linear user profile from get_user"),
-      issues: z.array(z.object({
-        id: z.string(),
-        identifier: z.string(),
-        title: z.string(),
-        description: z.string().nullable(),
-        priority: z.number(),
-        priorityLabel: z.string(),
-        status: z.string(),
-        statusColor: z.string(),
-        labels: z.array(z.string()),
-        projectName: z.string().nullable(),
-        assigneeId: z.string(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-        url: z.string().nullable().optional(),
-      })).optional().describe("Linear issues from list_issues"),
-      cycles: z.array(z.object({
-        id: z.string(),
-        name: z.string(),
-        startsAt: z.string(),
-        endsAt: z.string(),
-        completedIssueCount: z.number(),
-        totalIssueCount: z.number(),
-        status: z.string(),
-      })).optional().describe("Linear cycles from list_cycles"),
-      projects: z.array(z.object({
-        id: z.string(),
-        name: z.string(),
-        status: z.string(),
-        progress: z.number(),
-        leadName: z.string().nullable(),
-        targetDate: z.string().nullable(),
-      })).optional().describe("Linear projects from list_projects"),
-      dashboardPort: z.number().optional().default(3333).describe("Dashboard server port (default 3333)"),
-    },
-    async (params) => {
-      try {
-        const port = params.dashboardPort ?? 3333;
-        const payload = {
-          user: params.user,
-          issues: params.issues,
-          cycles: params.cycles,
-          projects: params.projects,
-        };
-
-        const response = await fetch(`http://localhost:${port}/api/me/sync`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Sync failed: ${response.status} ${response.statusText}`);
-        }
-
-        const result = await response.json();
-        const synced = result.synced?.join(', ') || 'nothing';
-        return {
-          content: [{ type: "text" as const, text: `Linear data synced to dashboard: ${synced}` }],
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text" as const, text: `Sync failed: ${err.message}. Is the dashboard running on port ${params.dashboardPort ?? 3333}?` }],
-          isError: true,
-        };
-      }
     }
   );
 
@@ -1448,6 +1459,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         }
 
         const result = await syncRes.json() as any;
+        notifyDashboard();
         return {
           content: [{ type: "text" as const, text: `GitHub data synced for ${owner}/${repo}: ${repos.length} repo, ${issues.length} issues, ${pullRequests.length} PRs, ${commits.length} commits` }],
         };
@@ -1468,6 +1480,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetAgents } = await import("./defaults.js");
       const count = resetAgents(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Reset complete: ${count} agents restored to factory defaults.` }] };
     }
   );
@@ -1479,6 +1492,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetSkills } = await import("./defaults.js");
       const count = resetSkills(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Reset complete: ${count} skills restored to factory defaults.` }] };
     }
   );
@@ -1490,6 +1504,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async () => {
       const { resetSprintProcess } = await import("./defaults.js");
       resetSprintProcess(db);
+      notifyDashboard();
       return { content: [{ type: "text" as const, text: `Sprint process reset to factory defaults.` }] };
     }
   );
@@ -1578,6 +1593,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const result = db.prepare(
           `INSERT INTO epics (name, description, milestone_id, color, priority) VALUES (?, ?, ?, ?, ?)`
         ).run(name, description ?? null, milestone_id ?? null, color, priority);
+        notifyDashboard();
         return {
           content: [{ type: "text" as const, text: `Epic created — id: ${result.lastInsertRowid}, name: "${name}"` }],
         };
@@ -1615,6 +1631,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (result.changes === 0) {
           return { content: [{ type: "text" as const, text: `Epic ${epic_id} not found.` }] };
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Epic ${epic_id} updated (${fields.length} field(s)).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error updating epic: ${e.message}` }], isError: true };
@@ -1660,6 +1677,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} not found.` }] };
         }
         const action = epic_id === null ? "unlinked from epic" : `linked to epic ${epic_id}`;
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Ticket ${ticket_id} ${action}.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error linking ticket: ${e.message}` }], isError: true };
@@ -1684,6 +1702,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ title, rationale, alternatives, outcome, category }) => {
       try {
         const result = db.prepare(`INSERT INTO decisions (title, rationale, alternatives, outcome, category) VALUES (?,?,?,?,?)`).run(title, rationale || null, alternatives || null, outcome || null, category);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Decision logged: #${result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1814,6 +1833,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(
           `INSERT INTO skills (name, content, owner_role) VALUES ('SPRINT_PROCESS', ?, 'scrum-master') ON CONFLICT(name) DO UPDATE SET content=excluded.content, owner_role='scrum-master', updated_at=datetime('now')`
         ).run(content);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Sprint process config updated (${content.length} chars).` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1839,6 +1859,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const remaining = tickets.filter(t => t.status !== "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
         const completed = tickets.filter(t => t.status === "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
         db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprint_id, d, remaining, completed);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Snapshot ${d}: ${completed}pts done, ${remaining}pts remaining` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1887,6 +1908,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           if (circular) return { content: [{ type: "text" as const, text: "Circular dependency detected — target already blocks source" }], isError: true };
         }
         db.prepare(`INSERT INTO ticket_dependencies (source_ticket_id, target_ticket_id, dependency_type) VALUES (?, ?, ?)`).run(source_ticket_id, target_ticket_id, dependency_type);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Dependency added: ticket ${source_ticket_id} ${dependency_type} ticket ${target_ticket_id}` }] };
       } catch (e: any) {
         if (e.message.includes("UNIQUE")) return { content: [{ type: "text" as const, text: "Dependency already exists" }], isError: true };
@@ -1905,6 +1927,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ source_ticket_id, target_ticket_id }) => {
       try {
         const result = db.prepare(`DELETE FROM ticket_dependencies WHERE source_ticket_id = ? AND target_ticket_id = ?`).run(source_ticket_id, target_ticket_id);
+        if (result.changes > 0) notifyDashboard();
         return { content: [{ type: "text" as const, text: result.changes > 0 ? "Dependency removed." : "No dependency found." }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1967,6 +1990,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(`INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)`).run(tag_name, color || "#6b7280");
         const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
         db.prepare(`INSERT OR IGNORE INTO ticket_tags (ticket_id, tag_id) VALUES (?, ?)`).run(ticket_id, tag.id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Tag '${tag_name}' added to ticket ${ticket_id}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -1986,6 +2010,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const tag = db.prepare(`SELECT id FROM tags WHERE name = ?`).get(tag_name) as any;
         if (!tag) return { content: [{ type: "text" as const, text: `Tag '${tag_name}' not found` }], isError: true };
         db.prepare(`DELETE FROM ticket_tags WHERE ticket_id = ? AND tag_id = ?`).run(ticket_id, tag.id);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Tag '${tag_name}' removed from ticket ${ticket_id}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2029,6 +2054,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (sets.length === 0) return { content: [{ type: "text" as const, text: "Provide estimated_hours or actual_hours" }], isError: true };
         vals.push(ticket_id);
         db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Time logged on ticket ${ticket_id}${estimated_hours !== undefined ? ` — est: ${estimated_hours}h` : ""}${actual_hours !== undefined ? ` — actual: ${actual_hours}h` : ""}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2079,6 +2105,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       try {
         db.prepare(`INSERT INTO agent_mood_history (agent_id, sprint_id, mood, workload_points, notes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(agent_id, sprint_id) DO UPDATE SET mood=excluded.mood, workload_points=excluded.workload_points, notes=excluded.notes`).run(agent_id, sprint_id, mood, workload_points || 0, notes || null);
         const warning = mood <= 2 ? "\n⚠️ BURNOUT RISK — mood ≤ 2. Reduce workload next sprint." : "";
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Mood recorded: agent ${agent_id}, sprint ${sprint_id}, mood ${mood}/5${warning}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2173,6 +2200,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     async ({ entity_type, entity_id, action, field_name, old_value, new_value, actor }) => {
       try {
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(entity_type, entity_id, action, field_name || null, old_value || null, new_value || null, actor || null);
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Event logged: ${entity_type} #${entity_id} ${action}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2215,7 +2243,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "list_recent_events",
-    "List recent events from the audit trail — use this to detect dashboard-initiated changes (e.g. user moved a Linear issue on the kanban board)",
+    "List recent events from the audit trail — use this to detect dashboard-initiated changes (e.g. user moved a ticket on the kanban board)",
     {
       entity_type: z.string().optional().describe("Filter by entity type (ticket, sprint, epic, milestone)"),
       limit: z.number().optional().describe("Max results (default 20)"),
@@ -2264,6 +2292,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         ).run(sprint_id, finding, cat, pri, created_by || null, resolution_plan || null);
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'created', 'status', NULL, 'discovered', ?)`).run(result.lastInsertRowid, created_by || 'mcp');
         const planNote = resolution_plan ? " (with resolution plan)" : " (no resolution plan)";
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${result.lastInsertRowid} created in sprint "${sprint.name}" [${cat}] ${pri}${planNote}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2328,6 +2357,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (status && status !== existing.status) {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, existing.status, status);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} updated.${status ? ` Status: ${existing.status} → ${status}` : ""}${priority ? ` Priority: ${priority}` : ""}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2354,6 +2384,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (newStatus !== discovery.status) {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('discovery', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(discovery_id, discovery.status, newStatus);
         }
+        notifyDashboard();
         return { content: [{ type: "text" as const, text: `Discovery #${discovery_id} linked to ticket #${ticket_id} "${ticket.title}" — status: ${newStatus}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };

@@ -38,7 +38,7 @@ After setup:
 
 MCP Tools (44 total):
   10 code-context tools (index, search, file context, symbols, changes)
-  34 scrum tools (sprints, tickets, retros, milestones, agents, dump/restore, Linear sync)
+  34 scrum tools (sprints, tickets, retros, milestones, agents, dump/restore)
 `);
   process.exit(0);
 }
@@ -285,5 +285,4 @@ console.log("  link_ticket_to_milestone      — Link tickets to milestones");
 console.log("  update_vision                 — Update product vision");
 console.log("  get_backlog / plan_sprint     — Backlog & planning");
 console.log("  get_project_status            — Project health check");
-console.log("  sync_linear_data              — Sync Linear workspace to dashboard");
 console.log("");
