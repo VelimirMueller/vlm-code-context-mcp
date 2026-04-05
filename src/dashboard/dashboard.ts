@@ -1690,10 +1690,19 @@ const server = http.createServer(async (req, res) => {
         const remoteAddr = req.socket.remoteAddress ?? "";
         const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
         if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
-        // Direct sync — call Linear API with stored key (mirrors GitHub trigger pattern)
+        // Try direct sync if token is available, otherwise delegate to bridge
         const result = await fetchAndSyncLinear(writeDb, dbPath);
-        if (result.ok) notifyClients();
-        data = result;
+        if (result.ok) {
+          notifyClients();
+          data = result;
+        } else {
+          // No token — create bridge pending action for MCP-based sync
+          const bridgeResult = writeDb.prepare(
+            `INSERT INTO pending_actions (action, entity_type, payload, source) VALUES ('sync_linear', 'workspace', '{"trigger":"dashboard_button"}', 'dashboard')`
+          ).run();
+          notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(bridgeResult.lastInsertRowid), change: { action: "sync_linear" } });
+          data = { ok: true, bridge: true, actionId: bridgeResult.lastInsertRowid, message: "Linear sync requested via bridge. Claude will pick this up and sync via MCP tools." };
+        }
       }
       // ── GitHub API ────────────────────────────────────────────────────
       else if (url.pathname === "/api/github/configured") {

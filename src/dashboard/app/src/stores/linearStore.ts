@@ -75,7 +75,12 @@ export const useLinearStore = create<LinearStore>((set, getState) => ({
   syncNow: async () => {
     set((s) => ({ loading: { ...s.loading, sync: true }, error: null }));
     try {
-      const result = await post<{ ok: boolean; error?: string }>('/api/linear/sync/trigger', {});
+      const result = await post<{ ok: boolean; error?: string; bridge?: boolean; message?: string }>('/api/linear/sync/trigger', {});
+      if (result?.bridge) {
+        // Sync delegated to Claude via bridge — data arrives via SSE
+        set((s) => ({ error: null, loading: { ...s.loading, sync: false } }));
+        return;
+      }
       if (result && !result.ok && result.error) {
         set((s) => ({ error: result.error!, loading: { ...s.loading, sync: false } }));
         return;
