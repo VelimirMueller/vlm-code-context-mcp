@@ -168,13 +168,13 @@ function PhaseNode({
   const style = getPhaseStyle(phase.name);
   const colors = PHASE_COLORS[phase.name] ?? PHASE_COLORS.planning;
 
-  const [criteria, setCriteria] = useState(phase.criteria.join('\n'));
-  const [actions, setActions] = useState(phase.actions.join('\n'));
+  const [criteria, setCriteria] = useState((phase.criteria ?? []).join('\n'));
+  const [actions, setActions] = useState((phase.actions ?? []).join('\n'));
   const [duration, setDuration] = useState(phase.duration);
 
   useEffect(() => {
-    setCriteria(phase.criteria.join('\n'));
-    setActions(phase.actions.join('\n'));
+    setCriteria((phase.criteria ?? []).join('\n'));
+    setActions((phase.actions ?? []).join('\n'));
     setDuration(phase.duration);
   }, [phase]);
 
@@ -289,13 +289,13 @@ function PhaseNode({
             )}
             <div style={labelStyle}>Entry Criteria</div>
             <ul style={listStyle}>
-              {phase.criteria.map((c, i) => (
+              {(phase.criteria ?? []).map((c, i) => (
                 <li key={i}>{c}</li>
               ))}
             </ul>
             <div style={labelStyle}>Auto Actions</div>
             <ul style={listStyle}>
-              {phase.actions.map((a, i) => (
+              {(phase.actions ?? []).map((a, i) => (
                 <li key={i}>{a}</li>
               ))}
             </ul>
@@ -400,6 +400,8 @@ export function ProcessFlow() {
           const normalized = cfg.phases.map((p) => ({
             ...p,
             name: mapLegacyPhase(p.name.toLowerCase().replace(/^\d+\.\s*/, '').trim()),
+            criteria: p.criteria ?? [],
+            actions: p.actions ?? [],
           }));
           // Deduplicate by canonical phase name (keep first occurrence)
           const seen = new Set<string>();

@@ -40,6 +40,7 @@
     "@remotion/renderer": "^4.0.441",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^5.0.0",
+    "dayjs": "^1.11.20",
     "remotion": "^4.0.441",
     "zod": "^4.3.6"
   },
