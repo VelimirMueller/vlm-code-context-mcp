@@ -1,0 +1,14 @@
+[package]
+name = "paperclip-macros"
+version = "0.1.0"
+edition = "2021"
+description = "Proc macros for paperclip-rs attachment library"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+darling = "0.20"

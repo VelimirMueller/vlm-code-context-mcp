@@ -1,0 +1,37 @@
+[package]
+name = "paperclip-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Type-safe file attachment library for Rust, inspired by Paperclip"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/paperclip-rs"
+keywords = ["file-upload", "attachment", "image-processing", "storage"]
+categories = ["web-programming", "filesystem"]
+
+[dependencies]
+# Core dependencies
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1.83"
+thiserror = "2.0"
+
+# Image processing
+image = "0.25"
+
+# Storage backends (optional)
+rusoto_core = { version = "0.48", optional = true }
+rusoto_s3 = { version = "0.48", optional = true }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Macros
+paperclip-macros = { path = "../paperclip-macros" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = ["filesystem"]
+filesystem = []
+s3 = ["rusoto_core", "rusoto_s3"]
+memory = []
