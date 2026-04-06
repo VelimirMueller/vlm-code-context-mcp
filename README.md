@@ -2,6 +2,8 @@
 
 **A full AI engineering team. One npm package. Zero context waste.**
 
+> 📖 **[Getting Started Guide](GETTING-STARTED.md)** — New here? Start here!
+
 > Product Owner. Architect. QA. Security. Two developers. A Scrum Master. A Manager. A Lead Dev.  
 > All running real sprints. All talking to your codebase. All inside a single SQLite database.
 
