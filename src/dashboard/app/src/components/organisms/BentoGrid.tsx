@@ -23,7 +23,7 @@ export function BentoGrid() {
   // Dynamic findings from database - most recent first
   const recentFindings = [...allFindings]
     .sort((a, b) => {
-      // Sort by sprint recency (using sprint_id as proxy)
+      // Findings come with sprint_id from the database join
       const sprintA = sprints.find(s => s.id === a.sprint_id);
       const sprintB = sprints.find(s => s.id === b.sprint_id);
       const dateA = sprintA?.created_at || '';
@@ -32,19 +32,29 @@ export function BentoGrid() {
     })
     .slice(0, 10);
 
-  // Group by finding text to find "patterns" (recurring themes)
-  const findingPatterns = new Map<string, number>();
+  // Group by finding text to find "patterns" - simple word frequency for demonstration
+  const findingPatterns = new Map<string, { count: number; examples: string[] }>();
   allFindings.forEach(f => {
     const words = f.finding.toLowerCase().split(/\s+/).filter(w => w.length > 4);
     words.forEach(word => {
-      findingPatterns.set(word, (findingPatterns.get(word) || 0) + 1);
+      const existing = findingPatterns.get(word);
+      if (existing) {
+        existing.count++;
+        if (!existing.examples.includes(f.finding)) {
+          existing.examples.push(f.finding);
+        }
+      } else {
+        findingPatterns.set(word, { count: 1, examples: [f.finding] });
+      }
     });
   });
-  const topPatterns = [...findingPatterns.entries()]
-    .filter(([word]) => !['finding', 'issue', 'problem', 'error', 'good', 'bad', 'better'].includes(word))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([word, count]) => `${word} (${count}x)`);
+
+  // Top recurring patterns from actual findings
+  const recurringPatterns = [...findingPatterns.entries()]
+    .filter(([_, data]) => data.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 5)
+    .map(([word, data]) => `${word} (${data.count}x)`);
 
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
@@ -77,9 +87,9 @@ export function BentoGrid() {
           iconBg="rgba(167,139,250,.15)"
           wide
           items={
-            topPatterns.length > 0
-              ? topPatterns
-              : ['No retro findings yet. Complete sprints to see patterns emerge.']
+            recentFindings.length > 0
+              ? recentFindings.map(f => `${f.finding}${f.sprint_id ? ` (${sprints.find(s => s.id === f.sprint_id)?.name || 'Unknown'})` : ''}`)
+              : ['No findings yet — add retros in your sprints to see patterns here']
           }
         />
 
@@ -121,7 +131,9 @@ export function BentoGrid() {
           borderColor="var(--accent)"
           iconBg="rgba(16,185,129,.15)"
           items={
-            well.slice(0, 5).map(f => f.finding)
+            well.length > 0
+              ? well.slice(0, 5).map(f => f.finding)
+              : ['No "went well" findings yet — celebrate your wins!']
           }
         />
 
@@ -133,7 +145,9 @@ export function BentoGrid() {
           borderColor="var(--red)"
           iconBg="rgba(248,113,113,.15)"
           items={
-            wrong.slice(0, 5).map(f => f.finding)
+            wrong.length > 0
+              ? wrong.slice(0, 5).map(f => f.finding)
+              : ['No "went wrong" findings yet — track issues to avoid repeating them']
           }
         />
 
@@ -145,24 +159,23 @@ export function BentoGrid() {
           borderColor="var(--blue)"
           iconBg="rgba(59,130,246,.15)"
           items={
-            tryNext.slice(0, 5).map(f => f.finding)
+            well.length > 0
+              ? [`Most celebrated win: "${well.slice(0, 3).sort((a, b) => b.id - a.id)[0]?.finding || 'Add findings to see your best moments'}"`]
+              : ['Add "went well" findings to highlight your best moments']
           }
         />
 
         {/* All Recent Findings */}
         <BentoCard
-          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 4h10M4 9h10M4 14h10" stroke="var(--text2)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
-          title="All Findings"
-          subtitle={`Last ${Math.min(recentFindings.length, 10)} findings`}
-          borderColor="var(--text2)"
-          iconBg="rgba(100,116,139,.15)"
-          wide
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--orange)" strokeWidth="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
+          title="Worst Moment"
+          subtitle="Biggest setback"
+          borderColor="var(--orange)"
+          iconBg="rgba(251,191,36,.15)"
           items={
-            recentFindings.slice(0, 10).map(f => {
-              const sprint = sprints.find(s => s.id === f.sprint_id);
-              const prefix = sprint ? `[${sprint.name}] ` : '';
-              return prefix + f.finding;
-            })
+            wrong.length > 0
+              ? [`Biggest setback: "${wrong.slice(0, 3).sort((a, b) => b.id - a.id)[0]?.finding || 'Add findings to track setbacks'}"`]
+              : ['Add "went wrong" findings to learn from setbacks']
           }
         />
       </div>
