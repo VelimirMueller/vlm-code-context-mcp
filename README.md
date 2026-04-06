@@ -6,7 +6,9 @@
 > All running real sprints. All talking to your codebase. All inside a single SQLite database.
 
 ```bash
+npm install vlm-code-context-mcp
 npx code-context-mcp setup .
+npx code-context-dashboard ./context.db
 ```
 
 ---
