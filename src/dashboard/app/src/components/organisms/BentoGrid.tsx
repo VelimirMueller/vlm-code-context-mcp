@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { BentoCard } from '@/components/molecules/BentoCard';
@@ -17,6 +19,42 @@ export function BentoGrid() {
   const well = allFindings.filter((f) => f.category === 'went_well');
   const wrong = allFindings.filter((f) => f.category === 'went_wrong');
   const tryNext = allFindings.filter((f) => f.category === 'try_next');
+
+  // Dynamic findings from database - most recent first
+  const recentFindings = [...allFindings]
+    .sort((a, b) => {
+      // Findings come with sprint_id from the database join
+      const sprintA = sprints.find(s => s.id === a.sprint_id);
+      const sprintB = sprints.find(s => s.id === b.sprint_id);
+      const dateA = sprintA?.created_at || '';
+      const dateB = sprintB?.created_at || '';
+      return dateB.localeCompare(dateA);
+    })
+    .slice(0, 10);
+
+  // Group by finding text to find "patterns" - simple word frequency for demonstration
+  const findingPatterns = new Map<string, { count: number; examples: string[] }>();
+  allFindings.forEach(f => {
+    const words = f.finding.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+    words.forEach(word => {
+      const existing = findingPatterns.get(word);
+      if (existing) {
+        existing.count++;
+        if (!existing.examples.includes(f.finding)) {
+          existing.examples.push(f.finding);
+        }
+      } else {
+        findingPatterns.set(word, { count: 1, examples: [f.finding] });
+      }
+    });
+  });
+
+  // Top recurring patterns from actual findings
+  const recurringPatterns = [...findingPatterns.entries()]
+    .filter(([_, data]) => data.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 5)
+    .map(([word, data]) => `${word} (${data.count}x)`);
 
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
@@ -48,13 +86,11 @@ export function BentoGrid() {
           borderColor="var(--purple)"
           iconBg="rgba(167,139,250,.15)"
           wide
-          items={[
-            'Subagent file writes fail silently — never trust claims without disk verification',
-            'Retros skipped when sprints feel "green" — 3 consecutive skips before enforcement added',
-            'Ticket ID confusion — internal DB IDs vs sequential numbers cause update errors',
-            'Sprint velocity stabilized at 19pt after early over-commitment (27pt in S2)',
-            'Frontend/backend capacity imbalance recurs — 8pt individual cap was the fix',
-          ]}
+          items={
+            recentFindings.length > 0
+              ? recentFindings.map(f => `${f.finding}${f.sprint_id ? ` (${sprints.find(s => s.id === f.sprint_id)?.name || 'Unknown'})` : ''}`)
+              : ['No findings yet — add retros in your sprints to see patterns here']
+          }
         />
 
         {/* Stats card */}
@@ -94,13 +130,11 @@ export function BentoGrid() {
           subtitle="Consistently positive"
           borderColor="var(--accent)"
           iconBg="rgba(16,185,129,.15)"
-          items={[
-            '19pt velocity target hit consistently — conservative planning works',
-            'Zero-dependency approach — CSS-only animations, no new libs added',
-            'Parallel QA agents cut verification from 4min to 60s',
-            'Direct file writes + build verification prevents false completions',
-            'MCP-driven sprint process enables full delivery in one session',
-          ]}
+          items={
+            well.length > 0
+              ? well.slice(0, 5).map(f => f.finding)
+              : ['No "went well" findings yet — celebrate your wins!']
+          }
         />
 
         {/* Recurring Bad */}
@@ -110,13 +144,11 @@ export function BentoGrid() {
           subtitle="Persistent pain points"
           borderColor="var(--red)"
           iconBg="rgba(248,113,113,.15)"
-          items={[
-            'Subagents hallucinate file writes — report success with zero disk changes',
-            'Retro process repeatedly skipped despite being flagged every time',
-            'No integration tests for MCP tools — only schema tests exist',
-            'Context limits from plugin injections force mid-sprint handoffs',
-            'Data import idempotency issues cause CASCADE deletes',
-          ]}
+          items={
+            wrong.length > 0
+              ? wrong.slice(0, 5).map(f => f.finding)
+              : ['No "went wrong" findings yet — track issues to avoid repeating them']
+          }
         />
 
         {/* Best Moment */}
@@ -126,10 +158,11 @@ export function BentoGrid() {
           subtitle="Highlight across all sprints"
           borderColor="var(--blue)"
           iconBg="rgba(59,130,246,.15)"
-          items={[
-            'Every INSTRUCTIONS.md requirement delivered — landing page, dashboard, sprint board, agent health, milestones, mobile responsive, security review, full docs. 6 sprints from zero to complete.',
-            '28 MCP tools, 9 agents, full dashboard with kanban/gantt/velocity shipped by milestone close',
-          ]}
+          items={
+            well.length > 0
+              ? [`Most celebrated win: "${well.slice(0, 3).sort((a, b) => b.id - a.id)[0]?.finding || 'Add findings to see your best moments'}"`]
+              : ['Add "went well" findings to highlight your best moments']
+          }
         />
 
         {/* Worst Moment */}
@@ -139,10 +172,11 @@ export function BentoGrid() {
           subtitle="Biggest setback"
           borderColor="var(--orange)"
           iconBg="rgba(251,191,36,.15)"
-          items={[
-            "Sprint 2 over-committed at 27pt — only 59% delivered, caused a full cleanup sprint (S4) that shouldn't have been needed",
-            'Scrum data import race condition — INSERT OR REPLACE triggered CASCADE deletes wiping ticket statuses',
-          ]}
+          items={
+            wrong.length > 0
+              ? [`Biggest setback: "${wrong.slice(0, 3).sort((a, b) => b.id - a.id)[0]?.finding || 'Add findings to track setbacks'}"`]
+              : ['Add "went wrong" findings to learn from setbacks']
+          }
         />
       </div>
     </div>
