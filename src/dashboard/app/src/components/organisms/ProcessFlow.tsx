@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { PHASE_COLORS, PHASE_ORDER, getPhaseStyle, mapLegacyPhase } from '@/lib/phases';
 import { get, put } from '@/lib/api';
