@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { BentoCard } from '@/components/molecules/BentoCard';
@@ -17,6 +19,32 @@ export function BentoGrid() {
   const well = allFindings.filter((f) => f.category === 'went_well');
   const wrong = allFindings.filter((f) => f.category === 'went_wrong');
   const tryNext = allFindings.filter((f) => f.category === 'try_next');
+
+  // Dynamic findings from database - most recent first
+  const recentFindings = [...allFindings]
+    .sort((a, b) => {
+      // Sort by sprint recency (using sprint_id as proxy)
+      const sprintA = sprints.find(s => s.id === a.sprint_id);
+      const sprintB = sprints.find(s => s.id === b.sprint_id);
+      const dateA = sprintA?.created_at || '';
+      const dateB = sprintB?.created_at || '';
+      return dateB.localeCompare(dateA);
+    })
+    .slice(0, 10);
+
+  // Group by finding text to find "patterns" (recurring themes)
+  const findingPatterns = new Map<string, number>();
+  allFindings.forEach(f => {
+    const words = f.finding.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+    words.forEach(word => {
+      findingPatterns.set(word, (findingPatterns.get(word) || 0) + 1);
+    });
+  });
+  const topPatterns = [...findingPatterns.entries()]
+    .filter(([word]) => !['finding', 'issue', 'problem', 'error', 'good', 'bad', 'better'].includes(word))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word, count]) => `${word} (${count}x)`);
 
   return (
     <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
@@ -48,13 +76,11 @@ export function BentoGrid() {
           borderColor="var(--purple)"
           iconBg="rgba(167,139,250,.15)"
           wide
-          items={[
-            'Subagent file writes fail silently — never trust claims without disk verification',
-            'Retros skipped when sprints feel "green" — 3 consecutive skips before enforcement added',
-            'Ticket ID confusion — internal DB IDs vs sequential numbers cause update errors',
-            'Sprint velocity stabilized at 19pt after early over-commitment (27pt in S2)',
-            'Frontend/backend capacity imbalance recurs — 8pt individual cap was the fix',
-          ]}
+          items={
+            topPatterns.length > 0
+              ? topPatterns
+              : ['No retro findings yet. Complete sprints to see patterns emerge.']
+          }
         />
 
         {/* Stats card */}
@@ -87,62 +113,57 @@ export function BentoGrid() {
           ))}
         </div>
 
-        {/* Recurring Good */}
+        {/* Recent Went Well */}
         <BentoCard
           icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--accent)" strokeWidth="1.5"/><path d="M6 9l2 2 4-4" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-          title="Recurring Good"
-          subtitle="Consistently positive"
+          title="Recent Wins"
+          subtitle="What went well"
           borderColor="var(--accent)"
           iconBg="rgba(16,185,129,.15)"
-          items={[
-            '19pt velocity target hit consistently — conservative planning works',
-            'Zero-dependency approach — CSS-only animations, no new libs added',
-            'Parallel QA agents cut verification from 4min to 60s',
-            'Direct file writes + build verification prevents false completions',
-            'MCP-driven sprint process enables full delivery in one session',
-          ]}
+          items={
+            well.slice(0, 5).map(f => f.finding)
+          }
         />
 
-        {/* Recurring Bad */}
+        {/* Recent Issues */}
         <BentoCard
           icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2L1.5 15.5h15L9 2z" stroke="var(--red)" strokeWidth="1.5" strokeLinejoin="round"/><path d="M9 7v3.5" stroke="var(--red)" strokeWidth="1.5" strokeLinecap="round"/><circle cx="9" cy="13" r="0.75" fill="var(--red)"/></svg>}
-          title="Recurring Bad"
-          subtitle="Persistent pain points"
+          title="Recent Issues"
+          subtitle="What went wrong"
           borderColor="var(--red)"
           iconBg="rgba(248,113,113,.15)"
-          items={[
-            'Subagents hallucinate file writes — report success with zero disk changes',
-            'Retro process repeatedly skipped despite being flagged every time',
-            'No integration tests for MCP tools — only schema tests exist',
-            'Context limits from plugin injections force mid-sprint handoffs',
-            'Data import idempotency issues cause CASCADE deletes',
-          ]}
+          items={
+            wrong.slice(0, 5).map(f => f.finding)
+          }
         />
 
-        {/* Best Moment */}
+        {/* Action Items */}
         <BentoCard
           icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 1.5l2.3 4.7 5.2.8-3.8 3.7.9 5.1L9 13.5l-4.6 2.3.9-5.1L1.5 7l5.2-.8L9 1.5z" stroke="var(--blue)" strokeWidth="1.5" strokeLinejoin="round"/></svg>}
-          title="Best Moment"
-          subtitle="Highlight across all sprints"
+          title="Action Items"
+          subtitle="Try next time"
           borderColor="var(--blue)"
           iconBg="rgba(59,130,246,.15)"
-          items={[
-            'Every INSTRUCTIONS.md requirement delivered — landing page, dashboard, sprint board, agent health, milestones, mobile responsive, security review, full docs. 6 sprints from zero to complete.',
-            '28 MCP tools, 9 agents, full dashboard with kanban/gantt/velocity shipped by milestone close',
-          ]}
+          items={
+            tryNext.slice(0, 5).map(f => f.finding)
+          }
         />
 
-        {/* Worst Moment */}
+        {/* All Recent Findings */}
         <BentoCard
-          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--orange)" strokeWidth="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="var(--orange)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
-          title="Worst Moment"
-          subtitle="Biggest setback"
-          borderColor="var(--orange)"
-          iconBg="rgba(251,191,36,.15)"
-          items={[
-            "Sprint 2 over-committed at 27pt — only 59% delivered, caused a full cleanup sprint (S4) that shouldn't have been needed",
-            'Scrum data import race condition — INSERT OR REPLACE triggered CASCADE deletes wiping ticket statuses',
-          ]}
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 4h10M4 9h10M4 14h10" stroke="var(--text2)" strokeWidth="1.5" strokeLinecap="round"/></svg>}
+          title="All Findings"
+          subtitle={`Last ${Math.min(recentFindings.length, 10)} findings`}
+          borderColor="var(--text2)"
+          iconBg="rgba(100,116,139,.15)"
+          wide
+          items={
+            recentFindings.slice(0, 10).map(f => {
+              const sprint = sprints.find(s => s.id === f.sprint_id);
+              const prefix = sprint ? `[${sprint.name}] ` : '';
+              return prefix + f.finding;
+            })
+          }
         />
       </div>
     </div>
