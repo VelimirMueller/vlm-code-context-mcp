@@ -99,7 +99,8 @@ Every mutation — ticket status change, agent mood update, sprint phase transit
 - **Retro** — Findings by category, cross-sprint pattern analysis, action tracking
 - **Marketing** — Release notes, positioning, Remotion vision animation
 
-> 📸 *[screenshot here]*  
+> 📸 *[<img width="1106" height="741" alt="image" src="https://github.com/user-attachments/assets/bf32b5f9-65c9-4394-8cdc-f34205c4e1d2" />
+]*  
 > 📸 *[screenshot here]*
 
 ---
