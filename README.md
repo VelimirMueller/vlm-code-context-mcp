@@ -45,7 +45,7 @@ Both commands archive discoveries, epics, and milestones on sprint close — not
 
 AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. There is no structure, no process, and no continuity.
 
-`vlm-code-context-mcp` solves this by pre-indexing your project into a structured SQLite database. Agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** On top of that, it provides a virtual scrum team with sprint ceremonies, phase gates, velocity tracking, and a live React dashboard — all through 79 MCP tools.
+`vlm-code-context-mcp` solves this by pre-indexing your project into a structured SQLite database. Agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** On top of that, it provides a virtual scrum team with sprint ceremonies, phase gates, velocity tracking, and a live React dashboard — all through 81 MCP tools.
 
 No API keys. No external services. No cloud dependency. Everything lives in a single `context.db` file.
 
@@ -61,7 +61,7 @@ This walks you through every command from zero to your first sprint. Copy-paste 
 npm install vlm-code-context-mcp
 ```
 
-This installs the MCP server, dashboard, and all 79 tools. No API keys, no cloud accounts.
+This installs the MCP server, dashboard, and all 81 tools. No API keys, no cloud accounts.
 
 ### Step 2 — Run setup
 
@@ -92,7 +92,7 @@ You should see output like:
 
 ### Step 3 — Restart your AI client
 
-After setup, **restart Claude Code** (or whichever MCP client you use). This loads the 79 MCP tools. You can verify by asking your AI:
+After setup, **restart Claude Code** (or whichever MCP client you use). This loads the 81 MCP tools. You can verify by asking your AI:
 
 > "Call `get_project_status`"
 
@@ -256,7 +256,21 @@ Every database mutation triggers an instant dashboard refresh via SQLite WAL mon
 
 `src/bridge/` implements a `PreToolUse` hook that connects Claude Code to the dashboard bidirectionally. Actions queued in the UI are processed by the running Claude Code session.
 
-This layer is still being hardened. PRs welcome.
+**Wizard bridge (new in M2):** The `/kickoff` command can route interactive questions to the dashboard as a modal wizard. Two new MCP tools drive this:
+
+- `request_user_input` — Writes a question to the bridge queue. If the dashboard is running, it appears as a wizard modal; if not, the terminal handles it.
+- `get_user_response` — Polls for the user's answer (supports blocking timeout).
+
+The dashboard responds via `PATCH /api/bridge/actions/:id/respond`, which writes to the `result` column and fires a `response_ready` SSE event.
+
+**SSE event types:**
+
+| Event | Fires when |
+|---|---|
+| `updated` | Any DB mutation (WAL watcher) |
+| `bridge_action` | Dashboard queues an action |
+| `input_requested` | MCP tool requests user input |
+| `response_ready` | User submits wizard form |
 
 ---
 
@@ -278,7 +292,7 @@ The agent queries structured metadata via `search_files`, `find_symbol`, and `ge
 
 | Component | Count |
 |---|---|
-| MCP tools | 79 (10 code + 69 scrum) |
+| MCP tools | 81 (10 code + 71 scrum) |
 | React components | 58 |
 | Database tables | 30 (25 scrum + 5 code) |
 | Default agent roles | 4 |

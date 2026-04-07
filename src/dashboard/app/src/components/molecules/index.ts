@@ -20,3 +20,5 @@ export { TabBar } from './TabBar';
 export { TeamMemberForm } from './TeamMemberForm';
 export { TicketCard } from './TicketCard';
 export { TopNav } from './TopNav';
+export { WizardModal } from './WizardModal';
+export type { WizardStep, WizardField } from './WizardModal';
