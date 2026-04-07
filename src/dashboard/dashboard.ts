@@ -39,7 +39,7 @@ function validateSprintTransition(current: string, next: string) {
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 79;
+const TOOL_COUNT = 81;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -1756,32 +1756,45 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${PORT}`);
-
-  // Auto-detect watch directory from indexed files, or use CLI arg
-  const watchDir = WATCH_DIR ?? (() => {
-    const row = db.prepare(`SELECT path FROM files ORDER BY path LIMIT 1`).get() as { path: string } | undefined;
-    if (!row) return null;
-    // Walk up to find the common root (shortest path prefix of all indexed files)
-    const allPaths = db.prepare(`SELECT path FROM files`).all() as { path: string }[];
-    if (allPaths.length === 0) return null;
-    let common = path.dirname(allPaths[0].path);
-    for (const p of allPaths) {
-      while (!p.path.startsWith(common + "/") && common !== "/") {
-        common = path.dirname(common);
-      }
+function startServer(port: number, maxRetries = 10): void {
+  server.once("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE" && maxRetries > 0) {
+      console.log(`Port ${port} in use, trying ${port + 1}...`);
+      server.removeAllListeners("error");
+      startServer(port + 1, maxRetries - 1);
+    } else {
+      console.error(`Failed to start server: ${err.message}`);
+      process.exit(1);
     }
-    return common;
-  })();
+  });
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
 
-  if (watchDir) {
-    startWatcher(watchDir);
-  } else {
-    console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
-  }
+    // Auto-detect watch directory from indexed files, or use CLI arg
+    const watchDir = WATCH_DIR ?? (() => {
+      const row = db.prepare(`SELECT path FROM files ORDER BY path LIMIT 1`).get() as { path: string } | undefined;
+      if (!row) return null;
+      // Walk up to find the common root (shortest path prefix of all indexed files)
+      const allPaths = db.prepare(`SELECT path FROM files`).all() as { path: string }[];
+      if (allPaths.length === 0) return null;
+      let common = path.dirname(allPaths[0].path);
+      for (const p of allPaths) {
+        while (!p.path.startsWith(common + "/") && common !== "/") {
+          common = path.dirname(common);
+        }
+      }
+      return common;
+    })();
 
-});
+    if (watchDir) {
+      startWatcher(watchDir);
+    } else {
+      console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
+    }
+  });
+}
+
+startServer(PORT);
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
