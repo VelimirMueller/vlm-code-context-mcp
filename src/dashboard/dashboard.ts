@@ -8,7 +8,6 @@ import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
-import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 
 
@@ -40,7 +39,7 @@ function validateSprintTransition(current: string, next: string) {
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 48; // TODO: count from MCP registry at startup
+const TOOL_COUNT = 79;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -83,13 +82,6 @@ const seeded = seedDefaults(writeDb);
 if (seeded.agents + seeded.skills > 0) {
   console.log(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
 }
-// Legacy import for sprint history from .claude/ (read-only archive)
-const claudeDir = path.resolve(path.dirname(dbPath), ".claude");
-const scrumImport = importScrumData(writeDb, claudeDir);
-if (scrumImport.sprints > 0) {
-  console.log(`[scrum] Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive`);
-}
-
 // Rebuild marketing stats on startup so cached values are fresh
 try { rebuildMarketingStats(); } catch {}
 
@@ -170,7 +162,7 @@ function apiFiles() {
 }
 
 function apiFileContext(id: number) {
-  const file = db.prepare(`SELECT * FROM files WHERE id = ?`).get(id) as any;
+  const file = db.prepare(`SELECT id, path, language, extension, size_bytes, line_count, summary, description, external_imports, created_at, modified_at, indexed_at FROM files WHERE id = ?`).get(id) as any;
   if (!file) return null;
   const exports = db.prepare(`SELECT name, kind, description FROM exports WHERE file_id = ?`).all(id);
   const imports = db.prepare(`
@@ -1279,7 +1271,13 @@ function apiDump() {
   ];
   const dump: Record<string, any[]> = {};
   for (const table of allTables) {
-    try { dump[table] = writeDb.prepare(`SELECT * FROM ${table}`).all(); } catch {}
+    try {
+      if (table === "files") {
+        dump[table] = writeDb.prepare(`SELECT id, path, language, extension, size_bytes, line_count, summary, description, external_imports, created_at, modified_at, indexed_at FROM files`).all();
+      } else {
+        dump[table] = writeDb.prepare(`SELECT * FROM ${table}`).all();
+      }
+    } catch {}
   }
   return { version: PKG_VERSION, exported_at: new Date().toISOString(), tables: dump };
 }
@@ -1294,12 +1292,23 @@ async function apiRestore(body: any) {
     "files", "exports", "dependencies", "directories", "changes"
   ];
 
+  // Build column whitelist per table from schema
+  const schemaColumns = new Map<string, Set<string>>();
+  for (const table of order) {
+    const info = writeDb.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    schemaColumns.set(table, new Set(info.map(c => c.name)));
+  }
+
   const results: Record<string, number> = {};
   const transaction = writeDb.transaction(() => {
     for (const table of order) {
       const rows = body.tables[table];
       if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
-      const cols = Object.keys(rows[0]);
+      const validCols = schemaColumns.get(table);
+      if (!validCols) continue;
+      // Only accept columns that exist in the schema
+      const cols = Object.keys(rows[0]).filter(c => validCols.has(c));
+      if (cols.length === 0) continue;
       const stmt = writeDb.prepare(
         `INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`
       );
@@ -1346,10 +1355,17 @@ function apiProjectStatus() {
   };
 }
 
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
+
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+    let bytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) { req.destroy(); reject(Object.assign(new Error("Request body too large"), { status: 413 })); return; }
+      body += chunk.toString();
+    });
     req.on("end", () => {
       try { resolve(JSON.parse(body)); }
       catch { reject(new Error("Invalid JSON body")); }
@@ -1358,9 +1374,39 @@ function readBody(req: http.IncomingMessage): Promise<any> {
   });
 }
 
+// ─── Security: localhost-only gate for sensitive operations ─────────────────
+function isLocalRequest(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+const SENSITIVE_GET_PATHS = ["/api/dump", "/api/restore"];
+
+function requireLocalAccess(req: http.IncomingMessage, res: http.ServerResponse, url: URL): boolean {
+  if (isLocalRequest(req)) return true;
+  // Block all mutating methods from non-local sources
+  const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(req.method ?? "");
+  const sensitiveGet = SENSITIVE_GET_PATHS.some(p => url.pathname.startsWith(p)) || url.pathname.startsWith("/api/file/");
+  if (mutating || sensitiveGet) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end('{"error":"access denied: localhost only"}');
+    return false;
+  }
+  return true;
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+
+  // Enforce localhost-only access for sensitive operations
+  if (!requireLocalAccess(req, res, url)) return;
+
+  // Security headers on all responses
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Access-Control-Allow-Origin", "http://localhost:" + PORT);
 
   // MCP→Dashboard notification endpoint (called by MCP tools after DB writes)
   if (url.pathname === "/api/notify" && req.method === "POST") {
@@ -1617,9 +1663,6 @@ const server = http.createServer(async (req, res) => {
         data = apiBridgeActions(status);
       }
       else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"bridge actions only from localhost"}'); return; }
         const body = await readBody(req);
         if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
         data = apiCreateBridgeAction(body);
@@ -1700,7 +1743,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${PORT}`);
 
   // Auto-detect watch directory from indexed files, or use CLI arg

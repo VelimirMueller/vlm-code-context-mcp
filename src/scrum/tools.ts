@@ -1038,13 +1038,23 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           "files", "exports", "dependencies", "directories", "changes"
         ];
 
+        // Build column whitelist per table from schema
+        const schemaColumns = new Map<string, Set<string>>();
+        for (const table of order) {
+          const info = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+          schemaColumns.set(table, new Set(info.map(c => c.name)));
+        }
+
         const results: string[] = [];
         const transaction = db.transaction(() => {
           for (const table of order) {
             const rows = dump.tables[table];
             if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
+            const validCols = schemaColumns.get(table);
+            if (!validCols) continue;
+            const cols = Object.keys(rows[0]).filter(c => validCols.has(c));
+            if (cols.length === 0) continue;
 
-            const cols = Object.keys(rows[0]);
             const placeholders = cols.map(() => "?").join(",");
             const stmt = db.prepare(
               `INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${placeholders})`
@@ -1139,12 +1149,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           "files", "exports", "dependencies", "directories", "changes"
         ];
 
+        // Build column whitelist per table from schema
+        const schemaColumns2 = new Map<string, Set<string>>();
+        for (const table of order) {
+          const info = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+          schemaColumns2.set(table, new Set(info.map(c => c.name)));
+        }
+
         const results: string[] = [];
         const transaction = db.transaction(() => {
           for (const table of order) {
             const rows = dump.tables[table];
             if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
-            const cols = Object.keys(rows[0]);
+            const validCols = schemaColumns2.get(table);
+            if (!validCols) continue;
+            const cols = Object.keys(rows[0]).filter(c => validCols.has(c));
+            if (cols.length === 0) continue;
             const placeholders = cols.map(() => "?").join(",");
             const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${placeholders})`);
             let count = 0;
@@ -1164,20 +1184,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   // ─── Sprint Process Instructions ────────────────────────────────────────────
   const INSTRUCTION_SECTIONS: Record<string, string> = {
-    lifecycle: `## Sprint Lifecycle (10 phases)
-1. **preparation** → Groom backlog, confirm capacity, prepare sprint backlog (0.5 day)
-2. **kickoff** → Align team on goals, assign roles, Sprint Kickoff ceremony (0.5 day)
-3. **planning** → Define sprint goal, assign tickets & points, commit velocity (~19pts target) (0.5 day)
-4. **implementation** → Development work in progress, daily standups (3 days)
-5. **qa** → Verify acceptance criteria, run tests — MANDATORY gate, bugs return to implementation (1 day)
-6. **refactoring** → Code cleanup, tech debt reduction (0.5 day)
-7. **retro** → Auto-generate analysis, collect findings, Retrospective ceremony (0.5 day)
-8. **review** → Stakeholder demo, approve deliverables, Sprint Review ceremony (0.5 day)
-9. **closed** → Rebuild marketing stats, archive sprint — CANNOT close without retro findings
-10. **rest** → Team recovery, knowledge sharing (1 day)
+    lifecycle: `## Sprint Lifecycle (4 phases)
+1. **planning** → Define sprint goal, assign tickets & points, commit velocity (~19pts target), confirm capacity (1 day)
+2. **implementation** → Development work, daily standups, QA verification, code reviews (3 days)
+3. **done** → Sprint summary, retrospective findings, velocity review (0.5 day)
+4. **rest** → Team recovery, knowledge sharing (0.5 day)
 
-**Status flow:** preparation → kickoff → planning → implementation → qa → refactoring → retro → review → closed → rest
-**Bug return:** If QA finds bugs, sprint returns to implementation phase.`,
+**Status flow:** planning → implementation → done → rest
+**Gate checks:** Advancing to implementation requires tickets + velocity. Advancing to done requires all tickets resolved. Closing requires retro findings.`,
 
     tickets: `## Ticket Workflow
 **Status flow:** TODO → IN_PROGRESS → DONE
@@ -1204,20 +1218,13 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 - Action items need an \`action_owner\` assigned
 - Sprint CANNOT close until retro findings exist (minimum 3, one per category)`,
 
-    roles: `## Role Responsibilities
+    roles: `## Role Responsibilities (Default Team)
 - **product-owner** — Requirements, prioritization, milestone roadmap, accept/reject work
-- **scrum-master** — Blockers, status tracking, process enforcement, ceremonies
-- **architect** — System design, infrastructure, CI/CD, technical standards
-- **lead-developer** — Technical decisions, code quality, conflict resolution
-- **backend-developer** — APIs, database, business logic, integrations
-- **frontend-developer** — UI components, styling, responsive design, UX (lead frontend)
-- **frontend-developer-2** — React component architecture, Zustand stores, Framer Motion, data visualization
-- **frontend-developer-3** — Design systems, accessibility, SVG icons, CSS architecture, visual polish
+- **developer** — Feature implementation, bug fixes, code quality
 - **qa** — Test plans, acceptance verification, bug tickets, set qa_verified
-- **security-specialist** — Vulnerability audits, CVE monitoring, input sanitization
-- **manager** — Cost efficiency, prevent over-engineering, business alignment
-- **marketing-senior-1** — Release communications, feature announcements, changelog narratives, product positioning
-- **marketing-senior-2** — Market research, competitive analysis, user-facing documentation, growth metrics`,
+- **devops** — CI/CD, deployment, infrastructure, technical standards
+
+Additional roles can be added via \`reset_agents\` or direct database access (e.g. scrum-master, architect, security-specialist).`,
 
     checklist: `## Sprint Close Checklist
 - [ ] All tickets DONE or explicitly NOT_DONE with reason
