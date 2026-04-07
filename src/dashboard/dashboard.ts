@@ -341,12 +341,19 @@ function apiAgentsHealth() {
       FROM agents a ORDER BY a.role
     `).all() as any[];
     // Compute mood: 0-100 scale from tickets + retro sentiment
+    // Check if any sprint is currently active
+    const hasActiveSprint = (() => {
+      try {
+        const row = writeDb.prepare(`SELECT 1 FROM sprints WHERE status IN ('active','in_progress') AND deleted_at IS NULL LIMIT 1`).get();
+        return !!row;
+      } catch { return false; }
+    })();
     return agents.map((a: any) => {
       let mood = 50;
       if (a.done_tickets > 0) mood += Math.min(a.done_tickets * 5, 30);
       if (a.blocked_tickets > 0) mood -= a.blocked_tickets * 20;
       if (a.active_points > 8) mood -= (a.active_points - 8) * 5;
-      if (a.done_tickets === 0 && a.active_tickets === 0) mood -= 15;
+      if (hasActiveSprint && a.done_tickets === 0 && a.active_tickets === 0) mood -= 15;
       // Factor in retro sentiment — recent sprints weighted higher
       try {
         const retroPositive = (writeDb.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE role = ? AND category = 'went_well'`).get(a.role) as any)?.c || 0;

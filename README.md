@@ -1,11 +1,8 @@
 # vlm-code-context-mcp
 
-**A full AI engineering team. One npm package. Zero context waste.**
+**Structured codebase context and scrum process management for AI agents via MCP.**
 
-> 📖 **[Getting Started Guide](GETTING-STARTED.md)** — New here? Start here!
-
-> Product Owner. Architect. QA. Security. Two developers. A Scrum Master. A Manager. A Lead Dev.  
-> All running real sprints. All talking to your codebase. All inside a single SQLite database.
+> **[Getting Started Guide](GETTING-STARTED.md)** | New here? Start here.
 
 ```bash
 npm install vlm-code-context-mcp
@@ -15,29 +12,27 @@ npx code-context-dashboard ./context.db
 
 ---
 
-## Why this exists
+## Overview
 
-Every AI coding tool hits the same wall: the model burns through its context window just *reading* your codebase before it can do anything useful. Then the session ends, and next time it starts over.
+AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. There is no structure, no process, and no continuity.
 
-The second problem is worse — there's no process. You get a capable AI that has no idea what it's supposed to build, in what order, or why.
+`vlm-code-context-mcp` solves this by pre-indexing your project into a structured SQLite database. Agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** On top of that, it provides a virtual scrum team with sprint ceremonies, phase gates, velocity tracking, and a live React dashboard — all through 79 MCP tools.
 
-`vlm-code-context-mcp` solves both. It pre-indexes your entire project into a structured SQLite database so agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** And it wraps that intelligence in a complete virtual scrum team that runs real sprint ceremonies through 80 MCP tools, with phase gates, retrospectives, velocity tracking, and a live React dashboard.
-
-This isn't a task tracker with Claude bolted on. It's an operating system for AI-driven development.
+No API keys. No external services. No cloud dependency. Everything lives in a single `context.db` file.
 
 ---
 
-## What you get in 60 seconds
+## Quick start
 
 ```
 Step 1/4 — Indexing files into context.db...
   Indexed 25 files, 142 exports, 87 dependencies
 
 Step 2/4 — Loading scrum schema...
-  Created 10 scrum tables
+  Created scrum tables
 
-Step 3/4 — Importing team from .claude/agents/...
-  Loaded 9 agents, 3 sprints, 24 tickets
+Step 3/4 — Seeding default team...
+  Loaded 4 agents
 
 Step 4/4 — Writing .mcp.json...
   Configured MCP server entry
@@ -45,54 +40,50 @@ Step 4/4 — Writing .mcp.json...
 === Setup complete! (my-project) ===
 ```
 
-Then open the dashboard:
-
 ```bash
 npx code-context-dashboard ./context.db
 # Opens at http://localhost:3333
 ```
 
-**That's it.** Your AI team is ready. No API keys. No external services. No cloud dependency. Everything lives in `context.db`.
-
 ---
 
-## The team
+## Default team
 
 | Role | Responsibility |
 |---|---|
-| Product Owner | Vision, backlog, acceptance criteria |
-| Scrum Master | Sprint ceremonies, blockers, velocity |
-| Architect | System design, tech selection, scalability |
-| Lead Developer | Code quality, PR reviews, conflict resolution |
-| Backend Developer | APIs, services, database, integrations |
-| Frontend Developer | UI, dashboard, animations, UX |
-| QA Engineer | Test coverage, quality gates, regression |
-| Security Specialist | Vulnerability audits, secure defaults |
-| Manager | Cost control, anti-overengineering, timelines |
+| Product Owner | Requirements, priorities, acceptance criteria |
+| Developer | Feature implementation, bug fixes |
+| QA Engineer | Testing, quality gates, verification |
+| DevOps | CI/CD, deployment, infrastructure |
 
-Each agent has a defined role, a system prompt, tool access scoped to their responsibilities, and a mood score derived from ticket load and retro sentiment. The system tracks burnout signals across sprints.
+Agents are fully configurable. Add, remove, or modify roles through MCP tools or direct database access. Each agent carries a mood score computed from workload and retrospective sentiment.
 
 ---
 
-## The sprint process
+## Sprint process
 
-Sprints run through 10 enforced phases with automated gate checks:
+Sprints follow 4 phases with configurable gate checks:
 
 ```
-preparation → kickoff → planning → implementation → qa → refactoring → retro → review → closed → rest
+planning → implementation → done → rest
 ```
 
-Gates are real. The sprint won't advance to QA until tickets are assigned and estimated. It won't close until retro findings are logged. Velocity is tracked automatically across every sprint and surfaces in the dashboard.
+- **Planning** (1 day) — Goal setting, task assignment, velocity commitment
+- **Implementation** (3-4 days) — Daily standups, code reviews, QA verification
+- **Done** (0.5 day) — Sprint summary, retrospective findings, velocity review
+- **Rest** (0.5 day, optional) — Team recovery
+
+Phases, durations, and gate criteria are fully customizable via the `update_sprint_config` MCP tool.
 
 ---
 
-## The dashboard
+## Dashboard
 
-**6 pages. 69 components. Live SSE updates.**
+**6 pages. Live SSE updates.**
 
-Every mutation — ticket status change, agent mood update, sprint phase transition — triggers an instant dashboard refresh via SQLite WAL monitoring. No polling. No manual refresh.
+Every database mutation triggers an instant dashboard refresh via SQLite WAL monitoring. No polling.
 
-- **Sprint Board** — Kanban, planning view, QA gate tracker, burndown chart
+- **Sprint Board** — Kanban, planning view, burndown chart
 - **Code Explorer** — File tree, dependency graph, export/import map, change history
 - **Project Management** — Gantt timeline, milestone tracker, discovery pipeline, vision editor
 - **Team** — Agent health cards, mood trends, workload distribution
@@ -103,13 +94,11 @@ Every mutation — ticket status change, agent mood update, sprint phase transit
 
 ---
 
-## The bridge layer
+## Bridge layer
 
-The hardest problem in agentic tooling is bidirectional communication — getting the UI and the AI to actually talk to each other in real time.
+`src/bridge/` implements a `PreToolUse` hook that connects Claude Code to the dashboard bidirectionally. Actions queued in the UI are processed by the running Claude Code session.
 
-`src/bridge/` implements a `PreToolUse` hook that connects Claude Code to the dashboard. Actions queued in the UI are processed by the running Claude Code session. This is what makes the team feel alive instead of like a static board.
-
-This is still being hardened. PRs welcome.
+This layer is still being hardened. PRs welcome.
 
 ---
 
@@ -123,9 +112,7 @@ Measured on this project's own codebase (224 files, 54K lines, 2.1 MB):
 | Raw data transferred | ~7K chars | ~184K chars | **26x reduction** |
 | Tool calls required | 8 | 21 | **2.6x fewer** |
 
-Methodology: "understand and modify a feature" task — locating relevant files, understanding exports/imports/dependents, reviewing recent changes. Without MCP the agent reads ~20 raw files (avg 9,200 chars each). With MCP it queries structured metadata via `search_files`, `find_symbol`, and `get_file_context` — summaries, export lists, and dependency graphs instead of raw source.
-
-The first index costs more — files must be read to generate metadata. Every subsequent query is 25x cheaper. Break-even after 1 use. Savings scale with codebase size: a 25-file project sees 3x reduction, this 224-file project sees 25x.
+The agent queries structured metadata via `search_files`, `find_symbol`, and `get_file_context` — summaries, export lists, and dependency graphs instead of raw source. The first index costs more (files must be read to generate metadata); every subsequent query is 25x cheaper. Break-even after 1 use.
 
 ---
 
@@ -133,50 +120,34 @@ The first index costs more — files must be read to generate metadata. Every su
 
 | Component | Count |
 |---|---|
-| MCP tools | 80 (10 code + 70 scrum) |
-| React components | 69 |
+| MCP tools | 79 (10 code + 69 scrum) |
+| React components | 58 |
 | Database tables | 30 (25 scrum + 5 code) |
-| Agent roles | 9 |
-| Test cases | 332 |
-| Source files | 140 |
-| Lines of code | 51,427 |
+| Default agent roles | 4 |
+| Source files | 112 |
 
 ---
 
 ## Project history
 
-Built entirely through its own scrum process. The virtual team has completed **22 milestones**, **69 productive sprints**, and **211 tickets** totaling **534 story points** with a rolling velocity of ~20 pts/sprint.
+Built entirely through its own scrum process across multiple milestones and sprints, with velocity tracking and retrospectives driving continuous improvement.
 
-### Retro findings across 19 sprints
+### Key learnings
 
 <img width="1922" height="968" alt="image" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
 
-**What went well (top patterns):**
+**What works well:**
 
-- **Discovery-first approach** consistently eliminated wasted implementation. Spiking 3-4 approaches before writing code saved days of rework (S59, S65, S68).
-- **Parallel agent execution** cut implementation time dramatically. 4 agents working independent tickets simultaneously while the main thread coordinated (S59, S65, S67).
-- **Research-before-code** caught dead ends early. S68 eliminated 3 candidate bridge approaches (named pipes, unix sockets, MCP resource subscriptions) in hours instead of days.
-- **Schema migration pattern** (schema_versions table) made incremental DB changes safe and repeatable. Zero regressions across 7 schema additions (S53, S55).
-- **Security audit in parallel** caught 2 HIGH findings before any code shipped (S68). Running audits alongside implementation, not after, is the right pattern.
-- **Wave-based execution** — shipping foundation first, then building features on top in parallel — produced zero rework (S57).
-- **SSE + WAL watcher** for reactive dashboard eliminated manual refresh. Every MCP mutation triggers instant UI update (S53).
+- **Discovery-first approach** — spiking multiple approaches before writing code eliminates wasted implementation.
+- **Parallel agent execution** — independent tasks run simultaneously while the main thread coordinates.
+- **Research-before-code** — catching dead ends early (e.g., evaluating bridge approaches) saves significant rework.
+- **Schema migration pattern** — `schema_versions` table makes incremental DB changes safe and repeatable.
+- **Security audits in parallel** — running audits alongside implementation, not after, catches issues before code ships.
+- **SSE + WAL watcher** — every MCP mutation triggers instant UI updates. No polling required.
 
-**What went wrong (top patterns):**
+**Known limitations:**
 
-- **Tests marked DONE without running them.** Agents wrote tests but couldn't execute them — build verification must happen before marking DONE (S61, S65, S66).
-- **Pre-existing test failures** created noise masking real regressions. Stale tests from old schema changes kept surfacing (S53, S67, S68).
-- **Discovery velocity was misleading.** S56 had 46sp committed but all tickets were documentation-only. Discovery points should be tracked separately from implementation.
-- **Generic ticket titles** with no descriptions or acceptance criteria made QA impossible. Every ticket needs concrete scope (S53).
-- **Frontend tech debt accumulated** — 800+ LOC components, 850+ inline styles, zero tests. Should have addressed this earlier (S59).
-- **Bridge only works when Claude is actively making tool calls.** No "nudge" mechanism to wake Claude for queued actions (S68).
-
-**Try next (top action items):**
-
-- Run `npm run build` after each agent completes, before marking ticket DONE (S65, S66, S67).
-- Add acceptance criteria to every ticket at creation time (S55).
-- Verify current state before creating fix tickets — some were already resolved (S58).
-- Every new write-MCP-tool must trigger SSE notification — add as checklist item (S53).
-- Implement Channels for true push-based bridge signaling when API stabilizes (S68).
-- Track discovery points separately from implementation velocity (S56).
+- Bridge only works when Claude is actively making tool calls — no push-based signaling yet.
+- Frontend components carry accumulated tech debt from rapid iteration.
 
 ---
