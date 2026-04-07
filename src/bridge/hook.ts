@@ -58,10 +58,11 @@ function main() {
 
   try {
     // Check for pending actions (max 5 at a time to keep context small)
+    // Skip request_input — those are handled by the dashboard wizard, not this hook
     const pending = db.prepare(
       `SELECT id, action, entity_type, entity_id, payload, source, created_at
        FROM pending_actions
-       WHERE status = 'pending'
+       WHERE status = 'pending' AND action != 'request_input'
        ORDER BY created_at ASC
        LIMIT 5`
     ).all() as PendingAction[];

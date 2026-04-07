@@ -15,7 +15,7 @@ vlm-code-context-mcp is an MCP server that pre-indexes TypeScript/JavaScript cod
 ### Scrum System (src/scrum/)
 
 - 20+ database tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones, decisions, epics, sprint_metrics, ticket_dependencies, tags, ticket_tags, agent_mood_history, event_log, discoveries
-- 44 MCP tools for full sprint lifecycle management
+- 71 MCP tools for full sprint lifecycle management (including bridge wizard)
 - All data lives in SQLite (context.db) — no file-based storage
 
 ### Dashboard (src/dashboard/)
