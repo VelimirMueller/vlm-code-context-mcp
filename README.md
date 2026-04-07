@@ -21,7 +21,7 @@ Every AI coding tool hits the same wall: the model burns through its context win
 
 The second problem is worse — there's no process. You get a capable AI that has no idea what it's supposed to build, in what order, or why.
 
-`vlm-code-context-mcp` solves both. It pre-indexes your entire project into a structured SQLite database so agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** And it wraps that intelligence in a complete virtual scrum team that runs real sprint ceremonies through 81 MCP tools, with phase gates, retrospectives, velocity tracking, and a live React dashboard.
+`vlm-code-context-mcp` solves both. It pre-indexes your entire project into a structured SQLite database so agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** And it wraps that intelligence in a complete virtual scrum team that runs real sprint ceremonies through 80 MCP tools, with phase gates, retrospectives, velocity tracking, and a live React dashboard.
 
 This isn't a task tracker with Claude bolted on. It's an operating system for AI-driven development.
 
@@ -88,7 +88,7 @@ Gates are real. The sprint won't advance to QA until tickets are assigned and es
 
 ## The dashboard
 
-**6 pages. 68 components. Live SSE updates.**
+**6 pages. 69 components. Live SSE updates.**
 
 Every mutation — ticket status change, agent mood update, sprint phase transition — triggers an instant dashboard refresh via SQLite WAL monitoring. No polling. No manual refresh.
 
@@ -134,14 +134,13 @@ The first index costs more — files must be read to generate metadata. Every su
 
 | Component | Count |
 |---|---|
-| MCP tools | 81 (10 code + 71 scrum) |
-| React components | 68 |
-| Database tables | 15 |
+| MCP tools | 80 (10 code + 70 scrum) |
+| React components | 69 |
+| Database tables | 34 (25 scrum + 5 code + 4 github) |
 | Agent roles | 9 |
-| Test cases | 219 |
-| Files indexed | 224 |
-| Lines of code | 53,765 |
-| Exports tracked | 374 |
+| Test cases | 332 |
+| Source files | 140 |
+| Lines of code | 51,427 |
 
 ---
 
