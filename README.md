@@ -101,9 +101,6 @@ Every mutation — ticket status change, agent mood update, sprint phase transit
 
 <img width="3840" height="2585" alt="image" src="https://github.com/user-attachments/assets/52e2fbca-1e65-4ec9-a0fe-f11f000b1510" />
 
-<img width="1922" height="968" alt="image" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
-
-
 ---
 
 ## The bridge layer
@@ -151,6 +148,8 @@ The first index costs more — files must be read to generate metadata. Every su
 Built entirely through its own scrum process. The virtual team has completed **22 milestones**, **69 productive sprints**, and **211 tickets** totaling **534 story points** with a rolling velocity of ~20 pts/sprint.
 
 ### Retro findings across 19 sprints
+
+<img width="1922" height="968" alt="image" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
 
 **What went well (top patterns):**
 
