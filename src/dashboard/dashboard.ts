@@ -1416,6 +1416,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // MCP→Dashboard typed event endpoint (sends specific SSE event like input_requested)
+  if (url.pathname === "/api/notify/event" && req.method === "POST") {
+    const body = await readBody(req);
+    if (body.type) {
+      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change });
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+
   // SSE endpoint for live updates
   if (url.pathname === "/api/events") {
     res.writeHead(200, {
@@ -1768,6 +1779,10 @@ function startServer(port: number, maxRetries = 10): void {
     }
   });
   server.listen(port, "127.0.0.1", () => {
+    // Write actual port to DB so MCP tools can find the dashboard
+    try {
+      writeDb.prepare("INSERT OR REPLACE INTO skills (name, content, owner_role) VALUES ('_dashboard_port', ?, 'system')").run(String(port));
+    } catch {}
     console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
 
     // Auto-detect watch directory from indexed files, or use CLI arg
