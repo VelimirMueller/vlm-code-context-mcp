@@ -5,7 +5,6 @@ export { DiscoveryList } from './DiscoveryList';
 export { EpicList } from './EpicList';
 export { FileTree } from './FileTree';
 export { GanttChart } from './GanttChart';
-export { GithubBoard } from './GithubBoard';
 export { GoogleAdsStrategy } from './GoogleAdsStrategy';
 export { KanbanBoard } from './KanbanBoard';
 export { LandingAnimation } from './LandingAnimation';
