@@ -96,7 +96,7 @@ import type Database from "better-sqlite3";
 
 /**
  * Seed factory defaults into empty tables. Never overwrites existing data.
- * Call this on startup instead of importScrumData().
+ * Call this on startup to seed empty tables.
  */
 export function seedDefaults(db: Database.Database): { agents: number; skills: number } {
   let agentCount = 0;

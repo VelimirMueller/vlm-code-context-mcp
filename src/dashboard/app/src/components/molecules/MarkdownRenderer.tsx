@@ -31,9 +31,10 @@ function renderMarkdown(md: string): string {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);font-weight:600;">$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-  // Links — sanitize href to only allow http/https
+  // Links — sanitize href to only allow http/https, escape quotes in href
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, href) => {
-    const safeHref = /^https?:\/\//.test(href) ? href : '#';
+    if (!/^https?:\/\//.test(href)) return text;
+    const safeHref = href.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     return `<a href="${safeHref}" style="color:var(--accent2);text-decoration:none;" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
 
@@ -76,11 +77,13 @@ function renderMarkdown(md: string): string {
 
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
   const html = renderMarkdown(content);
-  // Content is server-controlled markdown; HTML entities are escaped before processing
+  // Re-sanitize: strip any tags that aren't from our own rendering
+  const ALLOWED_TAGS = /^<\/?(h[1-6]|p|ul|ol|li|pre|code|strong|em|a|hr|div|br)\b/;
+  const sanitized = html.replace(/<\/?[a-z][^>]*>/gi, (tag) => ALLOWED_TAGS.test(tag) ? tag : tag.replace(/</g, '&lt;'));
   return (
     <div
       className={`md-content ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: sanitized }}
     />
   );
 }

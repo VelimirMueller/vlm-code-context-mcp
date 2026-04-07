@@ -98,7 +98,7 @@ const LANG_MAP: Record<string, string> = {
   ".ps1": "powershell", ".bat": "batch", ".cmd": "batch",
   ".dockerfile": "docker", ".proto": "protobuf",
   ".tf": "terraform", ".hcl": "hcl",
-  ".env": "env", ".ini": "ini", ".cfg": "ini",
+  ".ini": "ini", ".cfg": "ini",
   ".lock": "lockfile",
 };
 
@@ -343,7 +343,7 @@ function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePat
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     // Always skip node_modules and .git regardless of .gitignore
     if (SKIP_DIRS.has(entry.name)) continue;
-    if (entry.name.startsWith(".") && entry.name !== ".env") continue;
+    if (entry.name.startsWith(".")) continue;
     const full = path.join(dir, entry.name);
     const relativePath = path.relative(root, full);
     if (entry.isSymbolicLink()) continue; // skip symlinks to avoid loops
@@ -579,9 +579,6 @@ function generateFileDescription(filePath: string, lang: string, ext: string, li
     }
     if (ext === ".yaml" || ext === ".yml" || ext === ".toml" || ext === ".ini" || ext === ".cfg") {
       if (parts.length === 0) parts.push("Configuration file");
-    }
-    if (ext === ".env") {
-      if (parts.length === 0) parts.push("Environment variables");
     }
     if (ext === ".sql") {
       if (parts.length === 0) parts.push("SQL script");

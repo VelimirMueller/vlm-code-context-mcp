@@ -6,7 +6,6 @@ import Database from "better-sqlite3";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
-import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +19,7 @@ code-context-mcp — Pre-index your codebase for AI agents
 
 Usage:
   code-context-mcp [path]              Index a directory (default: current dir)
-  code-context-mcp setup [path]        Full setup: index + scrum + agents + .mcp.json
+  code-context-mcp setup [path]        Full setup: index + scrum + .mcp.json
   code-context-mcp --help              Show this help
 
 Options:
@@ -36,9 +35,9 @@ Examples:
 After setup:
   code-context-dashboard               Open dashboard at http://localhost:3333
 
-MCP Tools (44 total):
+MCP Tools (79 total):
   10 code-context tools (index, search, file context, symbols, changes)
-  34 scrum tools (sprints, tickets, retros, milestones, agents, dump/restore)
+  69 scrum tools (sprints, tickets, retros, milestones, agents, dump/restore)
 `);
   process.exit(0);
 }
@@ -83,71 +82,15 @@ console.log("[2/4] Indexing target directory...");
 const stats = indexDirectory(db, TARGET_DIR);
 console.log(`  Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies.\n`);
 
-// 3. Set up .claude/ directory (agents, scrum, skills)
-console.log("[3/4] Setting up .claude/ directory...");
-const claudeDir = path.resolve(TARGET_DIR, ".claude");
-
-const dirs = [
-  "agents", "scrum/default", "skills", "instructions"
-];
-for (const d of dirs) {
-  const dirPath = path.join(claudeDir, d);
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-    console.log(`  Created ${d}/`);
-  }
-}
-
-// Copy default agent templates if none exist
-const agentsDir = path.join(claudeDir, "agents");
-const existingAgents = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
-if (existingAgents.length === 0) {
-  const templatesDir = path.resolve(__dirname, "../../templates/agents");
-  if (fs.existsSync(templatesDir)) {
-    const templates = fs.readdirSync(templatesDir).filter(f => f.endsWith('.md'));
-    for (const t of templates) {
-      fs.copyFileSync(path.join(templatesDir, t), path.join(agentsDir, t));
-    }
-    console.log(`  Copied ${templates.length} agent templates`);
-  }
-}
-
-// Copy default skill templates if none exist
-const skillsDir = path.join(claudeDir, "skills");
-const existingSkills = fs.readdirSync(skillsDir).filter(f => f.endsWith('.md'));
-if (existingSkills.length === 0) {
-  const templatesDir = path.resolve(__dirname, "../../templates/skills");
-  if (fs.existsSync(templatesDir)) {
-    const templates = fs.readdirSync(templatesDir).filter(f => f.endsWith('.md'));
-    for (const t of templates) {
-      fs.copyFileSync(path.join(templatesDir, t), path.join(skillsDir, t));
-    }
-    console.log(`  Copied ${templates.length} skill templates`);
-  }
-}
-
-// Copy default scrum templates if none exist
-const scrumDefaultDir = path.join(claudeDir, "scrum/default");
-const existingScrumDefaults = fs.readdirSync(scrumDefaultDir).filter(f => f.endsWith('.md'));
-if (existingScrumDefaults.length === 0) {
-  const templatesDir = path.resolve(__dirname, "../../templates/scrum-default");
-  if (fs.existsSync(templatesDir)) {
-    const templates = fs.readdirSync(templatesDir).filter(f => f.endsWith('.md'));
-    for (const t of templates) {
-      fs.copyFileSync(path.join(templatesDir, t), path.join(scrumDefaultDir, t));
-    }
-    console.log(`  Copied ${templates.length} scrum default templates`);
-  }
-}
-
-// Seed factory defaults into empty tables
+// 3. Seed factory defaults into database
+console.log("[3/4] Seeding factory defaults...");
 const seeded = seedDefaults(db);
 if (seeded.agents + seeded.skills > 0) {
-  console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
+  console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills`);
+} else {
+  console.log("  Defaults already present, skipping.");
 }
-// Legacy import for sprint history
-const scrumImport = importScrumData(db, claudeDir);
-console.log(`  Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive\n`);
+console.log("");
 
 // ─── First-startup wizard: auto-create PRODUCT_VISION and first milestone ────
 {
@@ -254,35 +197,6 @@ console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);
 console.log(`  npx code-context-dashboard ./context.db 3333 .  — With file watcher`);
 console.log("");
-console.log("Restart your AI client to load the MCP tools (44 total):");
-console.log("");
-console.log("  Code Context Tools:");
-console.log("  index_directory        — Re-index a directory");
-console.log("  find_symbol            — Search exports by name");
-console.log("  get_file_context       — Full file context (exports, imports, dependents)");
-console.log("  set_description        — Set a file description");
-console.log("  set_directory_description — Set a directory description");
-console.log("  set_change_reason      — Annotate a change with a reason");
-console.log("  get_changes            — View recent file changes");
-console.log("  search_files           — Search files by path or summary");
-console.log("  query / execute        — Raw SQL access");
-console.log("");
-console.log("  Scrum Tools:");
-console.log("  list_agents / get_agent       — Agent team management");
-console.log("  list_sprints / get_sprint     — Sprint tracking");
-console.log("  create_sprint / update_sprint — Sprint lifecycle");
-console.log("  list_tickets / get_ticket     — Ticket management");
-console.log("  create_ticket / update_ticket — Ticket CRUD");
-console.log("  search_scrum                  — Search across scrum data");
-console.log("  add_retro_finding             — Retrospective findings");
-console.log("  create_blocker / resolve_blocker — Blocker management");
-console.log("  log_bug                       — Bug tracking");
-console.log("  sync_scrum_data               — Re-import from .claude/");
-console.log("  export_sprint_report          — Generate sprint reports");
-console.log("  get_sprint_instructions       — Sprint process guide");
-console.log("  create_milestone / update_milestone — Milestone management");
-console.log("  link_ticket_to_milestone      — Link tickets to milestones");
-console.log("  update_vision                 — Update product vision");
-console.log("  get_backlog / plan_sprint     — Backlog & planning");
-console.log("  get_project_status            — Project health check");
+console.log("Restart your AI client to load the MCP tools (79 total).");
+console.log("All data lives in context.db — no .claude/ files needed.");
 console.log("");

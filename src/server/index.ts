@@ -7,7 +7,6 @@ import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { registerScrumTools } from "../scrum/tools.js";
-import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -25,12 +24,6 @@ const seeded = seedDefaults(db);
 if (seeded.agents + seeded.skills > 0) {
   console.error(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
 }
-// Legacy import for sprint history from .claude/ (read-only archive)
-const claudeDir = path.resolve(path.dirname(DB_PATH), ".claude");
-const scrumImport = importScrumData(db, claudeDir);
-if (scrumImport.sprints > 0) {
-  console.error(`[scrum] Imported ${scrumImport.sprints} sprints, ${scrumImport.tickets} tickets from .claude/ archive`);
-}
 
 const server = new McpServer({ name: "code-context", version: "1.0.0" });
 
@@ -41,13 +34,75 @@ server.tool(
   { path: z.string().describe("Absolute path to the directory to index") },
   async ({ path: dirPath }) => {
     try {
-      const stats = indexDirectory(db, dirPath);
-      return {
-        content: [{
-          type: "text",
-          text: `Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies`,
-        }],
-      };
+      const rootDir = path.resolve(dirPath);
+      const stats = indexDirectory(db, rootDir);
+
+      // Build structured description output
+      const sections: string[] = [];
+      sections.push(`# Index Summary\nIndexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies\n`);
+
+      // Top-level directories with descriptions
+      const topDirs = db.prepare(`
+        SELECT path, name, description, file_count, total_lines, language_breakdown
+        FROM directories WHERE parent_path = ? ORDER BY name
+      `).all(rootDir) as { path: string; name: string; description: string | null; file_count: number; total_lines: number; language_breakdown: string | null }[];
+
+      if (topDirs.length > 0) {
+        sections.push("## Directories\n");
+        for (const dir of topDirs) {
+          const desc = dir.description ?? "No description";
+          sections.push(`### ${dir.name}/\n${desc}\n`);
+
+          // Files in this directory (direct children only)
+          const dirFiles = db.prepare(`
+            SELECT path, summary, description, language, line_count
+            FROM files WHERE path LIKE ? AND path NOT LIKE ?
+            ORDER BY path
+          `).all(dir.path + "/%", dir.path + "/%/%") as { path: string; summary: string; description: string | null; language: string; line_count: number }[];
+
+          if (dirFiles.length > 0) {
+            for (const f of dirFiles) {
+              const fname = path.basename(f.path);
+              const desc = f.description ?? f.summary ?? "No description";
+              sections.push(`- **${fname}** — ${desc}`);
+            }
+            sections.push("");
+          }
+
+          // Sub-directories (one level deeper)
+          const subDirs = db.prepare(`
+            SELECT path, name, description, file_count
+            FROM directories WHERE parent_path = ? ORDER BY name
+          `).all(dir.path) as { path: string; name: string; description: string | null; file_count: number }[];
+
+          if (subDirs.length > 0) {
+            for (const sub of subDirs) {
+              const subDesc = sub.description ?? "No description";
+              sections.push(`- **${sub.name}/** (${sub.file_count} files) — ${subDesc}`);
+            }
+            sections.push("");
+          }
+        }
+      }
+
+      // Root-level files (not inside any subdirectory)
+      const rootFiles = db.prepare(`
+        SELECT path, summary, description, language, line_count
+        FROM files WHERE path LIKE ? AND path NOT LIKE ?
+        ORDER BY path
+      `).all(rootDir + "/%", rootDir + "/%/%") as { path: string; summary: string; description: string | null; language: string; line_count: number }[];
+
+      if (rootFiles.length > 0) {
+        sections.push("## Root Files\n");
+        for (const f of rootFiles) {
+          const fname = path.basename(f.path);
+          const desc = f.description ?? f.summary ?? "No description";
+          sections.push(`- **${fname}** — ${desc}`);
+        }
+        sections.push("");
+      }
+
+      return { content: [{ type: "text", text: sections.join("\n") }] };
     } catch (err: any) {
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
     }
