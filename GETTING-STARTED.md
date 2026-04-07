@@ -10,7 +10,6 @@ nonono # Getting Started
 
 - **Codebase indexing** — File tree, exports, imports, dependencies, change history
 - **10 MCP code-context tools** — Query your codebase structure 25x more efficiently
-- **GitHub integration** — Sync issues, PRs, and commits via `sync_github_data` MCP tool
 - **9 AI agents** — Product Owner, Architect, Lead Dev, Backend, Frontend, QA, Security, Scrum Master, Manager
 - **Full scrum process** — Sprints, tickets, retrospectives, velocity tracking, phase gates
 - **React dashboard** — Live project management with SSE updates
@@ -43,30 +42,6 @@ These tools give AI agents structured access to your codebase:
 
 **Why this matters:** Instead of reading 20+ raw files (avg 9,200 chars each), agents query structured metadata. Example: "find where `useButton` is exported" returns instant results vs. grepping through megabytes of code.
 
-### GitHub Integration (1 tool)
-
-| Tool | Description |
-|------|-------------|
-| `sync_github_data` | Sync GitHub repo data (issues, PRs, commits, metadata) to the dashboard |
-
-**Setup:**
-```bash
-# Set your GitHub token as environment variable
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-
-# Then in Claude Code, use the tool:
-"sync_github_data for VelimirMueller/mcp-server"
-```
-
-The GitHub integration:
-- Fetches open issues (excludes PRs)
-- Fetches all pull requests (open and closed)
-- Fetches recent commits (last 50)
-- Syncs everything to your local `context.db`
-- Displays in the dashboard under the "GitHub" tab
-
-**No cloud dependency** — Data lives in your local database. Only the initial fetch hits GitHub's API.
-
 ### Scrum Tools (71 tools)
 
 Full sprint management, ticket tracking, retrospectives, agent management, and more. See [MCP Tool Reference](#mcp-tool-reference) below for the complete list.
@@ -87,30 +62,6 @@ Full sprint management, ticket tracking, retrospectives, agent management, and m
 node --version  # Should be v18+
 npm --version   # Should be v9+
 ```
-
-### GitHub Token (for GitHub integration)
-
-To use the `sync_github_data` MCP tool, create a GitHub personal access token:
-
-1. Go to https://github.com/settings/tokens
-2. Click "Generate new token" → "Generate new token (classic)"
-3. Select scopes: `repo` (for private repos) or `public_repo` (for public repos)
-4. Generate and copy the token
-
-Set it as an environment variable:
-
-```bash
-# Linux/Mac
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-
-# Windows (PowerShell)
-$env:GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
-
-# Windows (Command Prompt)
-set GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-```
-
-**Security note:** The token is only used to make authenticated requests to GitHub's API. It's never stored or transmitted anywhere except directly to GitHub's API servers.
 
 ---
 
@@ -284,33 +235,6 @@ Recent changes to src/auth/:
 - Updated types
 ```
 
-#### GitHub Integration Examples
-
-```
-You: Sync my GitHub repo to the dashboard
-
-Claude: [Uses sync_github_data tool]
-Fetching data from GitHub...
-- Repository: VelimirMueller/mcp-server
-- Issues: 12 open
-- Pull Requests: 8 open, 45 closed
-- Commits: 50 recent
-
-Data synced to dashboard. View at http://localhost:3333 → GitHub tab
-```
-
-```
-You: What's the status of PR #123?
-
-Claude: [Queries synced GitHub data from context.db]
-PR #123: "Fix ProcessFlow rendering"
-- Status: Open
-- Author: velimir
-- Branch: fix/process-flow → main
-- Draft: No
-- CI Status: pending
-```
-
 #### Scrum Examples
 
 ```
@@ -431,12 +355,6 @@ npm run format        # Format code
 | `export_to_file` | `output_path?: string` | Export database to JSON file on disk |
 | `restore_database` | `dump_json: string` | Restore database from JSON dump |
 | `import_from_file` | `input_path: string` | Import database from JSON dump file on disk |
-
-### GitHub Integration (1)
-
-| Tool | Parameters | Description |
-|------|------------|-------------|
-| `sync_github_data` | `owner: string`, `repo: string`, `since?: string`, `dashboardPort?: number` | Sync GitHub repo (issues, PRs, commits, metadata) to dashboard using GITHUB_TOKEN env var |
 
 ### Scrum Tools - Sprints (12)
 

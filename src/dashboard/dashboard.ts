@@ -11,7 +11,7 @@ import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { importScrumData } from "../scrum/import.js";
 import { seedDefaults } from "../scrum/defaults.js";
 
-import { ensureGithubTables, syncGithubData, getGithubRepos, getGithubIssues, getGithubPRs, getGithubCommits, getGithubSyncStatus, isGithubConfigured, loadGithubConfig, fetchAndSyncGithub, startGithubAutoSync } from "./github.js";
+
 
 // ─── Input validation helpers ─────────────────────────────────────────────
 function validateEnum(value: string, allowed: string[], name: string) {
@@ -61,8 +61,6 @@ db.pragma("journal_mode = WAL");
 initSchema(writeDb);
 initScrumSchema(writeDb);
 runMigrations(writeDb);
-
-ensureGithubTables(writeDb);
 
 // Soft-delete migration: add deleted_at columns if missing
 for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
@@ -710,7 +708,7 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'sync_github', 'custom'];
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'custom'];
 
 function apiCreateBridgeAction(body: any) {
   if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
@@ -1606,50 +1604,6 @@ const server = http.createServer(async (req, res) => {
         data = apiFileContext(id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
-      // ── GitHub API ────────────────────────────────────────────────────
-      else if (url.pathname === "/api/github/configured") {
-        data = { configured: isGithubConfigured(), ...getGithubSyncStatus(writeDb) };
-      }
-      else if (url.pathname === "/api/github/repos") {
-        data = getGithubRepos(writeDb);
-      }
-      else if (url.pathname === "/api/github/issues") {
-        const repoId = url.searchParams.get("repo_id");
-        data = getGithubIssues(writeDb, repoId ? Number(repoId) : undefined);
-      }
-      else if (url.pathname === "/api/github/prs") {
-        const repoId = url.searchParams.get("repo_id");
-        data = getGithubPRs(writeDb, repoId ? Number(repoId) : undefined);
-      }
-      else if (url.pathname === "/api/github/commits") {
-        const repoId = url.searchParams.get("repo_id");
-        data = getGithubCommits(writeDb, repoId ? Number(repoId) : undefined);
-      }
-      else if (url.pathname === "/api/github/sync/status") {
-        data = getGithubSyncStatus(writeDb);
-      }
-      else if (url.pathname === "/api/github/sync" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"sync only allowed from localhost"}'); return; }
-        const body = await readBody(req);
-        data = syncGithubData(writeDb, body);
-        notifyClients();
-      }
-      else if (url.pathname === "/api/github/sync/trigger" && req.method === "POST") {
-        const remoteAddr = req.socket.remoteAddress ?? "";
-        const isLocal = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
-        if (!isLocal) { res.writeHead(403); res.end('{"error":"trigger only from localhost"}'); return; }
-        const config = loadGithubConfig(dbPath);
-        if (!config) { res.writeHead(400); res.end('{"error":"No .github.local.json config found"}'); return; }
-        const result = await fetchAndSyncGithub(writeDb, config.owner, config.repo, config.token);
-        if (result.ok) notifyClients();
-        data = result;
-      }
-      else if (url.pathname === "/api/github/config") {
-        const config = loadGithubConfig(dbPath);
-        data = { configured: isGithubConfigured(), config: config ? { owner: config.owner, repo: config.repo, autoSync: config.autoSync, syncIntervalMinutes: config.syncIntervalMinutes } : null };
-      }
       // ── Bridge API (pending_actions) ──────────────────────────────────
       else if (url.pathname === "/api/bridge/actions" && req.method === "GET") {
         const status = url.searchParams.get("status") ?? "pending";
@@ -1763,9 +1717,6 @@ server.listen(PORT, () => {
   } else {
     console.log("[watch] No indexed files found. Pass a directory as 4th arg or index files first.");
   }
-
-  // Start GitHub auto-sync if .github.local.json exists
-  startGithubAutoSync(writeDb, dbPath, () => notifyClients());
 
 });
 
