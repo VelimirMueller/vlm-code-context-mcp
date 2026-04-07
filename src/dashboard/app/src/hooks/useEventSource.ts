@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 type SSEEvent = {
-  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping';
+  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping' | 'bridge_action' | 'input_requested' | 'response_ready';
   entityType?: string;
   entityId?: number | string;
+  change?: unknown;
   payload?: unknown;
 };
 

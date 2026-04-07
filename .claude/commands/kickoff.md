@@ -2,6 +2,26 @@
 
 Run the complete scrum lifecycle from product vision through sprint rest. Ask the user beautifully formatted questions at each phase. Enforce all QA gates.
 
+## Dashboard Detection
+
+Before asking any question, check if the dashboard is running by calling:
+
+```
+request_user_input({ step, title, description, fields, hints })
+```
+
+If the response contains `"fallback": true` → the dashboard is **not running**. Present the question as a boxed card directly in the terminal (the original format below).
+
+If the response contains `"fallback": false, "action_id": N` → the dashboard **is running**. The question was sent to the wizard modal. Poll for the answer:
+
+```
+get_user_response({ action_id: N, timeout_ms: 120000 })
+```
+
+This returns `{ "status": "completed", "response": { ... } }` when the user submits the wizard form, or `{ "status": "pending" }` if still waiting.
+
+**Always support both modes.** The terminal cards are the fallback; the dashboard wizard is the enhancement.
+
 ## Resume Logic
 
 Before starting, check what already exists:

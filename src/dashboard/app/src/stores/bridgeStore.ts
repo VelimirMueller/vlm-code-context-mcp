@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { get, post } from '@/lib/api';
+import { get, post, patch } from '@/lib/api';
+import type { WizardStep } from '@/components/molecules/WizardModal';
 
 export interface PendingAction {
   id: number;
@@ -26,18 +27,25 @@ export interface BridgeStatus {
 export interface BridgeStore {
   status: BridgeStatus | null;
   actions: PendingAction[];
+  wizardSteps: WizardStep[];
+  wizardOpen: boolean;
   loading: boolean;
   error: string | null;
 
   fetchStatus: () => Promise<void>;
   fetchActions: (status?: string) => Promise<void>;
   queueAction: (action: string, entityType?: string, entityId?: number, payload?: Record<string, unknown>) => Promise<void>;
+  handleInputRequested: (action: PendingAction) => void;
+  dismissWizard: () => void;
+  completeWizard: () => void;
   clearError: () => void;
 }
 
 export const useBridgeStore = create<BridgeStore>((set, getState) => ({
   status: null,
   actions: [],
+  wizardSteps: [],
+  wizardOpen: false,
   loading: false,
   error: null,
 
@@ -76,6 +84,29 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
       set({ loading: false });
     }
   },
+
+  handleInputRequested: (action: PendingAction) => {
+    try {
+      const payload = action.payload ? JSON.parse(action.payload) : null;
+      if (!payload) return;
+      const step: WizardStep = {
+        actionId: action.id,
+        step: payload.step ?? 'unknown',
+        title: payload.title ?? 'Input Required',
+        description: payload.description ?? '',
+        fields: payload.fields ?? [],
+        hints: payload.hints,
+      };
+      set(state => ({
+        wizardSteps: [...state.wizardSteps, step],
+        wizardOpen: true,
+      }));
+    } catch { /* ignore parse errors */ }
+  },
+
+  dismissWizard: () => set({ wizardOpen: false, wizardSteps: [] }),
+
+  completeWizard: () => set({ wizardOpen: false, wizardSteps: [] }),
 
   clearError: () => set({ error: null }),
 }));

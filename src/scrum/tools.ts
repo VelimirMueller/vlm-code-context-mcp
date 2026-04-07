@@ -2287,6 +2287,112 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
     }
   );
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Bridge Wizard: Bidirectional Terminal ↔ Dashboard ───────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "request_user_input",
+    "Request user input via the dashboard wizard modal. Writes a question to the bridge action queue. If the dashboard is running, the question appears as a wizard step; if not, returns a fallback flag so the caller can ask in the terminal instead.",
+    {
+      step: z.string().describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone', 'epics', 'tickets', 'sprint_launch', 'retro')"),
+      title: z.string().describe("Question card title"),
+      description: z.string().describe("Context — why this step matters"),
+      fields: z.array(z.object({
+        name: z.string().describe("Field key"),
+        label: z.string().describe("Display label"),
+        type: z.enum(["text", "textarea", "select", "number"]).describe("Input type"),
+        placeholder: z.string().optional().describe("Placeholder text"),
+        options: z.array(z.string()).optional().describe("Options for select fields"),
+        required: z.boolean().optional().describe("Whether field is required (default true)"),
+      })).describe("Form fields to display"),
+      hints: z.array(z.string()).optional().describe("Hint bullets shown below the question"),
+    },
+    async ({ step, title, description, fields, hints }) => {
+      try {
+        // Check if dashboard is running
+        let dashboardUp = false;
+        try {
+          const resp = await fetch(`http://localhost:${DASHBOARD_PORT}/api/bridge/status`, { signal: AbortSignal.timeout(500) });
+          dashboardUp = resp.ok;
+        } catch { /* dashboard not running */ }
+
+        if (!dashboardUp) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify({ fallback: true, step, title, description, fields, hints: hints || [] }),
+            }],
+          };
+        }
+
+        // Insert request_input action into pending_actions
+        const payload = JSON.stringify({ step, title, description, fields, hints: hints || [] });
+        const result = db.prepare(
+          `INSERT INTO pending_actions (action, entity_type, payload, source, status) VALUES ('request_input', 'wizard', ?, 'mcp', 'pending')`
+        ).run(payload);
+        const actionId = result.lastInsertRowid;
+
+        notifyDashboard();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ fallback: false, action_id: Number(actionId), step, title }),
+          }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_user_response",
+    "Poll for the user's response to a request_user_input question. Returns the response payload if ready, or 'pending' status if still waiting. Use after request_user_input when dashboard is running.",
+    {
+      action_id: z.number().describe("Action ID returned by request_user_input"),
+      timeout_ms: z.number().optional().describe("Max time to wait in ms (default 0 = no wait, just check)"),
+    },
+    async ({ action_id, timeout_ms }) => {
+      try {
+        const timeout = timeout_ms ?? 0;
+        const start = Date.now();
+        const check = () => db.prepare("SELECT status, result FROM pending_actions WHERE id = ?").get(action_id) as any;
+
+        let row = check();
+        if (!row) return { content: [{ type: "text" as const, text: JSON.stringify({ status: "not_found" }) }] };
+
+        // Poll if timeout > 0
+        if (timeout > 0 && row.status === "pending") {
+          while (Date.now() - start < timeout) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            row = check();
+            if (row.status !== "pending") break;
+          }
+        }
+
+        if (row.status === "pending") {
+          return { content: [{ type: "text" as const, text: JSON.stringify({ status: "pending" }) }] };
+        }
+
+        if (row.status === "completed" && row.result) {
+          let parsed: any;
+          try { parsed = JSON.parse(row.result); } catch { parsed = row.result; }
+          return { content: [{ type: "text" as const, text: JSON.stringify({ status: "completed", response: parsed }) }] };
+        }
+
+        if (row.status === "expired") {
+          return { content: [{ type: "text" as const, text: JSON.stringify({ status: "expired" }) }] };
+        }
+
+        return { content: [{ type: "text" as const, text: JSON.stringify({ status: row.status }) }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   server.tool(
     "get_discovery_coverage",
     "Get coverage report for a discovery sprint — auto-promotes planned discoveries whose linked ticket is DONE",

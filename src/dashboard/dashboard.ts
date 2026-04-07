@@ -707,7 +707,7 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'custom'];
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'custom', 'request_input'];
 
 function apiCreateBridgeAction(body: any) {
   if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
@@ -1666,7 +1666,20 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
         data = apiCreateBridgeAction(body);
-        notifyClients({ type: "bridge_action", entityType: "pending_action", entityId: Number(data.id), change: { action: body.action } });
+        const eventType = body.action === "request_input" ? "input_requested" : "bridge_action";
+        notifyClients({ type: eventType, entityType: "pending_action", entityId: Number(data.id), change: { action: body.action, payload: body.payload } });
+      }
+      else if (url.pathname.match(/^\/api\/bridge\/actions\/\d+\/respond$/) && req.method === "PATCH") {
+        const actionId = Number(url.pathname.split("/")[4]);
+        const body = await readBody(req);
+        if (!body.result) { res.writeHead(400); res.end('{"error":"result is required"}'); return; }
+        const existing = writeDb.prepare("SELECT * FROM pending_actions WHERE id = ?").get(actionId) as any;
+        if (!existing) { res.writeHead(404); res.end('{"error":"action not found"}'); return; }
+        writeDb.prepare("UPDATE pending_actions SET status = 'completed', result = ?, completed_at = datetime('now') WHERE id = ?").run(
+          typeof body.result === "string" ? body.result : JSON.stringify(body.result), actionId
+        );
+        data = { ok: true, id: actionId };
+        notifyClients({ type: "response_ready", entityType: "pending_action", entityId: actionId, change: { result: body.result } });
       }
       else if (url.pathname === "/api/bridge/status") data = apiBridgeStatus();
       else if (url.pathname === "/api/sprint-process/markdown") data = apiSprintProcessMarkdown();
