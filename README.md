@@ -135,7 +135,7 @@ The first index costs more — files must be read to generate metadata. Every su
 |---|---|
 | MCP tools | 80 (10 code + 70 scrum) |
 | React components | 69 |
-| Database tables | 34 (25 scrum + 5 code + 4 github) |
+| Database tables | 30 (25 scrum + 5 code) |
 | Agent roles | 9 |
 | Test cases | 332 |
 | Source files | 140 |
