@@ -102,7 +102,7 @@ describe("Security: localhost binding configured", () => {
   it("should bind server to 127.0.0.1", async () => {
     const fs = await import("fs");
     const src = fs.readFileSync(path.resolve(__dirname, "../src/dashboard/dashboard.ts"), "utf-8");
-    expect(src).toContain('server.listen(PORT, "127.0.0.1"');
+    expect(src).toContain('server.listen(port, "127.0.0.1"');
   });
 
   it("should set security headers", async () => {
