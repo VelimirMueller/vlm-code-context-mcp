@@ -192,6 +192,28 @@ if (!hasBridgeHook) {
 }
 console.log("");
 
+// 6. Copy .claude/commands into target project
+console.log("[6/6] Installing Claude commands...");
+const pkgCommandsDir = path.resolve(__dirname, "../../.claude/commands");
+const targetCommandsDir = path.resolve(TARGET_DIR, ".claude/commands");
+if (fs.existsSync(pkgCommandsDir)) {
+  if (!fs.existsSync(targetCommandsDir)) fs.mkdirSync(targetCommandsDir, { recursive: true });
+  const commandFiles = fs.readdirSync(pkgCommandsDir).filter(f => f.endsWith(".md"));
+  for (const file of commandFiles) {
+    const dest = path.join(targetCommandsDir, file);
+    if (!fs.existsSync(dest)) {
+      fs.copyFileSync(path.join(pkgCommandsDir, file), dest);
+      console.log(`  Copied ${file}`);
+    } else {
+      console.log(`  Skipped ${file} (already exists)`);
+    }
+  }
+  console.log(`  Commands installed to ${targetCommandsDir}`);
+} else {
+  console.log("  No commands directory found in package, skipping.");
+}
+console.log("");
+
 console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
 console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);
