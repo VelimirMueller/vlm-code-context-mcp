@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlanning } from '@/hooks/usePlanning';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useBridgeStore } from '@/stores/bridgeStore';
 import { MilestoneList } from '@/components/organisms/MilestoneList';
 import { VisionEditor } from '@/components/organisms/VisionEditor';
 import { VisionPlayer } from '@/components/organisms/VisionPlayer';
 import { GanttChart } from '@/components/organisms/GanttChart';
 import { ProcessFlow } from '@/components/organisms/ProcessFlow';
-import { PlanningInsights } from '@/components/organisms/PlanningInsights';
+import { InsightsDashboard } from '@/components/organisms/InsightsDashboard';
 import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
 import { EpicList } from '@/components/organisms/EpicList';
@@ -53,6 +54,37 @@ export function ProjectManagement() {
   }, []);
   // Suppress unused-variable lint — consumed by child via stores
   void sprints; void agents;
+
+  const queueAction = useBridgeStore((s) => s.queueAction);
+
+  // Map step IDs to their corresponding tabs
+  const stepTabMap: Record<string, Tab> = {
+    vision: 'vision',
+    discovery: 'discoveries',
+    milestone: 'roadmap',
+    epics: 'roadmap',
+    tickets: 'planning',
+    sprint: 'planning',
+    implementation: 'planning',
+    retro: 'timeline',
+    archive: 'timeline',
+  };
+
+  const handleStepClick = useCallback((stepId: string) => {
+    if (stepId === 'kickoff') {
+      // Queue the kickoff ceremony action — the bridge hook forwards it to Claude,
+      // Claude runs the /kickoff skill, which sends request_input actions for each phase,
+      // and the wizard auto-opens (already wired in App.tsx)
+      queueAction('run_kickoff', 'ceremony', undefined, { step: 'kickoff' });
+      return;
+    }
+
+    // For other steps, navigate to the corresponding tab
+    const tab = stepTabMap[stepId];
+    if (tab) {
+      setActiveTab(tab);
+    }
+  }, [queueAction, setActiveTab]);
 
   // Milestones hero — first active (in_progress) milestone, fallback to first
   const milestones = usePlanningStore((s) => s.milestones);
@@ -259,7 +291,7 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <div style={{ marginBottom: 16 }}>
-                <ProcessFlow />
+                <ProcessFlow onStepClick={handleStepClick} />
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <GanttChart />
@@ -275,7 +307,7 @@ export function ProjectManagement() {
               exit="exit"
               transition={tabTransition}
             >
-              <PlanningInsights />
+              <InsightsDashboard />
             </motion.div>
           )}
           {activeTab === 'discoveries' && (
