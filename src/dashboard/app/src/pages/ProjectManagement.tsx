@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlanning } from '@/hooks/usePlanning';
@@ -15,16 +17,20 @@ import { SprintPlanningView } from '@/components/organisms/SprintPlanningView';
 import { SprintPlanner } from '@/components/organisms/SprintPlanner';
 import { EpicList } from '@/components/organisms/EpicList';
 import { DiscoveryList } from '@/components/organisms/DiscoveryList';
+import { CapacityPlanningView } from '@/components/organisms/CapacityPlanningView';
+import { PlanningDashboard } from '@/components/organisms/PlanningDashboard';
 import { HeroText } from '@/components/molecules/HeroText';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { tabVariants, tabTransition } from '@/lib/motion';
 
-type Tab = 'vision' | 'roadmap' | 'planning' | 'timeline' | 'insights' | 'discoveries';
+type Tab = 'vision' | 'roadmap' | 'planning' | 'capacity' | 'timeline' | 'insights' | 'discoveries' | 'dashboard';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'vision', label: 'Vision' },
   { id: 'roadmap', label: 'Roadmap' },
   { id: 'planning', label: 'Sprint Planning' },
+  { id: 'capacity', label: 'Capacity' },
+  { id: 'dashboard', label: 'Dashboard' },
   { id: 'timeline', label: 'Process Flow' },
   { id: 'insights', label: 'Insights' },
   { id: 'discoveries', label: 'Discoveries' },
@@ -111,23 +117,23 @@ export function ProjectManagement() {
 
         {/* Plan Sprint button */}
         <button
-          onClick={() => setShowPlanner(true)}
-          style={{
-            background: 'var(--accent)',
-            color: '#000',
-            border: 'none',
-            borderRadius: 9,
-            padding: '8px 18px',
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontFamily: 'var(--font)',
-            letterSpacing: '-0.01em',
-            flexShrink: 0,
-          }}
-        >
-          + Plan Sprint
-        </button>
+            onClick={() => setShowPlanner(true)}
+            style={{
+              background: 'var(--accent)',
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              padding: '8px 18px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: 'var(--font)',
+              letterSpacing: '-0.01em',
+              flexShrink: 0,
+            }}
+          >
+            + Plan Sprint
+          </button>
       </div>
 
       {/* Page content */}
@@ -216,6 +222,31 @@ export function ProjectManagement() {
               transition={tabTransition}
             >
               <SprintPlanningView />
+            </motion.div>
+          )}
+          {activeTab === 'capacity' && (
+            <motion.div
+              key="capacity"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <CapacityPlanningView />
+            </motion.div>
+          )}
+          {activeTab === 'dashboard' && (
+            <motion.div
+              key="dashboard"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+              style={{ height: '100%' }}
+            >
+              <PlanningDashboard />
             </motion.div>
           )}
           {activeTab === 'timeline' && (

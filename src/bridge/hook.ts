@@ -105,11 +105,32 @@ function main() {
       created_at: a.created_at,
     }));
 
+    // Map actions to their MCP tool calls
+    const actionToolMap: Record<string, string> = {
+      advance_sprint: "advance_sprint({ sprint_id: <entity_id>, ...payload })",
+      assign_ticket: "Update ticket assignment via update_ticket({ ticket_id: <entity_id>, assigned_to: <agent> })",
+      update_ticket: "update_ticket({ ticket_id: <entity_id>, ...payload })",
+      create_ticket: "create_ticket({ sprint_id: <sprint_id>, title: <title>, ... })",
+      run_retro: "handle_run_retro({ sprint_id: <entity_id> })",
+      run_review: "handle_run_review({ sprint_id: <entity_id> })",
+      run_kickoff: "handle_run_kickoff()",
+      plan_sprint: "Use /sprint skill or plan_sprint MCP tool",
+      custom: "Execute custom action based on payload",
+    };
+
+    const toolInstructions = actionList.map((a) => {
+      const toolCall = actionToolMap[a.action] || `Unknown action: ${a.action}`;
+      return `- Action #${a.id} (${a.action}): ${toolCall}`;
+    }).join("\n");
+
     const context = [
       "[DASHBOARD ACTION QUEUE] Execute these actions using the appropriate MCP tools:",
       "```json",
       JSON.stringify(actionList, null, 2),
       "```",
+      "",
+      "Tool mappings:",
+      toolInstructions,
     ].join("\n");
 
     db.close();

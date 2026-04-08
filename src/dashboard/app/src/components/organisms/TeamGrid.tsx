@@ -1,8 +1,11 @@
+'use client';
+
 import { useState, useMemo } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { useAgentStore } from '@/stores/agentStore';
 import { AgentCard } from '@/components/molecules/AgentCard';
-import { TeamMemberForm } from '@/components/molecules/TeamMemberForm';
-import { post } from '@/lib/api';
+import { TeamManagementModal } from '@/components/organisms/TeamManagementModal';
+import type { Agent } from '@/types';
 
 const ROLE_GROUPS: { label: string; color: string; roles: Set<string> }[] = [
   { label: 'Development', color: '#3b82f6', roles: new Set(['architect', 'lead-developer', 'backend-developer', 'frontend-developer', 'fullstack-developer', 'data-engineer', 'devops']) },
@@ -14,18 +17,22 @@ export function TeamGrid() {
   const agents = useAgentStore((s) => s.agents);
   const loading = useAgentStore((s) => s.loading);
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
-  const [showForm, setShowForm] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | undefined>(undefined);
 
-  async function handleCreate(data: { role: string; name: string; description: string; model: string }) {
-    setBusy(true);
-    try {
-      await post('/api/agents', data);
-      await fetchAgents();
-      setShowForm(false);
-    } finally {
-      setBusy(false);
-    }
+  function handleAdd() {
+    setEditingAgent(undefined);
+    setModalOpen(true);
+  }
+
+  function handleEdit(agent: Agent) {
+    setEditingAgent(agent);
+    setModalOpen(true);
+  }
+
+  function handleClose() {
+    setModalOpen(false);
+    setEditingAgent(undefined);
   }
 
   if (loading && agents.length === 0) {
@@ -57,56 +64,62 @@ export function TeamGrid() {
       {/* Header bar with title and Add button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 12px' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Team Members</div>
-        {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            style={{
-              padding: '6px 14px',
-              fontSize: 12,
-              fontWeight: 600,
-              background: 'var(--accent)',
-              border: 'none',
-              borderRadius: 'var(--radius)',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Add Member
-          </button>
-        )}
+        <button
+          onClick={handleAdd}
+          style={{
+            padding: '6px 14px',
+            fontSize: 12,
+            fontWeight: 600,
+            background: 'var(--accent)',
+            border: 'none',
+            borderRadius: 'var(--radius)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+        >
+          <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Add Member
+        </button>
       </div>
 
-      {/* Inline create form */}
-      {showForm && (
-        <div style={{ padding: '12px 20px 0' }}>
-          <TeamMemberForm
-            onSave={handleCreate}
-            onCancel={() => setShowForm(false)}
-            busy={busy}
-          />
-        </div>
-      )}
-
       {/* Grouped grid or empty state */}
-      {agents.length === 0 && !showForm ? (
+      {agents.length === 0 ? (
         <div style={{ padding: 60, textAlign: 'center', color: 'var(--text3)', fontSize: 14 }}>
-          No agents found
+          No team members yet. Click "Add Member" to create your first agent.
         </div>
       ) : (
-        <GroupedAgentGrid agents={agents} />
+        <GroupedAgentGrid agents={agents} onEdit={handleEdit} />
       )}
+
+      {/* Management Modal */}
+      <AnimatePresence>
+        {modalOpen && (
+          <TeamManagementModal
+            open={modalOpen}
+            agent={editingAgent}
+            onClose={handleClose}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function GroupedAgentGrid({ agents }: { agents: any[] }) {
+interface GroupedAgentGridProps {
+  agents: Agent[];
+  onEdit: (agent: Agent) => void;
+}
+
+function GroupedAgentGrid({ agents, onEdit }: GroupedAgentGridProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => {
-    const result: { label: string; color: string; agents: any[] }[] = [];
+    const result: { label: string; color: string; agents: Agent[] }[] = [];
     for (const group of ROLE_GROUPS) {
       const matching = agents.filter((a) => group.roles.has(a.role));
       if (matching.length > 0) result.push({ label: group.label, color: group.color, agents: matching });
@@ -147,7 +160,7 @@ function GroupedAgentGrid({ agents }: { agents: any[] }) {
           {!collapsed.has(group.label) && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, paddingTop: 4 }}>
               {group.agents.map((agent) => (
-                <AgentCard key={agent.role} agent={agent} />
+                <AgentCard key={agent.role} agent={agent} onEdit={onEdit} />
               ))}
             </div>
           )}

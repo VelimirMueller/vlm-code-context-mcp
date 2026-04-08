@@ -24,11 +24,22 @@ export interface BridgeStatus {
   failed: number;
 }
 
+export interface StepProgress {
+  step: string;
+  title: string;
+  description: string;
+  current: number;
+  total: number;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+  error?: string;
+}
+
 export interface BridgeStore {
   status: BridgeStatus | null;
   actions: PendingAction[];
   wizardSteps: WizardStep[];
   wizardOpen: boolean;
+  stepProgress: StepProgress | null;
   loading: boolean;
   error: string | null;
 
@@ -36,6 +47,7 @@ export interface BridgeStore {
   fetchActions: (status?: string) => Promise<void>;
   queueAction: (action: string, entityType?: string, entityId?: number, payload?: Record<string, unknown>) => Promise<void>;
   handleInputRequested: (action: PendingAction) => void;
+  handleStepProgress: (progress: StepProgress) => void;
   dismissWizard: () => void;
   completeWizard: () => void;
   clearError: () => void;
@@ -46,6 +58,7 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
   actions: [],
   wizardSteps: [],
   wizardOpen: false,
+  stepProgress: null,
   loading: false,
   error: null,
 
@@ -104,9 +117,13 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
     } catch { /* ignore parse errors */ }
   },
 
-  dismissWizard: () => set({ wizardOpen: false, wizardSteps: [] }),
+  handleStepProgress: (progress: StepProgress) => {
+    set({ stepProgress: progress });
+  },
 
-  completeWizard: () => set({ wizardOpen: false, wizardSteps: [] }),
+  dismissWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null }),
+
+  completeWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null }),
 
   clearError: () => set({ error: null }),
 }));
