@@ -104,17 +104,18 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
     e.preventDefault();
     const ticketId = Number(e.dataTransfer.getData('ticketId'));
     if (!ticketId) return;
-    const prev = localTickets;
-    setLocalTickets(ts =>
-      ts.map(t => t.id === ticketId ? { ...t, status: targetStatus } : t)
-    );
+    let snapshot: Ticket[] = [];
+    setLocalTickets(ts => {
+      snapshot = ts;
+      return ts.map(t => t.id === ticketId ? { ...t, status: targetStatus } : t);
+    });
     setDraggingId(null);
     setDragOverCol(null);
     try {
       await patch(`/api/ticket/${ticketId}/status`, { status: targetStatus });
       if (selectedSprintId) fetchTickets(selectedSprintId);
     } catch {
-      setLocalTickets(prev);
+      setLocalTickets(snapshot);
     }
   };
 
@@ -135,7 +136,11 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
           <div
             key={status}
             onDragOver={e => { e.preventDefault(); setDragOverCol(status); }}
-            onDragLeave={() => setDragOverCol(null)}
+            onDragLeave={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverCol(null);
+              }
+            }}
             onDrop={e => handleDrop(e, status)}
             style={{
               background: dragOverCol === status ? 'rgba(16,185,129,0.04)' : 'var(--bg)',
