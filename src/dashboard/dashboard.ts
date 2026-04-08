@@ -46,15 +46,14 @@ const PORT = Number(process.argv[3] ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
 
 const dbPath = path.resolve(DB_PATH);
+console.log(`[db] Database path: ${dbPath}`);
 
-// Writable connection for the watcher to re-index and log changes (creates DB if needed)
+// Single read-write connection for all queries and writes
+// (A read-only connection cannot see WAL changes from external processes like the MCP server)
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
-
-// Read-only connection for queries (opens after DB exists)
-const db = new Database(dbPath, { readonly: true });
-db.pragma("journal_mode = WAL");
+const db = writeDb; // alias for backward compat — all queries use the same connection
 
 // Ensure schemas exist
 initSchema(writeDb);
@@ -98,17 +97,32 @@ function notifyClients(event?: { type: string; entityType?: string; entityId?: n
 }
 
 // Watch for external DB changes (e.g. MCP tool writes)
-// SQLite WAL mode writes to .db-wal — watch it for external mutations
+// Use chokidar for reliable cross-platform file watching (fs.watchFile polling misses changes on some systems)
 let dbWalDebounce: ReturnType<typeof setTimeout> | null = null;
 const walPath = dbPath + "-wal";
 {
-  let lastWalSize = 0;
-  try { lastWalSize = fs.statSync(walPath)?.size || 0; } catch {}
-  fs.watchFile(walPath, { interval: 200 }, (curr) => {
-    if (curr.size !== lastWalSize) {
-      lastWalSize = curr.size;
+  const dbWatcher = chokidar.watch([walPath, dbPath], {
+    persistent: true,
+    ignoreInitial: true,
+    usePolling: true,
+    interval: 150,
+    awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 50 },
+  });
+  dbWatcher.on("change", () => {
+    if (dbWalDebounce) clearTimeout(dbWalDebounce);
+    dbWalDebounce = setTimeout(() => {
+      console.log("[sse] DB change detected, notifying clients");
+      notifyClients();
+    }, 100);
+  });
+  // Also detect WAL file creation (first write after checkpoint)
+  dbWatcher.on("add", (p) => {
+    if (p.endsWith("-wal")) {
       if (dbWalDebounce) clearTimeout(dbWalDebounce);
-      dbWalDebounce = setTimeout(() => notifyClients(), 100);
+      dbWalDebounce = setTimeout(() => {
+        console.log("[sse] WAL file created, notifying clients");
+        notifyClients();
+      }, 100);
     }
   });
 }
@@ -370,7 +384,7 @@ function apiSprints() {
         (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
       FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC
     `).all();
-  } catch { return []; }
+  } catch (e) { console.error("[api] apiSprints error:", e); return []; }
 }
 
 function apiSprintDetail(id: number) {
@@ -378,7 +392,7 @@ function apiSprintDetail(id: number) {
     const sprint = writeDb.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(id);
     if (!sprint) return null;
     return sprint;
-  } catch { return null; }
+  } catch (e) { console.error("[api] apiSprintDetail error:", e); return null; }
 }
 
 function apiBurndown(sprintId: number) {
@@ -413,7 +427,7 @@ function apiSprintTickets(sprintId: number) {
       LEFT JOIN epics e ON t.epic_id = e.id
       WHERE t.sprint_id = ? AND t.deleted_at IS NULL ORDER BY t.priority, t.status
     `).all(sprintId);
-  } catch { return []; }
+  } catch (e) { console.error("[api] apiSprintTickets error:", e); return []; }
 }
 
 function apiSprintRetro(sprintId: number) {
@@ -936,7 +950,7 @@ function apiMilestones() {
       ...m,
       sprints: sprintQuery.all(m.id),
     }));
-  } catch { return []; }
+  } catch (e) { console.error("[api] apiMilestones error:", e); return []; }
 }
 
 function apiCreateMilestone(body: any) {
@@ -1599,9 +1613,13 @@ const server = http.createServer(async (req, res) => {
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
     });
-    res.write(`data: connected\n\n`);
+    // Send a JSON 'updated' event immediately so the frontend triggers a full data refresh on connect.
+    // (Plain text 'connected' was ignored by the frontend, causing stale data on initial load.)
+    const connectPayload = JSON.stringify({ type: 'updated', timestamp: new Date().toISOString() });
+    res.write(`data: ${connectPayload}\n\n`);
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
+    console.log(`[sse] Client connected (${sseClients.size} active)`);
     return;
   }
 

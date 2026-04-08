@@ -1,12 +1,12 @@
-# /kickoff — Full Sprint Lifecycle (Automated)
+# /kickoff — Full Sprint Lifecycle
 
-Run the complete sprint lifecycle from vision through retrospective using MCP tools. All steps are automated — no user input required during execution.
+Run the complete sprint lifecycle from discovery through retrospective using MCP tools. Claude asks the user what to build, then automates the plan → implement → QA → retro → archive sequence.
 
 ## How it works
 
 1. Read existing project state
-2. Derive vision, milestone, epics, and tickets from context
-3. Create and start a sprint
+2. **Ask the user** what to build (discovery)
+3. Create and start a sprint from user input
 4. Work through all tickets
 5. Write retro findings
 6. Close and archive the sprint
@@ -21,51 +21,89 @@ list_sprints()
 list_epics()
 list_discoveries({ status: "discovered" })
 list_discoveries({ status: "planned" })
+get_backlog()
+get_velocity_trends()
+analyze_retro_patterns()
 ```
 
 Check existing state with these resume rules:
 
-- **Vision exists** → use it. If missing → derive from project name and code context, then call `update_vision({ content: "..." })`
-- **Active milestone** → use it. If none → create one: `create_milestone({ name: "M1 — MVP", description: "...", status: "active" })`
-- **Epics linked to milestone** → use them. If none → create 2–3 from discovery/context
 - **Sprint in `implementation`** → skip to Step 4 (ticket loop)
 - **Sprint in `done`** → skip to Step 5 (retro)
-- **All sprints in `rest`** → start fresh from Step 2
+- **All sprints in `rest` or no sprints** → continue to Step 2 (discovery)
 
 ---
 
-## Step 2 — Discovery (Automated)
+## Step 2 — Discovery (Interactive)
 
-Read `list_discoveries({ status: "discovered" })`. For each discovery, use it to shape the sprint goal and tickets.
+**Always ask the user.** Never invent features or derive scope silently.
 
-If no discoveries exist, derive scope from:
-- Existing epics and their ticket coverage
-- Recent retro findings via `analyze_retro_patterns()`
-- Open items in the backlog via `get_backlog()`
+Use `AskUserQuestion` to gather:
+
+1. **What to build** — "What should this sprint focus on? Describe the features, fixes, or improvements you want."
+2. **Sprint goal** — "What's the measurable goal for this sprint?" (offer examples based on what the user described)
+3. **Milestone** — If no active milestone exists, ask: "What should we call this milestone?" with suggestions based on context. If one exists, confirm it's still the right one.
+4. **Epic grouping** — If the work doesn't fit existing epics, ask: "How should we group this work?" and suggest 2–3 epic names based on the user's description.
+
+After gathering answers, summarize the plan back to the user:
+- Sprint name, goal, milestone
+- Proposed tickets with point estimates and agent assignments
+- Ask: "Does this plan look right? Any changes before I start?"
+
+Only proceed to Step 3 after the user confirms.
+
+**Context to share with the user** (helps them decide):
+- Current velocity trend (from `get_velocity_trends()`)
+- Retro patterns (from `analyze_retro_patterns()`) — what went well/wrong
+- Open backlog items (from `get_backlog()`)
+- Existing discoveries (from `list_discoveries()`)
 
 ---
 
 ## Step 3 — Plan and Start Sprint
 
-```
-start_sprint({
-  name: "Sprint N — <descriptive name>",
-  goal: "<one sentence, measurable>",
-  milestone_id: <active milestone id>,
-  velocity: <committed points based on velocity trends>,
-  tickets: [
-    { title: "...", description: "...", assigned_to: "<agent role>", story_points: N, priority: "P1" },
-    ...
-  ]
-})
-```
+Based on user-confirmed plan from Step 2:
+
+1. **Milestone** — If none active, create one using the name the user chose:
+   ```
+   create_milestone({ name: "<user's milestone name>", description: "...", status: "active" })
+   ```
+
+2. **Vision** — If missing, set it from user's described goals:
+   ```
+   update_vision({ content: "..." })
+   ```
+
+3. **Epics** — Create any new epics the user confirmed:
+   ```
+   create_epic({ name: "...", description: "...", milestone_id: <id>, priority: N })
+   ```
+
+4. **Sprint** — Create with user-confirmed tickets:
+   ```
+   start_sprint({
+     name: "Sprint N — <descriptive name from user>",
+     goal: "<user's measurable goal>",
+     milestone_id: <active milestone id>,
+     velocity: <committed points based on velocity trends>,
+     tickets: [
+       { title: "...", description: "...", assigned_to: "<agent role>", story_points: N, priority: "P1" },
+       ...
+     ]
+   })
+   ```
+
+5. **Link & advance**:
+   ```
+   link_ticket_to_epic({ ticket_id, epic_id })   # for each ticket
+   advance_sprint({ sprint_id })                  # planning → implementation
+   ```
 
 Rules:
 - Assign tickets to roles from `list_agents()`
 - Aim for ~19 story points total
 - Auto-create a QA ticket (1pt, assigned to `qa`) for every feature ticket
 - Link every ticket to an epic via `link_ticket_to_epic({ ticket_id, epic_id })`
-- Advance sprint: `advance_sprint({ sprint_id })` → moves `planning → implementation`
 
 ---
 

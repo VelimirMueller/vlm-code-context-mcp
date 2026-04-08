@@ -85,9 +85,9 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
       }
 
       set({ milestones: Array.isArray(milestones) ? milestones : [] });
-    } catch {
-      // Silently fail
-      set({ milestones: [] });
+    } catch (e) {
+      console.warn("[planningStore] fetchMilestones failed:", e);
+      set({ milestones: [], error: (e as Error).message });
     } finally {
       set((s) => ({ loading: { ...s.loading, milestones: false } }));
     }

@@ -148,7 +148,7 @@ const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
 const relServer = "./" + path.relative(TARGET_DIR, SERVER_ENTRY).split(path.sep).join("/");
 const serverEntry = {
   command: "node",
-  args: [relServer, "./context.db"],
+  args: [relServer, DB_PATH],
 };
 
 let mcpConfig: Record<string, any> = { mcpServers: {} };
@@ -216,8 +216,8 @@ console.log("");
 
 console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
 console.log("Dashboard:");
-console.log(`  npx code-context-dashboard ./context.db  — Open at http://localhost:3333`);
-console.log(`  npx code-context-dashboard ./context.db 3333 .  — With file watcher`);
+console.log(`  npx code-context-dashboard ${DB_PATH}  — Open at http://localhost:3333`);
+console.log(`  npx code-context-dashboard ${DB_PATH} 3333 .  — With file watcher`);
 console.log("");
 console.log("Restart your AI client to load the MCP tools (81 total).");
 console.log("All data lives in context.db — no .claude/ files needed.");

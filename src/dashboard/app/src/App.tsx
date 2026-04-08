@@ -125,7 +125,7 @@ export function App() {
   const dismissWizard = useBridgeStore((s) => s.dismissWizard);
   const completeWizard = useBridgeStore((s) => s.completeWizard);
 
-  useEventSource({
+  const { connectionState } = useEventSource({
     onEvent: (event) => {
       // Refresh all data stores on any server event
       refreshFiles();
@@ -208,7 +208,27 @@ export function App() {
             Code Context <span className="logo-sub">MCP</span>
           </span>
         </div>
-        <BridgeStatusBadge />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            title={`SSE: ${connectionState}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 11,
+              color: connectionState === 'connected' ? 'var(--green, #10b981)' : connectionState === 'reconnecting' ? 'var(--yellow, #f59e0b)' : 'var(--red, #ef4444)',
+              opacity: connectionState === 'connected' ? 0.6 : 1,
+            }}
+          >
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: connectionState === 'connected' ? '#10b981' : connectionState === 'reconnecting' ? '#f59e0b' : '#ef4444',
+              animation: connectionState === 'reconnecting' ? 'pulse 1.5s ease-in-out infinite' : undefined,
+            }} />
+            {connectionState !== 'connected' && connectionState}
+          </span>
+          <BridgeStatusBadge />
+        </div>
       </header>
 
       {/* Top Navigation */}

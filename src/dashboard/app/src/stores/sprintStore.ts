@@ -83,7 +83,8 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
     try {
       const groups = await get<MilestoneSprintGroup[]>('/api/sprints/grouped');
       set({ milestoneGroups: groups ?? [] });
-    } catch {
+    } catch (e) {
+      console.warn("[sprintStore] fetchGroupedSprints failed:", e);
       set({ milestoneGroups: [] });
     } finally {
       set((s) => ({ loading: { ...s.loading, grouped: false } }));
@@ -133,8 +134,8 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
     try {
       const tickets = await get<Ticket[]>(`/api/sprint/${sprintId}/tickets`);
       set({ tickets: Array.isArray(tickets) ? tickets : [] });
-    } catch {
-      // Silently fail
+    } catch (e) {
+      console.warn("[sprintStore] fetchTickets failed:", e);
     }
   },
 
