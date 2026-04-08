@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Ticket } from '@/types';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 // Mock framer-motion
@@ -144,11 +145,15 @@ vi.mock('@/stores/bridgeStore', () => ({
 describe('KanbanBoard', () => {
   const mockFetch = vi.fn();
 
-  const tickets = [
+  const tickets: Ticket[] = [
     { id: 1, title: 'T-1', status: 'TODO', story_points: 2, assigned_to: null,
-      priority: 1, epic_name: null, qa_verified: 0, sprint_id: 6, description: '' },
+      priority: 'medium', qa_verified: 0, description: null,
+      ticket_ref: null, milestone: null, verified_by: null,
+      acceptance_criteria: null, notes: null },
     { id: 2, title: 'T-2', status: 'IN_PROGRESS', story_points: 3, assigned_to: null,
-      priority: 1, epic_name: null, qa_verified: 0, sprint_id: 6, description: '' },
+      priority: 'medium', qa_verified: 0, description: null,
+      ticket_ref: null, milestone: null, verified_by: null,
+      acceptance_criteria: null, notes: null },
   ];
 
   beforeEach(() => {
