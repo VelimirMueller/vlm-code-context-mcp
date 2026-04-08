@@ -112,6 +112,21 @@ export const SKILL_DEFAULTS: SkillDefault[] = [
     content: "planning → implementation → done → rest",
     owner_role: null,
   },
+  {
+    name: "SPRINT_ROLES",
+    content: JSON.stringify(["fe-engineer", "be-engineer", "developer", "devops", "qa", "team-lead", "product-owner"], null, 2),
+    owner_role: null,
+  },
+  {
+    name: "CODE_QUALITY_STANDARDS",
+    content: "All code must be reviewed, tested, and pass linting before merging.",
+    owner_role: "team-lead",
+  },
+  {
+    name: "DEPLOYMENT_CHECKLIST",
+    content: "1. All tests pass\n2. No critical bugs\n3. Documentation updated\n4. Stakeholder approval",
+    owner_role: "devops",
+  },
 ];
 
 // ─── Seed Function ──────────────────────────────────────────────────────────
@@ -169,11 +184,26 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
  * Reset agents table to factory defaults. Truncates and re-seeds.
  */
 export function resetAgents(db: Database.Database): number {
+  // Pre-build check: ensure build is up-to-date
+  const { execSync } = require("child_process");
+  try {
+    execSync("npm run build", { stdio: "inherit" });
+  } catch (err) {
+    throw new Error("Build failed. Cannot reset agents with build errors.");
+  }
+
   db.prepare("DELETE FROM agents").run();
   const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
   for (const a of AGENT_DEFAULTS) {
     stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
   }
+
+  // Validation: ensure agent count is exactly 7
+  const count = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
+  if (count !== 7) {
+    throw new Error(`Agent validation failed: expected 7 agents, got ${count}`);
+  }
+
   return AGENT_DEFAULTS.length;
 }
 
@@ -181,11 +211,26 @@ export function resetAgents(db: Database.Database): number {
  * Reset skills table to factory defaults. Truncates and re-seeds.
  */
 export function resetSkills(db: Database.Database): number {
+  // Pre-build check: ensure build is up-to-date
+  const { execSync } = require("child_process");
+  try {
+    execSync("npm run build", { stdio: "inherit" });
+  } catch (err) {
+    throw new Error("Build failed. Cannot reset skills with build errors.");
+  }
+
   db.prepare("DELETE FROM skills").run();
   const stmt = db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?)`);
   for (const s of SKILL_DEFAULTS) {
     stmt.run(s.name, s.content, s.owner_role);
   }
+
+  // Validation: ensure skill count is exactly 5
+  const count = (db.prepare("SELECT COUNT(*) as c FROM skills").get() as { c: number }).c;
+  if (count !== 5) {
+    throw new Error(`Skill validation failed: expected 5 skills, got ${count}`);
+  }
+
   return SKILL_DEFAULTS.length;
 }
 

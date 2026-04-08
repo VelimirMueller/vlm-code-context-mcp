@@ -1,6 +1,6 @@
 {
   "name": "vlm-code-context-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "AI-powered virtual IT department via MCP — codebase intelligence, 9-agent scrum team, sprint management, and React dashboard in one npm package",
   "type": "module",
   "main": "dist/server/index.js",
@@ -31,7 +31,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "husky"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
@@ -58,7 +59,9 @@
     "@vitest/coverage-v8": "^4.1.1",
     "eslint": "^10.2.0",
     "framer-motion": "^12.38.0",
+    "husky": "^9.1.7",
     "jsdom": "^29.0.1",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -91,5 +94,11 @@
     "type": "git",
     "url": "https://github.com/VelimirMueller/mcp-server"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "lint-staged": {
+    "src/**/*.{ts,tsx,js,jsx}": [
+      "tsc --noEmit",
+      "npm run build"
+    ]
+  }
 }

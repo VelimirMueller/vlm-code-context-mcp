@@ -106,7 +106,7 @@ function main() {
 
     // Sanitize strings to prevent prompt injection
     const sanitize = (s: string, maxLen = 200): string =>
-      s.replace(/[\x00-\x1f]/g, "").slice(0, maxLen);
+      s.replace(/[\x00-\x09\x0b-\x1f]/g, "").slice(0, maxLen);
 
     // Build context string as structured JSON block (not free-form text)
     const actionList = pending.map((a) => ({
@@ -156,7 +156,9 @@ function main() {
     };
     process.stdout.write(JSON.stringify(response));
   } catch {
-    try { db.close(); } catch {}
+    try { db.close(); } catch (_err: unknown) {
+      // Ignore close errors
+    }
     process.exit(0);
   }
 }

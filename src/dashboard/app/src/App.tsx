@@ -22,6 +22,7 @@ import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
+import { DashboardTour } from '@/components/organisms/DashboardTour';
 import { TopNav } from '@/components/molecules/TopNav';
 import { QuickActionsBar } from '@/components/molecules/QuickActionsBar';
 import { Breadcrumb } from '@/components/molecules/Breadcrumb';
@@ -93,6 +94,11 @@ export function App() {
   // Show landing animation once per session
   const [showLanding, setShowLanding] = useState(
     () => sessionStorage.getItem('landing-played') !== 'true'
+  );
+
+  // Show tour once per session (after landing completes)
+  const [showTour, setShowTour] = useState(
+    () => localStorage.getItem('tour-completed') !== 'true'
   );
 
   // SSE: refresh stores on server events
@@ -173,6 +179,18 @@ export function App() {
     <div className="app">
       {showLanding && (
         <LandingAnimation onComplete={() => setShowLanding(false)} />
+      )}
+      {showTour && !showLanding && (
+        <DashboardTour
+          onComplete={() => {
+            setShowTour(false);
+            localStorage.setItem('tour-completed', 'true');
+          }}
+          onDismiss={() => {
+            setShowTour(false);
+            localStorage.setItem('tour-completed', 'true');
+          }}
+        />
       )}
       <header className="topbar">
         <div className="logo">
