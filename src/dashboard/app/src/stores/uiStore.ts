@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-export type PageType = 'dashboard' | 'code' | 'planning' | 'team' | 'retro';
+export type PageType = 'dashboard' | 'code' | 'planning' | 'team' | 'retro' | 'demo';
 export type QuickFilter = 'all' | 'mine' | 'blocked' | 'qa-pending';
 export type UserRole = 'developer' | 'tech-lead' | 'product-owner' | 'qa' | 'designer';
 
@@ -47,6 +47,7 @@ function defaultTabForPage(page: string): string {
     case 'dashboard': return 'board';
     case 'team':      return 'grid';
     case 'retro':     return 'insights';
+    case 'demo':      return 'demo';
     default:          return 'board';
   }
 }
@@ -58,6 +59,7 @@ function breadcrumbForPage(page: string): BreadcrumbItem[] {
     case 'planning':  return [{ label: 'Planning' }, { label: 'Vision' }];
     case 'team':      return [{ label: 'Team' }, { label: 'Overview' }];
     case 'retro':     return [{ label: 'Retro' }, { label: 'Insights' }];
+    case 'demo':      return [{ label: 'Demo' }, { label: 'Why This Tool' }];
     default:          return [{ label: 'Dashboard' }];
   }
 }

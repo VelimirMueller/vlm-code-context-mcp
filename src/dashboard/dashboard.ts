@@ -1949,6 +1949,11 @@ function startServer(port: number, maxRetries = 10): void {
     try {
       writeDb.prepare("INSERT OR REPLACE INTO skills (name, content, owner_role) VALUES ('_dashboard_port', ?, 'system')").run(String(port));
     } catch {}
+    // Write port to .env.local so Vite dev proxy auto-configures on next start
+    try {
+      const envLocalPath = path.join(__dirname, "app", ".env.local");
+      fs.writeFileSync(envLocalPath, `VITE_DASHBOARD_PORT=${port}\n`);
+    } catch {}
     console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
 
     // Auto-detect watch directory from indexed files, or use CLI arg

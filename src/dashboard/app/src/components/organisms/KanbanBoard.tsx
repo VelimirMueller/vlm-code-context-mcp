@@ -286,6 +286,10 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
         onClose={() => setSelectedTicket(null)}
         onMilestoneChange={handleMilestoneChange}
         onEpicChange={handleEpicChange}
+        onTicketUpdate={(ticketId, updates) => {
+          setLocalTickets((prev) => prev.map((t) => t.id === ticketId ? { ...t, ...updates } : t));
+          if (selectedTicket?.id === ticketId) setSelectedTicket((t) => t ? { ...t, ...updates } : t);
+        }}
       />
     </>
   );
