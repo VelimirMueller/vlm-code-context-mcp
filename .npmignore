@@ -16,7 +16,7 @@ node_modules/
 
 # Development artifacts
 .context/
-.claude/
+.claude/worktrees/
 .history/
 *.log
 *.tgz
@@ -39,10 +39,11 @@ ARCHITECTURE.md
 CONTRIBUTING.md
 .DS_Store
 
+# Misc dev files (from .gitignore)
 /tmp
 /out-tsc
-/dist
 .env
+.env*.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -51,14 +52,9 @@ yarn-error.log*
 .superpowers
 .vscode/*
 .idea
-
 *.db
 *.db-shm
 *.db-wal
-.env*.local
 .github.local.json
-.dist
-dist
 .playwright-mcp
-.claude/worktrees/
 test-results/

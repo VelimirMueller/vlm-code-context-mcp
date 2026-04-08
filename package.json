@@ -11,6 +11,7 @@
   "files": [
     "dist",
     ".claude/commands",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
@@ -31,6 +32,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
+    "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "npm run build",
     "prepare": "husky"
   },
