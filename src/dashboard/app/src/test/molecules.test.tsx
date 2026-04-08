@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
   motion: { div: (p: any) => <div {...filterDom(p)} />, span: (p: any) => <span {...filterDom(p)} /> },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
   useReducedMotion: () => true,
 }));
 
@@ -119,5 +120,57 @@ describe('TopNav', () => {
     render(<TopNav activeTab="team" onTabChange={() => {}} />);
     const teamBtn = screen.getByText('Team').closest('button');
     expect(teamBtn?.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+// ─── KanbanBoard ───────────────────────────────────────────────────────
+
+vi.mock('@/stores/planningStore', () => ({
+  usePlanningStore: (sel: any) => sel({ milestones: [], fetchMilestones: vi.fn() }),
+}));
+
+vi.mock('@/stores/sprintStore', () => ({
+  useSprintStore: (sel: any) => sel({
+    selectedSprintId: 6,
+    fetchTickets: vi.fn(),
+    fetchGroupedSprints: vi.fn(),
+  }),
+}));
+
+vi.mock('@/stores/bridgeStore', () => ({
+  useBridgeStore: (sel: any) => sel({ queueAction: vi.fn() }),
+}));
+
+describe('KanbanBoard', () => {
+  const mockFetch = vi.fn();
+
+  const tickets = [
+    { id: 1, title: 'T-1', status: 'TODO', story_points: 2, assigned_to: null,
+      priority: 1, epic_name: null, qa_verified: 0, sprint_id: 6, description: '' },
+    { id: 2, title: 'T-2', status: 'IN_PROGRESS', story_points: 3, assigned_to: null,
+      priority: 1, epic_name: null, qa_verified: 0, sprint_id: 6, description: '' },
+  ];
+
+  beforeEach(() => {
+    global.fetch = mockFetch;
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+
+  it('renders all four column headers', async () => {
+    const { KanbanBoard } = await import('@/components/organisms/KanbanBoard');
+    render(<KanbanBoard tickets={tickets} />);
+    expect(screen.getByText('To Do')).toBeDefined();
+    expect(screen.getByText('In Progress')).toBeDefined();
+    // 'Done' appears in both the column header and in TicketCard action buttons
+    expect(screen.getAllByText('Done').length).toBeGreaterThan(0);
+    expect(screen.getByText('Not Done')).toBeDefined();
+  });
+
+  it('shows ticket titles', async () => {
+    const { KanbanBoard } = await import('@/components/organisms/KanbanBoard');
+    render(<KanbanBoard tickets={tickets} />);
+    expect(screen.getByText('T-1')).toBeDefined();
+    expect(screen.getByText('T-2')).toBeDefined();
   });
 });
