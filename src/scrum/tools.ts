@@ -2471,6 +2471,57 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
   );
 
   server.tool(
+    "send_claude_output",
+    "Stream Claude's real-time text output to the dashboard wizard UI. Each call appends a line to the live output panel. Use this to show what Claude is doing during ceremonies.",
+    {
+      text: z.string().describe("The text content to display in the output stream"),
+      line_type: z.enum(["text", "tool_call", "tool_result", "thinking", "error", "step", "system"]).optional().default("text").describe("Type of output line (default: text)"),
+      step: z.string().optional().describe("Optional step name to associate this output with"),
+    },
+    async ({ text, line_type, step }) => {
+      try {
+        const port = resolveDashboardPort(db);
+        try {
+          await fetch(`http://localhost:${port}/api/claude-output`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text.slice(0, 5000), lineType: line_type || "text", step: step || undefined }),
+          }).catch(() => {});
+        } catch {}
+        return { content: [{ type: "text" as const, text: `Output streamed: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "send_claude_step",
+    "Notify the dashboard wizard about a step transition during a ceremony. Shows step status in the output stream panel.",
+    {
+      name: z.string().describe("Step identifier (e.g. 'create_milestone', 'assign_tickets')"),
+      status: z.enum(["pending", "in_progress", "completed", "error"]).describe("New step status"),
+      title: z.string().optional().describe("Human-readable step title"),
+      description: z.string().optional().describe("What is happening in this step"),
+    },
+    async ({ name, status, title, description }) => {
+      try {
+        const port = resolveDashboardPort(db);
+        try {
+          await fetch(`http://localhost:${port}/api/claude-step`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, status, title: title || undefined, description: description || undefined }),
+          }).catch(() => {});
+        } catch {}
+        return { content: [{ type: "text" as const, text: `Step '${name}' status: ${status}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
     "get_discovery_coverage",
     "Get coverage report for a discovery sprint — auto-promotes planned discoveries whose linked ticket is DONE",
     {

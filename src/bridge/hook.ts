@@ -59,13 +59,26 @@ function main() {
   try {
     // Check for pending actions (max 5 at a time to keep context small)
     // Skip request_input — those are handled by the dashboard wizard, not this hook
+    // Skip ceremony actions — retro and review are UI-only, terminal should not initiate them
+    // Note: run_kickoff is NOT in this list — it flows through the bridge to Claude
+    const CEREMONY_ACTIONS = ['run_retro', 'run_review'];
+
+    // Auto-complete ceremony actions that were queued by the UI.
+    // Since the terminal no longer handles ceremonies, mark them completed immediately
+    // so they don't pile up in pending state.
+    db.prepare(
+      `UPDATE pending_actions SET status = 'completed', completed_at = datetime('now')
+       WHERE status = 'pending' AND action IN (${CEREMONY_ACTIONS.map(() => "?").join(",")})`
+    ).run(...CEREMONY_ACTIONS);
+
     const pending = db.prepare(
       `SELECT id, action, entity_type, entity_id, payload, source, created_at
        FROM pending_actions
        WHERE status = 'pending' AND action != 'request_input'
+         AND action NOT IN (${CEREMONY_ACTIONS.map(() => "?").join(",")})
        ORDER BY created_at ASC
        LIMIT 5`
-    ).all() as PendingAction[];
+    ).all(...CEREMONY_ACTIONS) as PendingAction[];
 
     if (pending.length === 0) {
       db.close();
@@ -106,14 +119,14 @@ function main() {
     }));
 
     // Map actions to their MCP tool calls
+    // Note: run_retro and run_review are filtered out above (UI-only ceremonies)
+    // run_kickoff flows through here to Claude via handle_run_kickoff MCP tool
     const actionToolMap: Record<string, string> = {
+      run_kickoff: "Call handle_run_kickoff MCP tool to initiate the full project kickoff ceremony",
       advance_sprint: "advance_sprint({ sprint_id: <entity_id>, ...payload })",
       assign_ticket: "Update ticket assignment via update_ticket({ ticket_id: <entity_id>, assigned_to: <agent> })",
       update_ticket: "update_ticket({ ticket_id: <entity_id>, ...payload })",
       create_ticket: "create_ticket({ sprint_id: <sprint_id>, title: <title>, ... })",
-      run_retro: "handle_run_retro({ sprint_id: <entity_id> })",
-      run_review: "handle_run_review({ sprint_id: <entity_id> })",
-      run_kickoff: "handle_run_kickoff()",
       plan_sprint: "Use /sprint skill or plan_sprint MCP tool",
       custom: "Execute custom action based on payload",
     };

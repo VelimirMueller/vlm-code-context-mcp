@@ -12,13 +12,26 @@ interface StepProgressData {
   error?: string;
 }
 
+export interface ClaudeOutputChunk {
+  text: string;
+  type: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'error' | 'step' | 'system';
+  step?: string;
+}
+
 type SSEEvent = {
-  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping' | 'bridge_action' | 'input_requested' | 'response_ready' | 'step_progress';
+  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping' | 'bridge_action' | 'input_requested' | 'response_ready' | 'step_progress' | 'claude_output' | 'claude_step';
   entityType?: string;
   entityId?: number | string;
   change?: unknown;
   payload?: unknown;
   stepProgress?: StepProgressData;
+  claudeOutput?: ClaudeOutputChunk;
+  claudeStep?: {
+    name: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'error';
+    title?: string;
+    description?: string;
+  };
 };
 
 interface UseEventSourceOptions {

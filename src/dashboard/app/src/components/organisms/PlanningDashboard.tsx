@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -8,16 +8,20 @@ import { EnhancedGanttChart } from './EnhancedGanttChart';
 import { SprintBurndownView } from './SprintBurndownView';
 import { EnhancedCapacityView } from './EnhancedCapacityView';
 import { SprintTableView } from './SprintTableView';
+import { KanbanBoard } from './KanbanBoard';
+import type { Ticket } from '@/types';
+import { get } from '@/lib/api';
 import { Stat } from '@/components/atoms/Stat';
 import { StatusBadge } from '@/components/atoms/StatusBadge';
 import { Skeleton } from '@/components/atoms/Skeleton';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { getPhaseStyle, mapLegacyPhase } from '@/lib/phases';
 
-type ViewMode = 'overview' | 'gantt' | 'burndown' | 'capacity' | 'table';
+type ViewMode = 'overview' | 'gantt' | 'burndown' | 'capacity' | 'table' | 'kanban';
 
 const viewModes: { id: ViewMode; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: '\u229e' },
+  { id: 'kanban', label: 'Kanban', icon: '\u25a5' },
   { id: 'gantt', label: 'Timeline', icon: '\u25e7' },
   { id: 'burndown', label: 'Burndown', icon: '\u25e2' },
   { id: 'capacity', label: 'Capacity', icon: '\u25d0' },
@@ -26,6 +30,8 @@ const viewModes: { id: ViewMode; label: string; icon: string }[] = [
 
 export function PlanningDashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
+  const [kanbanTickets, setKanbanTickets] = useState<Ticket[]>([]);
+  const [loadingKanban, setLoadingKanban] = useState(false);
 
   const milestones = usePlanningStore((s) => s.milestones);
   const ganttData = usePlanningStore((s) => s.ganttData);
@@ -33,6 +39,7 @@ export function PlanningDashboard() {
   const loading = usePlanningStore((s) => s.loading);
 
   const sprints = useSprintStore((s) => s.sprints);
+  const selectedSprintId = useSprintStore(s => s.selectedSprintId);
   const agents = useAgentStore((s) => s.agents);
 
   // Compute planning metrics
@@ -93,6 +100,15 @@ export function PlanningDashboard() {
       healthScore,
     };
   }, [sprints, agents, backlog, milestones]);
+
+  useEffect(() => {
+    if (viewMode !== 'kanban' || !selectedSprintId) return;
+    setLoadingKanban(true);
+    get<Ticket[]>(`/api/sprint/${selectedSprintId}/tickets`)
+      .then(data => setKanbanTickets(Array.isArray(data) ? data : []))
+      .catch(() => setKanbanTickets([]))
+      .finally(() => setLoadingKanban(false));
+  }, [viewMode, selectedSprintId]);
 
   if (loading.milestones && sprints.length === 0) {
     return <LoadingState />;
@@ -355,6 +371,17 @@ export function PlanningDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Kanban View */}
+      {viewMode === 'kanban' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
+          {loadingKanban ? (
+            <div style={{ color: 'var(--text3)', padding: 32, fontSize: 13 }}>Loading…</div>
+          ) : (
+            <KanbanBoard tickets={kanbanTickets} />
+          )}
         </div>
       )}
 

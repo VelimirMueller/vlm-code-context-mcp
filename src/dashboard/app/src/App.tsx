@@ -107,13 +107,12 @@ export function App() {
   const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
-  const fetchBacklog = usePlanningStore((s) => s.fetchBacklog);
-  const fetchDiscoveries = usePlanningStore((s) => s.fetchDiscoveries);
-  const fetchDiscoveryCoverage = usePlanningStore((s) => s.fetchDiscoveryCoverage);
   const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
   const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
   const handleInputRequested = useBridgeStore((s) => s.handleInputRequested);
   const handleStepProgress = useBridgeStore((s) => s.handleStepProgress);
+  const handleClaudeOutput = useBridgeStore((s) => s.handleClaudeOutput);
+  const handleClaudeStep = useBridgeStore((s) => s.handleClaudeStep);
   const wizardSteps = useBridgeStore((s) => s.wizardSteps);
   const wizardOpen = useBridgeStore((s) => s.wizardOpen);
   const dismissWizard = useBridgeStore((s) => s.dismissWizard);
@@ -126,9 +125,6 @@ export function App() {
       fetchSprints();
       fetchAgents();
       fetchMilestones();
-      fetchBacklog();
-      fetchDiscoveries();
-      fetchDiscoveryCoverage();
       fetchBridgeStatus();
       fetchBridgeActions();
       fetchAllRetro();
@@ -151,6 +147,14 @@ export function App() {
       // Handle step progress updates
       if (event.type === 'step_progress' && event.stepProgress) {
         handleStepProgress(event.stepProgress);
+      }
+      // Handle Claude output streaming
+      if (event.type === 'claude_output' && event.claudeOutput) {
+        handleClaudeOutput(event.claudeOutput);
+      }
+      // Handle Claude step transitions
+      if (event.type === 'claude_step' && event.claudeStep) {
+        handleClaudeStep(event.claudeStep);
       }
     },
   });

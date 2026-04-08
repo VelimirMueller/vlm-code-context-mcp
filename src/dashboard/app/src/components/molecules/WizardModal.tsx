@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { patch } from '@/lib/api';
 import { useEventSource } from '@/hooks/useEventSource';
+import { useBridgeStore } from '@/stores/bridgeStore';
+import { ClaudeOutputStream } from '@/components/atoms/ClaudeOutputStream';
 
 interface StepProgressData {
   step: string;
@@ -161,8 +163,13 @@ export function WizardModal({ steps, onComplete, onDismiss }: WizardModalProps) 
   const [stepProgress, setStepProgress] = useState<Record<number, StepProgressData>>({});
   const [currentExecutingStep, setCurrentExecutingStep] = useState<number | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [showOutputStream, setShowOutputStream] = useState(false);
   const firstInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(null);
   const reduceMotion = useReducedMotion();
+
+  // Claude stream state from bridgeStore
+  const claudeStream = useBridgeStore((s) => s.claudeStream);
+  const hasClaudeOutput = claudeStream.lines.length > 0 || claudeStream.isActive;
 
   const current = steps[currentIndex];
   const isLast = currentIndex === steps.length - 1;
@@ -229,6 +236,7 @@ export function WizardModal({ steps, onComplete, onDismiss }: WizardModalProps) 
     if (!validate()) return;
     setSubmitting(true);
     setError(null);
+    setShowOutputStream(true);
     try {
       await patch(`/api/bridge/actions/${current.actionId}/respond`, { result: values });
       if (isLast) {
@@ -478,6 +486,26 @@ export function WizardModal({ steps, onComplete, onDismiss }: WizardModalProps) 
                 ))}
               </motion.div>
             )}
+
+            {/* Claude Output Stream Panel - visible after submission or when output arrives */}
+            <AnimatePresence>
+              {(showOutputStream || hasClaudeOutput) && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                  animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.25 }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <ClaudeOutputStream
+                    lines={claudeStream.lines}
+                    currentStep={claudeStream.currentStepProgress}
+                    isActive={claudeStream.isActive}
+                    maxHeight={260}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Form */}
             <form onSubmit={handleSubmit} style={{ paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>

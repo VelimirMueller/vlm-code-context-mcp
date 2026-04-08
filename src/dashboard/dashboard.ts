@@ -39,7 +39,7 @@ function validateSprintTransition(current: string, next: string) {
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 81;
+const TOOL_COUNT = 83;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -88,7 +88,7 @@ try { rebuildMarketingStats(); } catch {}
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
 
-function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any; stepProgress?: any }) {
+function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any; stepProgress?: any; claudeOutput?: any; claudeStep?: any }) {
   const payload = event
     ? JSON.stringify({ ...event, timestamp: new Date().toISOString() })
     : JSON.stringify({ type: 'updated', timestamp: new Date().toISOString() });
@@ -707,6 +707,9 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
+// Ceremony actions (run_kickoff, run_retro, run_review) remain in this allow list so the
+// dashboard UI can queue them. However, the terminal bridge hook (src/bridge/hook.ts) filters
+// them out — ceremonies are UI-only and never forwarded to the CLI.
 const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'run_review', 'run_kickoff', 'plan_sprint', 'custom', 'request_input'];
 
 function apiCreateBridgeAction(body: any) {
@@ -968,6 +971,127 @@ function apiPlanSprint(body: any) {
     updateStmt.run(sprintId, tid);
   }
   return { id: sprintId, name, tickets_assigned: ticketIds.length };
+}
+
+// ─── Sprint Advance API (direct, no bridge) ────────────────────────────────
+function apiAdvanceSprint(sprintId: number) {
+  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("Sprint not found"), { status: 404 });
+
+  const TRANSITIONS: Record<string, string> = {
+    planning: 'implementation', implementation: 'done', done: 'rest', rest: 'planning',
+    preparation: 'implementation', kickoff: 'implementation', qa: 'done',
+    refactoring: 'done', retro: 'rest', review: 'rest', closed: 'rest',
+  };
+  const nextPhase = TRANSITIONS[sprint.status];
+  if (!nextPhase) throw Object.assign(new Error(`No transition from ${sprint.status}`), { status: 400 });
+
+  const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sprintId) as any[];
+
+  // Auto-calculate velocity_completed
+  let velocityCompleted = sprint.velocity_completed;
+  if ((nextPhase === 'done' || nextPhase === 'rest') && !velocityCompleted) {
+    velocityCompleted = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+  }
+
+  // Auto-set velocity_committed from tickets if not set (planning → implementation)
+  let velocityCommitted = sprint.velocity_committed;
+  if (nextPhase === 'implementation' && !velocityCommitted) {
+    velocityCommitted = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+  }
+
+  const sets = ["status=?", "updated_at=datetime('now')"];
+  const vals: any[] = [nextPhase];
+  if (velocityCompleted !== undefined && velocityCompleted !== null) { sets.push("velocity_completed=?"); vals.push(velocityCompleted); }
+  if (velocityCommitted && !sprint.velocity_committed) { sets.push("velocity_committed=?"); vals.push(velocityCommitted); }
+  vals.push(sprintId);
+  writeDb.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+  // Event trail
+  try {
+    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'dashboard')").run(sprintId, sprint.status, nextPhase);
+  } catch {}
+
+  const automations: string[] = [];
+
+  // ── implementation → done: retro analysis + archive discoveries ──
+  if (nextPhase === 'done') {
+    try {
+      const doneCount = tickets.filter((t: any) => t.status === 'DONE').length;
+      const pct = tickets.length > 0 ? Math.round((doneCount / tickets.length) * 100) : 0;
+      const summary = `Auto-analysis: ${doneCount}/${tickets.length} tickets done (${pct}%). Velocity: ${velocityCompleted || 0}pt of ${sprint.velocity_committed || velocityCommitted || 0}pt committed.`;
+      writeDb.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')").run(sprintId, summary);
+      automations.push('retro_generated');
+    } catch {}
+
+    // Archive discoveries: planned → implemented if ticket DONE
+    try {
+      const r = writeDb.prepare(`
+        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
+      `).run(sprintId, sprintId);
+      if (r.changes > 0) automations.push(`${r.changes}_discoveries_implemented`);
+    } catch {}
+
+    // Drop discoveries whose tickets weren't completed
+    try {
+      writeDb.prepare(`
+        UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
+        WHERE discovery_sprint_id = ? AND status = 'planned'
+          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
+      `).run(sprintId, sprintId);
+    } catch {}
+  }
+
+  // ── done → rest: complete epics + update milestone progress ──
+  if (nextPhase === 'rest') {
+    // Auto-complete epics where all tickets are DONE
+    try {
+      const epicIds = writeDb.prepare(`
+        SELECT DISTINCT epic_id FROM tickets WHERE sprint_id = ? AND epic_id IS NOT NULL AND deleted_at IS NULL
+      `).all(sprintId) as any[];
+      for (const { epic_id } of epicIds) {
+        const undone = (writeDb.prepare(`
+          SELECT COUNT(*) as c FROM tickets WHERE epic_id = ? AND status != 'DONE' AND deleted_at IS NULL
+        `).get(epic_id) as any).c;
+        if (undone === 0) {
+          writeDb.prepare("UPDATE epics SET status = 'completed', updated_at = datetime('now') WHERE id = ?").run(epic_id);
+          automations.push(`epic_${epic_id}_completed`);
+        }
+      }
+    } catch {}
+
+    // Update milestone progress
+    if (sprint.milestone_id) {
+      try {
+        const ms = writeDb.prepare("SELECT id FROM milestones WHERE id = ?").get(sprint.milestone_id) as any;
+        if (ms) {
+          const totalTickets = (writeDb.prepare(`
+            SELECT COUNT(*) as c FROM tickets t JOIN sprints s ON t.sprint_id = s.id
+            WHERE s.milestone_id = ? AND t.deleted_at IS NULL
+          `).get(sprint.milestone_id) as any).c;
+          const doneTickets = (writeDb.prepare(`
+            SELECT COUNT(*) as c FROM tickets t JOIN sprints s ON t.sprint_id = s.id
+            WHERE s.milestone_id = ? AND t.status = 'DONE' AND t.deleted_at IS NULL
+          `).get(sprint.milestone_id) as any).c;
+          const progress = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
+
+          // If all epics in milestone are complete, close milestone
+          const incompleteEpics = (writeDb.prepare(`
+            SELECT COUNT(*) as c FROM epics WHERE milestone_id = ? AND status != 'completed' AND deleted_at IS NULL
+          `).get(sprint.milestone_id) as any).c;
+          const msStatus = incompleteEpics === 0 && progress === 100 ? 'completed' : 'active';
+
+          writeDb.prepare("UPDATE milestones SET progress = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(progress, msStatus, sprint.milestone_id);
+          automations.push(`milestone_progress_${progress}%`);
+          if (msStatus === 'completed') automations.push('milestone_completed');
+        }
+      } catch {}
+    }
+  }
+
+  return { ok: true, from: sprint.status, to: nextPhase, sprint_id: sprintId, automations };
 }
 
 // ─── Sprint Update API ──────────────────────────────────────────────────────
@@ -1420,7 +1544,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/notify/event" && req.method === "POST") {
     const body = await readBody(req);
     if (body.type) {
-      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change, stepProgress: body.stepProgress });
+      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change, stepProgress: body.stepProgress, claudeOutput: body.claudeOutput, claudeStep: body.claudeStep });
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
@@ -1437,6 +1561,43 @@ const server = http.createServer(async (req, res) => {
     res.write(`data: connected\n\n`);
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
+    return;
+  }
+
+  // Claude output streaming endpoint — MCP tools POST text chunks here to stream into the wizard
+  if (url.pathname === "/api/claude-output" && req.method === "POST") {
+    const body = await readBody(req);
+    if (body.text) {
+      notifyClients({
+        type: "claude_output",
+        claudeOutput: {
+          text: String(body.text).slice(0, 5000),
+          type: body.lineType || "text",
+          step: body.step || undefined,
+        },
+      });
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+
+  // Claude step status endpoint — MCP tools POST step transitions here
+  if (url.pathname === "/api/claude-step" && req.method === "POST") {
+    const body = await readBody(req);
+    if (body.name) {
+      notifyClients({
+        type: "claude_step",
+        claudeStep: {
+          name: String(body.name),
+          status: body.status || "in_progress",
+          title: body.title || undefined,
+          description: body.description || undefined,
+        },
+      });
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
     return;
   }
 
@@ -1495,6 +1656,11 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
         data = apiPlanSprint(body);
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/advance$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiAdvanceSprint(sid);
         notifyClients();
       }
       else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();
