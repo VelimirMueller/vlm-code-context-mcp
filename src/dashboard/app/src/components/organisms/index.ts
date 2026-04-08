@@ -11,6 +11,7 @@ export { EpicList } from './EpicList';
 export { FileTree } from './FileTree';
 export { GanttChart } from './GanttChart';
 export { GoogleAdsStrategy } from './GoogleAdsStrategy';
+export { InsightsDashboard } from './InsightsDashboard';
 export { KanbanBoard } from './KanbanBoard';
 export { LandingAnimation } from './LandingAnimation';
 export { MilestoneList } from './MilestoneList';

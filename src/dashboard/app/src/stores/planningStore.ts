@@ -28,6 +28,7 @@ export interface PlanSprintInput {
 export interface PlanningStore {
   milestones: Milestone[];
   vision: string | null;
+  visionUpdatedAt: string | null;
   ganttData: Sprint[];
   backlog: Ticket[];
   loading: { milestones: boolean; vision: boolean; gantt: boolean; backlog: boolean };
@@ -57,6 +58,7 @@ export interface PlanningStore {
 export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   milestones: [],
   vision: null,
+  visionUpdatedAt: null,
   ganttData: [],
   backlog: [],
   loading: { milestones: false, vision: false, gantt: false, backlog: false },
@@ -117,10 +119,10 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
   fetchVision: async () => {
     set((s) => ({ loading: { ...s.loading, vision: true } }));
     try {
-      const skill = await get<{ content: string }>('/api/skill/PRODUCT_VISION');
-      set({ vision: skill?.content ?? null });
+      const skill = await get<{ content: string; updated_at: string }>('/api/skill/PRODUCT_VISION');
+      set({ vision: skill?.content ?? null, visionUpdatedAt: skill?.updated_at ?? null });
     } catch {
-      set({ vision: null });
+      set({ vision: null, visionUpdatedAt: null });
     } finally {
       set((s) => ({ loading: { ...s.loading, vision: false } }));
     }
@@ -128,7 +130,8 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
 
   updateVision: async (content: string) => {
     // Optimistic
-    set({ vision: content });
+    const now = new Date().toISOString();
+    set({ vision: content, visionUpdatedAt: now });
     await put('/api/vision', { content });
   },
 

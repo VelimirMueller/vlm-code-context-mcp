@@ -39,7 +39,7 @@ function validateSprintTransition(current: string, next: string) {
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 81;
+const TOOL_COUNT = 83;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? 3333);
@@ -88,7 +88,7 @@ try { rebuildMarketingStats(); } catch {}
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
 
-function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any; stepProgress?: any }) {
+function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any; stepProgress?: any; claudeOutput?: any; claudeStep?: any }) {
   const payload = event
     ? JSON.stringify({ ...event, timestamp: new Date().toISOString() })
     : JSON.stringify({ type: 'updated', timestamp: new Date().toISOString() });
@@ -707,6 +707,9 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
+// Ceremony actions (run_kickoff, run_retro, run_review) remain in this allow list so the
+// dashboard UI can queue them. However, the terminal bridge hook (src/bridge/hook.ts) filters
+// them out — ceremonies are UI-only and never forwarded to the CLI.
 const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'run_review', 'run_kickoff', 'plan_sprint', 'custom', 'request_input'];
 
 function apiCreateBridgeAction(body: any) {
@@ -1420,7 +1423,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/notify/event" && req.method === "POST") {
     const body = await readBody(req);
     if (body.type) {
-      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change, stepProgress: body.stepProgress });
+      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change, stepProgress: body.stepProgress, claudeOutput: body.claudeOutput, claudeStep: body.claudeStep });
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
@@ -1437,6 +1440,43 @@ const server = http.createServer(async (req, res) => {
     res.write(`data: connected\n\n`);
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
+    return;
+  }
+
+  // Claude output streaming endpoint — MCP tools POST text chunks here to stream into the wizard
+  if (url.pathname === "/api/claude-output" && req.method === "POST") {
+    const body = await readBody(req);
+    if (body.text) {
+      notifyClients({
+        type: "claude_output",
+        claudeOutput: {
+          text: String(body.text).slice(0, 5000),
+          type: body.lineType || "text",
+          step: body.step || undefined,
+        },
+      });
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+
+  // Claude step status endpoint — MCP tools POST step transitions here
+  if (url.pathname === "/api/claude-step" && req.method === "POST") {
+    const body = await readBody(req);
+    if (body.name) {
+      notifyClients({
+        type: "claude_step",
+        claudeStep: {
+          name: String(body.name),
+          status: body.status || "in_progress",
+          title: body.title || undefined,
+          description: body.description || undefined,
+        },
+      });
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end('{"ok":true}');
     return;
   }
 
