@@ -61,7 +61,7 @@ describe("seedDefaults", () => {
     expect(dev).toBeDefined();
     expect(dev.name).toBe("Developer");
     expect(dev.model).toBe("claude-sonnet-4-6");
-    expect(dev.description).toContain("Implements");
+    expect(dev.description).toContain("Full-stack");
   });
 });
 
@@ -109,8 +109,8 @@ describe("resetSprintProcess", () => {
 });
 
 describe("AGENT_DEFAULTS integrity", () => {
-  it("has 4 agents", () => {
-    expect(AGENT_DEFAULTS.length).toBe(4);
+  it("has 7 agents", () => {
+    expect(AGENT_DEFAULTS.length).toBe(7);
   });
 
   it("all agents have required fields", () => {
@@ -122,9 +122,9 @@ describe("AGENT_DEFAULTS integrity", () => {
     }
   });
 
-  it("has the 4 core roles", () => {
+  it("has the 7 core roles", () => {
     const roles = AGENT_DEFAULTS.map(a => a.role).sort();
-    expect(roles).toEqual(["developer", "devops", "product-owner", "qa"]);
+    expect(roles).toEqual(["be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "team-lead"]);
   });
 
   it("no duplicate roles", () => {

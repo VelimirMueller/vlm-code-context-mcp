@@ -698,6 +698,50 @@ function apiActivity() {
   catch { return []; }
 }
 
+function apiHealth() {
+  const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+  const skillCount = (writeDb.prepare("SELECT COUNT(*) as c FROM skills").get() as any).c;
+
+  // Get build hash from git or package.json version
+  let buildHash = "unknown";
+  let lastBuildTime: string | null = null;
+
+  try {
+    // Try to get git commit hash
+    const { execSync } = require("child_process");
+    try {
+      buildHash = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+    } catch {
+      // Fallback to package.json version
+      const pkgPath = path.resolve(process.cwd(), "package.json");
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        buildHash = pkg.version || "unknown";
+      }
+    }
+  } catch {
+    // If all else fails, use "unknown"
+  }
+
+  // Try to get last build time from dist directory
+  try {
+    const distPath = path.resolve(process.cwd(), "dist");
+    if (fs.existsSync(distPath)) {
+      const stats = fs.statSync(distPath);
+      lastBuildTime = stats.mtime.toISOString();
+    }
+  } catch {
+    // Ignore if dist doesn't exist
+  }
+
+  return {
+    agentCount,
+    skillCount,
+    buildHash,
+    lastBuildTime,
+  };
+}
+
 // ─── Bridge API helpers ────────────────────────────────────────────────────
 
 function apiBridgeActions(status: string) {
@@ -1595,6 +1639,15 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
+    return;
+  }
+
+  // Health check endpoint (no auth required for monitoring)
+  if (url.pathname === "/health" && req.method === "GET") {
+    res.setHeader("Content-Type", "application/json");
+    const data = apiHealth();
+    res.writeHead(200);
+    res.end(JSON.stringify(data));
     return;
   }
 

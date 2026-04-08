@@ -22,3 +22,48 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+
+  validate-counts:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Validate agent count
+        run: |
+          AGENT_COUNT=$(grep -A 100 "export const AGENT_DEFAULTS" src/scrum/defaults.ts | grep -E "^\s+role:" | wc -l)
+          if [ "$AGENT_COUNT" -ne 7 ]; then
+            echo "Error: Expected 7 agents, found $AGENT_COUNT"
+            exit 1
+          fi
+          echo "Agent count validation passed: $AGENT_COUNT agents"
+      - name: Validate skill count
+        run: |
+          SKILL_COUNT=$(grep -A 100 "export const SKILL_DEFAULTS" src/scrum/defaults.ts | grep -E "^\s+name:" | wc -l)
+          if [ "$SKILL_COUNT" -ne 5 ]; then
+            echo "Error: Expected 5 skills, found $SKILL_COUNT"
+            exit 1
+          fi
+          echo "Skill count validation passed: $SKILL_COUNT skills"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, validate-counts]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Deploy to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

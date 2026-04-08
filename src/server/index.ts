@@ -427,6 +427,46 @@ server.tool(
   }
 );
 
+// ─── Health Check ───────────────────────────────────────────────────────────────
+server.tool(
+  "health",
+  "Check server health and connectivity",
+  {},
+  async () => {
+    const startTime = Date.now();
+    let dbHealthy = false;
+    let dbError: string | null = null;
+
+    try {
+      db.prepare("SELECT 1").get();
+      dbHealthy = true;
+    } catch (err: any) {
+      dbError = err.message;
+    }
+
+    const fileCount = db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number };
+    const sprintCount = db.prepare("SELECT COUNT(*) as c FROM sprints").get() as { c: number };
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          status: dbHealthy ? "healthy" : "unhealthy",
+          timestamp: new Date().toISOString(),
+          latency_ms: Date.now() - startTime,
+          database: {
+            connected: dbHealthy,
+            error: dbError,
+            files_indexed: fileCount?.c ?? 0,
+            sprints: sprintCount?.c ?? 0,
+          },
+        }, null, 2),
+      }],
+      isError: !dbHealthy,
+    };
+  }
+);
+
 // ─── Scrum tools ─────────────────────────────────────────────────────────────
 registerScrumTools(server, db);
 
