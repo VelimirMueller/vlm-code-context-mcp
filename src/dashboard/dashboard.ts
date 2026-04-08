@@ -101,19 +101,16 @@ function notifyClients(event?: { type: string; entityType?: string; entityId?: n
 // SQLite WAL mode writes to .db-wal — watch it for external mutations
 let dbWalDebounce: ReturnType<typeof setTimeout> | null = null;
 const walPath = dbPath + "-wal";
-try {
-  const fs = require("fs");
+{
   let lastWalSize = 0;
   try { lastWalSize = fs.statSync(walPath)?.size || 0; } catch {}
-  fs.watchFile(walPath, { interval: 200 }, (curr: any) => {
+  fs.watchFile(walPath, { interval: 200 }, (curr) => {
     if (curr.size !== lastWalSize) {
       lastWalSize = curr.size;
       if (dbWalDebounce) clearTimeout(dbWalDebounce);
       dbWalDebounce = setTimeout(() => notifyClients(), 100);
     }
   });
-} catch {
-  // WAL watch not available — SSE still works for dashboard-internal changes
 }
 
 // ─── File watcher ───────────────────────────────────────────────────────────
