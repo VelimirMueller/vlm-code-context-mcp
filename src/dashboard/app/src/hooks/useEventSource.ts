@@ -1,11 +1,24 @@
+'use client';
+
 import { useEffect, useRef, useCallback } from 'react';
 
+interface StepProgressData {
+  step: string;
+  title: string;
+  description: string;
+  current: number;
+  total: number;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+  error?: string;
+}
+
 type SSEEvent = {
-  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping' | 'bridge_action' | 'input_requested' | 'response_ready';
+  type: 'file_changed' | 'sprint_updated' | 'ticket_updated' | 'agent_status' | 'updated' | 'ping' | 'bridge_action' | 'input_requested' | 'response_ready' | 'step_progress';
   entityType?: string;
   entityId?: number | string;
   change?: unknown;
   payload?: unknown;
+  stepProgress?: StepProgressData;
 };
 
 interface UseEventSourceOptions {

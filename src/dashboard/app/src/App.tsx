@@ -113,6 +113,7 @@ export function App() {
   const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
   const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
   const handleInputRequested = useBridgeStore((s) => s.handleInputRequested);
+  const handleStepProgress = useBridgeStore((s) => s.handleStepProgress);
   const wizardSteps = useBridgeStore((s) => s.wizardSteps);
   const wizardOpen = useBridgeStore((s) => s.wizardOpen);
   const dismissWizard = useBridgeStore((s) => s.dismissWizard);
@@ -146,6 +147,10 @@ export function App() {
           const action = actions.find(a => a.id === Number(event.entityId) && a.action === 'request_input');
           if (action) handleInputRequested(action);
         });
+      }
+      // Handle step progress updates
+      if (event.type === 'step_progress' && event.stepProgress) {
+        handleStepProgress(event.stepProgress);
       }
     },
   });

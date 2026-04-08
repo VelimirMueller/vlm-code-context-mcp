@@ -13,8 +13,24 @@ function resolveDashboardPort(db: Database.Database): string {
   return DASHBOARD_PORT;
 }
 
+interface DashboardEvent {
+  type: string;
+  entityType?: string;
+  entityId?: number;
+  change?: any;
+  stepProgress?: {
+    step: string;
+    title: string;
+    description: string;
+    current: number;
+    total: number;
+    status: 'pending' | 'in_progress' | 'completed' | 'error';
+    error?: string;
+  };
+}
+
 /** Fire-and-forget HTTP POST to dashboard so SSE clients refresh instantly. */
-function notifyDashboard(db: Database.Database, event?: { type: string; entityType?: string; entityId?: number }): void {
+function notifyDashboard(db: Database.Database, event?: DashboardEvent): void {
   const port = resolveDashboardPort(db);
   try {
     if (event) {
@@ -2412,6 +2428,48 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
     }
   );
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Real-Time Step Progress ────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "send_step_progress",
+    "Send real-time step progress updates to the wizard modal. Shows which step Claude is executing and current progress.",
+    {
+      step: z.string().describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone')"),
+      title: z.string().describe("Step title (e.g. 'Creating milestone')"),
+      description: z.string().optional().describe("What is happening in this step"),
+      current: z.number().describe("Current step number (1-indexed)"),
+      total: z.number().describe("Total number of steps"),
+      status: z.enum(["pending", "in_progress", "completed", "error"]).describe("Step status"),
+      error: z.string().optional().describe("Error message if status is 'error'"),
+    },
+    async ({ step, title, description, current, total, status, error }) => {
+      try {
+        // Send step_progress event via SSE
+        notifyDashboard(db, {
+          type: "step_progress",
+          entityType: "wizard_step",
+          stepProgress: {
+            step,
+            title,
+            description: description || "",
+            current,
+            total,
+            status,
+            error,
+          },
+        });
+
+        return {
+          content: [{ type: "text" as const, text: `Step progress sent: ${title} (${current}/${total})` }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   server.tool(
     "get_discovery_coverage",
     "Get coverage report for a discovery sprint — auto-promotes planned discoveries whose linked ticket is DONE",
@@ -2461,6 +2519,87 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
 
         const text = `# Discovery Coverage\n\nTotal: ${total} discoveries\n\n| Status | Count | % |\n|--------|-------|---|\n| Implemented | ${counts.implemented} | ${pct(counts.implemented)}% |\n| Planned | ${counts.planned} | ${pct(counts.planned)}% |\n| Discovered | ${counts.discovered} | ${pct(counts.discovered)}% |\n| Dropped | ${counts.dropped} | ${pct(counts.dropped)}% |${breakdown}`;
         return { content: [{ type: "text" as const, text }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ─── Ceremony Handlers (Dashboard Integration) ────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "handle_run_kickoff",
+    "Handle the /kickoff ceremony triggered from the dashboard. Initiates the full project lifecycle from vision through sprint rest using the kickoff skill.",
+    {},
+    async () => {
+      try {
+        // Return instructions to invoke the kickoff skill
+        return {
+          content: [{
+            type: "text" as const,
+            text: "RUN_KICKOFF_CEREMONY: The dashboard has requested a project kickoff. Please execute the /kickoff skill to guide the user through the full scrum lifecycle (vision → discovery → milestone → epics → tickets → sprint launch → implementation → retro → close).",
+          }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "handle_run_retro",
+    "Handle the retrospective ceremony triggered from the dashboard. Runs retro for the specified sprint.",
+    {
+      sprint_id: z.number().describe("Sprint ID to run retro for"),
+    },
+    async ({ sprint_id }) => {
+      try {
+        const sprint = db.prepare("SELECT id, name, status FROM sprints WHERE id = ?").get(sprint_id) as any;
+        if (!sprint) {
+          return { content: [{ type: "text" as const, text: `Error: Sprint ${sprint_id} not found` }], isError: true };
+        }
+
+        // Check if retro findings already exist
+        const existing = db.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprint_id) as any;
+        const hasFindings = existing.c > 0;
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `RUN_RETRO_CEREMONY: The dashboard has requested a retrospective for Sprint "${sprint.name}" (#${sprint_id}).\n\n${hasFindings ? `Note: ${existing.c} retro findings already exist for this sprint.\n\n` : ""}Please guide the user through the retrospective ceremony:\n1. What went well?\n2. What went wrong?\n3. What to try next sprint?\n\nUse add_retro_finding to save each response.`,
+          }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "handle_run_review",
+    "Handle the sprint review ceremony triggered from the dashboard. Shows sprint completion summary and demo.",
+    {
+      sprint_id: z.number().describe("Sprint ID to run review for"),
+    },
+    async ({ sprint_id }) => {
+      try {
+        const sprint = db.prepare("SELECT id, name, status, goal, velocity_committed, velocity_completed FROM sprints WHERE id = ?").get(sprint_id) as any;
+        if (!sprint) {
+          return { content: [{ type: "text" as const, text: `Error: Sprint ${sprint_id} not found` }], isError: true };
+        }
+
+        const tickets = db.prepare("SELECT id, title, status, ticket_ref FROM tickets WHERE sprint_id = ?").all(sprint_id) as any[];
+        const done = tickets.filter((t: any) => t.status === 'DONE');
+        const total = tickets.length;
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `RUN_REVIEW_CEREMONY: The dashboard has requested a sprint review for Sprint "${sprint.name}" (#${sprint_id}).\n\n## Sprint Summary\n- **Goal**: ${sprint.goal || 'N/A'}\n- **Velocity**: ${sprint.velocity_completed || 0}/${sprint.velocity_committed || 0} points\n- **Tickets**: ${done.length}/${total} completed\n\nPlease facilitate the sprint review:\n1. Show completed tickets and their value\n2. Demo any working features\n3. Discuss any incomplete work\n4. Celebrate wins with the team`,
+          }],
+        };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

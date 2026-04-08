@@ -10,6 +10,7 @@ import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SprintList } from '@/components/organisms/SprintList';
 import { SprintDetail } from '@/components/organisms/SprintDetail';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
+import { CeremoniesBar } from '@/components/molecules/CeremoniesBar';
 import { pageVariants, pageTransition } from '@/lib/motion';
 import { get } from '@/lib/api';
 
@@ -154,6 +155,7 @@ export function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <SubTabBar tabs={DASHBOARD_TABS} />
+      <CeremoniesBar sprintId={selectedSprintId} />
 
       {dashTab === 'board' && (
         <motion.div

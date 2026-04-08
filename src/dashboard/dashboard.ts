@@ -88,7 +88,7 @@ try { rebuildMarketingStats(); } catch {}
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
 
-function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any }) {
+function notifyClients(event?: { type: string; entityType?: string; entityId?: number | string; change?: any; stepProgress?: any }) {
   const payload = event
     ? JSON.stringify({ ...event, timestamp: new Date().toISOString() })
     : JSON.stringify({ type: 'updated', timestamp: new Date().toISOString() });
@@ -707,7 +707,7 @@ function apiBridgeActions(status: string) {
   return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
 }
 
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'plan_sprint', 'custom', 'request_input'];
+const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'run_review', 'run_kickoff', 'plan_sprint', 'custom', 'request_input'];
 
 function apiCreateBridgeAction(body: any) {
   if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
@@ -1420,7 +1420,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/notify/event" && req.method === "POST") {
     const body = await readBody(req);
     if (body.type) {
-      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change });
+      notifyClients({ type: body.type, entityType: body.entityType, entityId: body.entityId, change: body.change, stepProgress: body.stepProgress });
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
