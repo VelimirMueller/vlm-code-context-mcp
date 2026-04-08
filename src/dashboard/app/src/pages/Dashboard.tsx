@@ -10,37 +10,19 @@ import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { SprintList } from '@/components/organisms/SprintList';
 import { SprintDetail } from '@/components/organisms/SprintDetail';
 import { SubTabBar } from '@/components/molecules/SubTabBar';
-import { CeremoniesBar } from '@/components/molecules/CeremoniesBar';
 import { pageVariants, pageTransition } from '@/lib/motion';
-import { get } from '@/lib/api';
 
 const DASHBOARD_TABS = [
   { key: 'board', label: 'Board' },
   { key: 'overview', label: 'Overview' },
 ];
 
-interface ActivityEvent {
-  id: number;
-  entity_type: string;
-  entity_id: number;
-  action: string;
-  field_name: string | null;
-  old_value: string | null;
-  new_value: string | null;
-  actor: string | null;
-  created_at: string;
-}
-
 function ActivityFeed() {
-  const [events, setEvents] = useState<ActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const events = useSprintStore((s) => s.activities);
+  const fetchActivities = useSprintStore((s) => s.fetchActivities);
+  const loading = events.length === 0;
 
-  useEffect(() => {
-    get<ActivityEvent[]>('/api/activity')
-      .then((data) => setEvents(Array.isArray(data) ? data : []))
-      .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { fetchActivities(); }, [fetchActivities]);
 
   const sprints = useSprintStore((s) => s.sprints);
   const closedCount = sprints.filter((s) => s.status === 'closed' || s.status === 'rest').length;
@@ -155,7 +137,6 @@ export function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <SubTabBar tabs={DASHBOARD_TABS} />
-      <CeremoniesBar sprintId={selectedSprintId} />
 
       {dashTab === 'board' && (
         <motion.div

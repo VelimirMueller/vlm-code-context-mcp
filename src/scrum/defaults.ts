@@ -35,6 +35,14 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     system_prompt: "",
   },
   {
+    role: "developer",
+    name: "Developer",
+    description: "Full-stack developer building features across frontend and backend",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+  },
+  {
     role: "devops",
     name: "DevOps",
     description: "Manages CI/CD, deployment, and infrastructure",
@@ -122,6 +130,7 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
   const agentRows = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
   const OLD_15_AGENT_COUNT = 15;
   const OLD_4_AGENT_COUNT = 4;
+  const OLD_6_AGENT_COUNT = 6;
 
   const isOld15 = agentRows === OLD_15_AGENT_COUNT &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'architect'").get() != null;
@@ -129,8 +138,12 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
   const isOld4 = agentRows === OLD_4_AGENT_COUNT &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'developer'").get() != null &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'fe-engineer'").get() == null;
+  // Old 6-agent set is missing the generic 'developer' role
+  const isOld6 = agentRows === OLD_6_AGENT_COUNT &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'fe-engineer'").get() != null &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'developer'").get() == null;
 
-  if (agentRows === 0 || isOld15 || isOld4) {
+  if (agentRows === 0 || isOld15 || isOld4 || isOld6) {
     if (agentRows > 0) db.prepare("DELETE FROM agents").run();
     const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
     for (const a of AGENT_DEFAULTS) {

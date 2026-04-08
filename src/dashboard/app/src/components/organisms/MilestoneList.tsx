@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useMemo } from 'react';
 import type { Milestone, MilestoneSprint } from '@/types';
 import { usePlanningStore } from '@/stores/planningStore';
@@ -10,6 +12,12 @@ const statusColors: Record<string, { bg: string; color: string; border: string; 
     label: 'Planned',
   },
   in_progress: {
+    bg: 'rgba(16,185,129,.10)',
+    color: 'var(--green)',
+    border: 'rgba(16,185,129,.20)',
+    label: 'Active',
+  },
+  active: {
     bg: 'rgba(16,185,129,.10)',
     color: 'var(--green)',
     border: 'rgba(16,185,129,.20)',
@@ -104,13 +112,7 @@ function computeMilestoneStats(milestone: Milestone): MilestoneStats {
   return { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress };
 }
 
-interface MilestoneCardProps {
-  milestone: Milestone;
-  stats: MilestoneStats;
-  onEdit: (m: Milestone) => void;
-}
-
-function MilestoneCard({ milestone, stats, onEdit }: MilestoneCardProps) {
+function MilestoneCard({ milestone, stats }: { milestone: Milestone; stats: MilestoneStats }) {
   const [expanded, setExpanded] = useState(false);
   const { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress } = stats;
   const hasSprintData = linkedSprints.length > 0;
@@ -135,22 +137,6 @@ function MilestoneCard({ milestone, stats, onEdit }: MilestoneCardProps) {
           </span>
           <StatusBadge status={milestone.status} />
         </div>
-        <button
-          onClick={() => onEdit(milestone)}
-          style={{
-            background: 'var(--surface2)',
-            border: '1px solid var(--border2)',
-            borderRadius: 8,
-            color: 'var(--text2)',
-            fontSize: 12,
-            padding: '4px 12px',
-            cursor: 'pointer',
-            flexShrink: 0,
-            fontFamily: 'var(--font)',
-          }}
-        >
-          Edit
-        </button>
       </div>
 
       {/* Description */}
@@ -259,13 +245,9 @@ function MilestoneCard({ milestone, stats, onEdit }: MilestoneCardProps) {
   );
 }
 
-const emptyForm = { name: '', description: '', targetDate: '' };
-
 export function MilestoneList() {
   const milestones = usePlanningStore((s) => s.milestones);
   const loading = usePlanningStore((s) => s.loading.milestones);
-  const createMilestone = usePlanningStore((s) => s.createMilestone);
-  const updateMilestone = usePlanningStore((s) => s.updateMilestone);
 
   const milestoneStats = useMemo(() => {
     const map = new Map<number, MilestoneStats>();
@@ -274,156 +256,6 @@ export function MilestoneList() {
     }
     return map;
   }, [milestones]);
-
-  const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState(emptyForm);
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  const [editTarget, setEditTarget] = useState<Milestone | null>(null);
-  const [editForm, setEditForm] = useState(emptyForm);
-  const [editBusy, setEditBusy] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!createForm.name.trim()) return;
-    setCreateBusy(true);
-    setCreateError(null);
-    try {
-      await createMilestone({
-        title: createForm.name.trim(),
-        description: createForm.description || undefined,
-        targetDate: createForm.targetDate || undefined,
-      });
-      setCreateForm(emptyForm);
-      setShowCreate(false);
-    } catch {
-      setCreateError('Failed to create milestone.');
-    } finally {
-      setCreateBusy(false);
-    }
-  };
-
-  const openEdit = (m: Milestone) => {
-    setEditTarget(m);
-    setEditForm({ name: m.name, description: m.description ?? '', targetDate: m.target_date ?? '' });
-    setEditError(null);
-  };
-
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editTarget) return;
-    setEditBusy(true);
-    setEditError(null);
-    try {
-      await updateMilestone(editTarget.id, {
-        title: editForm.name.trim() || undefined,
-        description: editForm.description || undefined,
-        targetDate: editForm.targetDate || undefined,
-      });
-      setEditTarget(null);
-    } catch {
-      setEditError('Failed to update milestone.');
-    } finally {
-      setEditBusy(false);
-    }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    background: 'var(--surface2)',
-    border: '1px solid var(--border2)',
-    borderRadius: 8,
-    color: 'var(--text)',
-    fontSize: 13,
-    padding: '8px 12px',
-    fontFamily: 'var(--font)',
-    width: '100%',
-    outline: 'none',
-  };
-
-  const inlineForm = (
-    form: typeof emptyForm,
-    setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>,
-    onSubmit: (e: React.FormEvent) => void,
-    onCancel: () => void,
-    busy: boolean,
-    error: string | null,
-    submitLabel: string
-  ) => (
-    <form
-      onSubmit={onSubmit}
-      style={{
-        background: 'var(--surface2)',
-        border: '1px solid var(--border2)',
-        borderRadius: 'var(--radius)',
-        padding: '16px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
-    >
-      <input
-        style={inputStyle}
-        placeholder="Milestone name *"
-        value={form.name}
-        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-        required
-        disabled={busy}
-      />
-      <textarea
-        style={{ ...inputStyle, resize: 'vertical', minHeight: 70 }}
-        placeholder="Description (optional)"
-        value={form.description}
-        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-        disabled={busy}
-      />
-      <input
-        type="date"
-        style={inputStyle}
-        value={form.targetDate}
-        onChange={(e) => setForm((f) => ({ ...f, targetDate: e.target.value }))}
-        disabled={busy}
-      />
-      {error && <div style={{ color: 'var(--red)', fontSize: 12 }}>{error}</div>}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          type="submit"
-          disabled={busy}
-          style={{
-            background: busy ? 'var(--surface3)' : 'var(--accent)',
-            color: busy ? 'var(--text3)' : '#000',
-            border: 'none',
-            borderRadius: 8,
-            padding: '8px 20px',
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: busy ? 'not-allowed' : 'pointer',
-            fontFamily: 'var(--font)',
-          }}
-        >
-          {busy ? 'Saving...' : submitLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          style={{
-            background: 'none',
-            border: '1px solid var(--border2)',
-            borderRadius: 8,
-            padding: '8px 16px',
-            fontSize: 13,
-            color: 'var(--text2)',
-            cursor: 'pointer',
-            fontFamily: 'var(--font)',
-          }}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
 
   const [showArchive, setShowArchive] = useState(false);
 
@@ -434,67 +266,32 @@ export function MilestoneList() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
-          Milestones
-          {activeMilestones.length > 0 && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginLeft: 8 }}>
-              ({activeMilestones.length} active)
-            </span>
-          )}
-        </h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {!showCreate && (
-            <button
-              onClick={() => { setShowCreate(true); setCreateForm(emptyForm); setCreateError(null); }}
-              style={{
-                background: 'var(--accent)',
-                color: '#000',
-                border: 'none',
-                borderRadius: 8,
-                padding: '7px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: 'var(--font)',
-              }}
-            >
-              + Create Milestone
-            </button>
-          )}
-        </div>
-      </div>
-
-      {showCreate && inlineForm(createForm, setCreateForm, handleCreate, () => setShowCreate(false), createBusy, createError, 'Create')}
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+        Milestones
+        {activeMilestones.length > 0 && (
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginLeft: 8 }}>
+            ({activeMilestones.length} active)
+          </span>
+        )}
+      </h2>
 
       {loading && milestones.length === 0 && (
         <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>Loading milestones...</div>
       )}
 
-      {!loading && activeMilestones.length === 0 && !showArchive && (
-        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>No active milestones. Create one or check the archive.</div>
-      )}
-
-      {editTarget && inlineForm(
-        editForm,
-        setEditForm,
-        handleUpdate,
-        () => setEditTarget(null),
-        editBusy,
-        editError,
-        'Save Changes'
+      {!loading && activeMilestones.length === 0 && (
+        <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40, fontSize: 14 }}>
+          No active milestones. Run <code style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>/kickoff</code> to create one.
+        </div>
       )}
 
       {/* Active milestones */}
       {activeMilestones.map((m) => (
-        editTarget?.id === m.id ? null : (
-          <MilestoneCard
-            key={m.id}
-            milestone={m}
-            stats={milestoneStats.get(m.id) ?? defaultStats}
-            onEdit={openEdit}
-          />
-        )
+        <MilestoneCard
+          key={m.id}
+          milestone={m}
+          stats={milestoneStats.get(m.id) ?? defaultStats}
+        />
       ))}
 
       {/* Archive toggle */}
@@ -522,14 +319,11 @@ export function MilestoneList() {
           {showArchive && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12, opacity: 0.7 }}>
               {archivedMilestones.map((m) => (
-                editTarget?.id === m.id ? null : (
-                  <MilestoneCard
-                    key={m.id}
-                    milestone={m}
-                    stats={milestoneStats.get(m.id) ?? defaultStats}
-                    onEdit={openEdit}
-                  />
-                )
+                <MilestoneCard
+                  key={m.id}
+                  milestone={m}
+                  stats={milestoneStats.get(m.id) ?? defaultStats}
+                />
               ))}
             </div>
           )}

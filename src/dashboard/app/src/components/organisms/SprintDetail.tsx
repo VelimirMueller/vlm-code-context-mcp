@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { usePlanningStore } from '@/stores/planningStore';
-import { patch, put, get } from '@/lib/api';
+import { put, get } from '@/lib/api';
 import { KanbanBoard } from './KanbanBoard';
 import { BurndownChart } from './BurndownChart';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
@@ -27,7 +27,6 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
   const selectSprint = useSprintStore((s) => s.selectSprint);
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
-  const [milestoneUpdating, setMilestoneUpdating] = useState(false);
 
   useEffect(() => {
     if (milestones.length === 0) fetchMilestones();
@@ -116,39 +115,19 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Milestone selector */}
-          <select
-            value={sprintDetail.milestone_id ?? ''}
-            disabled={milestoneUpdating}
-            onChange={async (e) => {
-              const val = e.target.value;
-              const newMilestoneId = val === '' ? null : Number(val);
-              setMilestoneUpdating(true);
-              try {
-                await patch(`/api/sprint/${sprintDetail.id}/milestone`, { milestone_id: newMilestoneId });
-                if (selectedSprintId) await selectSprint(selectedSprintId);
-              } finally {
-                setMilestoneUpdating(false);
-              }
-            }}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
+          {sprintDetail.milestone_id && milestones.find(m => m.id === sprintDetail.milestone_id) && (
+            <span style={{
+              padding: '3px 10px',
               borderRadius: 6,
-              padding: '3px 8px',
               fontSize: 11,
-              color: 'var(--text2)',
-              fontFamily: 'var(--font)',
-              cursor: 'pointer',
-              maxWidth: 160,
-              opacity: milestoneUpdating ? 0.5 : 1,
-            }}
-          >
-            <option value="">No milestone</option>
-            {milestones.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
+              fontWeight: 600,
+              background: 'var(--surface2)',
+              color: 'var(--text3)',
+              border: '1px solid var(--border)',
+            }}>
+              {milestones.find(m => m.id === sprintDetail.milestone_id)!.name}
+            </span>
+          )}
           <div
             style={{
               padding: '3px 10px',

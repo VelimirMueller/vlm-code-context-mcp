@@ -8,6 +8,18 @@ export interface SprintDetail extends Sprint {
   goal: string | null;
 }
 
+export interface ActivityEvent {
+  id: number;
+  entity_type: string;
+  entity_id: number;
+  action: string;
+  field_name: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  actor: string | null;
+  created_at: string;
+}
+
 export interface SprintStore {
   sprints: Sprint[];
   milestoneGroups: MilestoneSprintGroup[];
@@ -20,6 +32,7 @@ export interface SprintStore {
   burndown: BurndownData | null;
   blockers: Blocker[];
   bugs: Bug[];
+  activities: ActivityEvent[];
   loading: { sprints: boolean; detail: boolean; grouped: boolean };
   error: { sprints: string | null; detail: string | null };
   ticketFilter: TicketFilter;
@@ -34,6 +47,7 @@ export interface SprintStore {
   fetchBurndown: (sprintId: number) => Promise<void>;
   fetchBlockers: (sprintId: number) => Promise<void>;
   fetchBugs: (sprintId: number) => Promise<void>;
+  fetchActivities: () => Promise<void>;
   clearError: () => void;
   setTicketFilter: (filter: TicketFilter) => void;
   setCurrentUserName: (name: string) => void;
@@ -58,6 +72,7 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
   burndown: null,
   blockers: [],
   bugs: [],
+  activities: [],
   loading: { sprints: false, detail: false, grouped: false },
   error: { sprints: null, detail: null },
   ticketFilter: 'all',
@@ -165,6 +180,15 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set({ bugs: Array.isArray(bugs) ? bugs : [] });
     } catch {
       set({ bugs: [] });
+    }
+  },
+
+  fetchActivities: async () => {
+    try {
+      const activities = await get<ActivityEvent[]>('/api/activity');
+      set({ activities: Array.isArray(activities) ? activities : [] });
+    } catch {
+      set({ activities: [] });
     }
   },
 

@@ -2,7 +2,6 @@ export { AgentCard } from './AgentCard';
 export { AlertDialog } from './AlertDialog';
 export { BentoCard } from './BentoCard';
 export { Breadcrumb } from './Breadcrumb';
-export { CeremoniesBar } from './CeremoniesBar';
 export { DiscoveryRow } from './DiscoveryRow';
 export { EnterpriseTable } from './EnterpriseTable';
 export type { Column, SortDirection } from './EnterpriseTable';

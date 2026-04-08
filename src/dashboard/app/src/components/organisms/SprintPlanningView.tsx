@@ -427,22 +427,6 @@ export function SprintPlanningView() {
                 {epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.name}</option>)}
               </select>
             </div>
-          ) : (
-            <button
-              onClick={startNew}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                width: '100%', padding: '10px 16px',
-                background: 'none', border: 'none',
-                fontSize: 12, color: 'var(--text3)', cursor: 'pointer',
-                fontFamily: 'var(--font)',
-                transition: 'color 0.15s',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text3)')}
-            >
-              + Add ticket
-            </button>
           )}
         </div>
       )}
