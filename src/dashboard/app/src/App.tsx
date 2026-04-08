@@ -107,9 +107,6 @@ export function App() {
   const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
-  const fetchBacklog = usePlanningStore((s) => s.fetchBacklog);
-  const fetchDiscoveries = usePlanningStore((s) => s.fetchDiscoveries);
-  const fetchDiscoveryCoverage = usePlanningStore((s) => s.fetchDiscoveryCoverage);
   const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
   const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
   const handleInputRequested = useBridgeStore((s) => s.handleInputRequested);
@@ -128,9 +125,6 @@ export function App() {
       fetchSprints();
       fetchAgents();
       fetchMilestones();
-      fetchBacklog();
-      fetchDiscoveries();
-      fetchDiscoveryCoverage();
       fetchBridgeStatus();
       fetchBridgeActions();
       fetchAllRetro();

@@ -18,7 +18,7 @@ const validPages: PageType[] = ['dashboard', 'code', 'planning', 'team', 'retro'
 const defaultTabs: Record<string, string> = {
   dashboard: 'board',
   code: 'files',
-  planning: 'roadmap',
+  planning: 'vision',
   team: 'grid',
   retro: 'insights',
 };
