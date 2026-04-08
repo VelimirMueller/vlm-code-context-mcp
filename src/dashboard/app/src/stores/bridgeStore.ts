@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { get, post, patch } from '@/lib/api';
 import type { WizardStep } from '@/components/molecules/WizardModal';
+import type { ClaudeOutputLine } from '@/components/atoms/ClaudeOutputStream';
+import { makeLineId } from '@/components/atoms/ClaudeOutputStream';
+import type { ClaudeOutputChunk } from '@/hooks/useEventSource';
 
 export interface PendingAction {
   id: number;
@@ -34,6 +37,15 @@ export interface StepProgress {
   error?: string;
 }
 
+export interface ClaudeStreamState {
+  lines: ClaudeOutputLine[];
+  isActive: boolean;
+  /** Map of step names to their status for the step tracker */
+  steps: Record<string, { name: string; status: 'pending' | 'in_progress' | 'completed' | 'error'; title?: string; description?: string }>;
+  /** Current step progress from SSE step_progress events */
+  currentStepProgress: StepProgress | null;
+}
+
 export interface BridgeStore {
   status: BridgeStatus | null;
   actions: PendingAction[];
@@ -42,6 +54,7 @@ export interface BridgeStore {
   stepProgress: StepProgress | null;
   loading: boolean;
   error: string | null;
+  claudeStream: ClaudeStreamState;
 
   fetchStatus: () => Promise<void>;
   fetchActions: (status?: string) => Promise<void>;
@@ -51,6 +64,12 @@ export interface BridgeStore {
   dismissWizard: () => void;
   completeWizard: () => void;
   clearError: () => void;
+  /** Append a claude_output SSE chunk to the stream */
+  handleClaudeOutput: (chunk: ClaudeOutputChunk) => void;
+  /** Update a step's status from a claude_step SSE event */
+  handleClaudeStep: (step: { name: string; status: 'pending' | 'in_progress' | 'completed' | 'error'; title?: string; description?: string }) => void;
+  /** Clear all claude output (e.g. when wizard resets) */
+  clearClaudeStream: () => void;
 }
 
 export const useBridgeStore = create<BridgeStore>((set, getState) => ({
@@ -61,6 +80,7 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
   stepProgress: null,
   loading: false,
   error: null,
+  claudeStream: { lines: [], isActive: false, steps: {}, currentStepProgress: null },
 
   fetchStatus: async () => {
     try {
@@ -118,12 +138,64 @@ export const useBridgeStore = create<BridgeStore>((set, getState) => ({
   },
 
   handleStepProgress: (progress: StepProgress) => {
-    set({ stepProgress: progress });
+    set(state => ({
+      stepProgress: progress,
+      claudeStream: {
+        ...state.claudeStream,
+        currentStepProgress: progress,
+        isActive: progress.status === 'in_progress',
+      },
+    }));
   },
 
-  dismissWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null }),
+  dismissWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null, claudeStream: { lines: [], isActive: false, steps: {}, currentStepProgress: null } }),
 
-  completeWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null }),
+  completeWizard: () => set({ wizardOpen: false, wizardSteps: [], stepProgress: null, claudeStream: { lines: [], isActive: false, steps: {}, currentStepProgress: null } }),
 
   clearError: () => set({ error: null }),
+
+  handleClaudeOutput: (chunk: ClaudeOutputChunk) => {
+    const line: ClaudeOutputLine = {
+      id: makeLineId(),
+      text: chunk.text,
+      timestamp: Date.now(),
+      type: chunk.type,
+    };
+    set(state => ({
+      claudeStream: {
+        ...state.claudeStream,
+        isActive: true,
+        lines: [...state.claudeStream.lines, line],
+      },
+    }));
+  },
+
+  handleClaudeStep: (step) => {
+    set(state => ({
+      claudeStream: {
+        ...state.claudeStream,
+        isActive: step.status === 'in_progress',
+        steps: {
+          ...state.claudeStream.steps,
+          [step.name]: step,
+        },
+      },
+    }));
+    // Also add a line to the output for visibility
+    const statusIcon = step.status === 'completed' ? '\u2713' : step.status === 'error' ? '\u2717' : step.status === 'in_progress' ? '\u25B6' : '\u25CB';
+    const line: ClaudeOutputLine = {
+      id: makeLineId(),
+      text: `${statusIcon} ${step.title || step.name}${step.description ? ': ' + step.description : ''}`,
+      timestamp: Date.now(),
+      type: 'step',
+    };
+    set(state => ({
+      claudeStream: {
+        ...state.claudeStream,
+        lines: [...state.claudeStream.lines, line],
+      },
+    }));
+  },
+
+  clearClaudeStream: () => set({ claudeStream: { lines: [], isActive: false, steps: {}, currentStepProgress: null } }),
 }));
