@@ -17,6 +17,7 @@ export { LandingAnimation } from './LandingAnimation';
 export { MilestoneList } from './MilestoneList';
 export { PlanningInsights } from './PlanningInsights';
 export { PlanningDashboard } from './PlanningDashboard';
+export { PlanningWizard } from './PlanningWizard';
 export { ProcessFlow } from './ProcessFlow';
 export { SprintBurndownView } from './SprintBurndownView';
 export { SprintCompletionPanel } from './SprintCompletionPanel';

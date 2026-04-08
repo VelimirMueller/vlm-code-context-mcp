@@ -43,7 +43,7 @@ export interface UIStore {
 function defaultTabForPage(page: string): string {
   switch (page) {
     case 'code':      return 'files';
-    case 'planning':  return 'vision';
+    case 'planning':  return 'planning';
     case 'dashboard': return 'board';
     case 'team':      return 'grid';
     case 'retro':     return 'insights';
