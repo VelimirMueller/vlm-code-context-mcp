@@ -973,6 +973,51 @@ function apiPlanSprint(body: any) {
   return { id: sprintId, name, tickets_assigned: ticketIds.length };
 }
 
+// ─── Sprint Advance API (direct, no bridge) ────────────────────────────────
+function apiAdvanceSprint(sprintId: number) {
+  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("Sprint not found"), { status: 404 });
+
+  const TRANSITIONS: Record<string, string> = {
+    planning: 'implementation', implementation: 'done', done: 'rest', rest: 'planning',
+    preparation: 'implementation', kickoff: 'implementation', qa: 'done',
+    refactoring: 'done', retro: 'rest', review: 'rest', closed: 'rest',
+  };
+  const nextPhase = TRANSITIONS[sprint.status];
+  if (!nextPhase) throw Object.assign(new Error(`No transition from ${sprint.status}`), { status: 400 });
+
+  const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sprintId) as any[];
+
+  // Auto-calculate velocity_completed when closing
+  let velocityCompleted = sprint.velocity_completed;
+  if ((nextPhase === 'done' || nextPhase === 'rest') && !velocityCompleted) {
+    velocityCompleted = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+  }
+
+  const sets = ["status=?", "updated_at=datetime('now')"];
+  const vals: any[] = [nextPhase];
+  if (velocityCompleted !== undefined && velocityCompleted !== null) { sets.push("velocity_completed=?"); vals.push(velocityCompleted); }
+  vals.push(sprintId);
+  writeDb.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+  // Event trail
+  try {
+    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'dashboard')").run(sprintId, sprint.status, nextPhase);
+  } catch {}
+
+  // Auto retro analysis when reaching done
+  if (nextPhase === 'done') {
+    try {
+      const doneCount = tickets.filter((t: any) => t.status === 'DONE').length;
+      const pct = tickets.length > 0 ? Math.round((doneCount / tickets.length) * 100) : 0;
+      const summary = `Auto-analysis: ${doneCount}/${tickets.length} tickets done (${pct}%). Velocity: ${velocityCompleted || 0}pt of ${sprint.velocity_committed || 0}pt committed.`;
+      writeDb.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')").run(sprintId, summary);
+    } catch {}
+  }
+
+  return { ok: true, from: sprint.status, to: nextPhase, sprint_id: sprintId };
+}
+
 // ─── Sprint Update API ──────────────────────────────────────────────────────
 const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'done', 'rest', 'preparation', 'kickoff', 'qa', 'refactoring', 'retro', 'review', 'closed'] as const;
 const SPRINT_TRANSITIONS: Record<string, string> = {
@@ -1535,6 +1580,11 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
         data = apiPlanSprint(body);
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/advance$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiAdvanceSprint(sid);
         notifyClients();
       }
       else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();

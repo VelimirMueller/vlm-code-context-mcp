@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useSprintPhase, type SprintPhase } from '@/hooks/useSprintPhase';
-import { useBridgeStore } from '@/stores/bridgeStore';
+import { useSprintStore } from '@/stores/sprintStore';
+import { post } from '@/lib/api';
 
 const PHASE_CONFIG: Record<SprintPhase, { icon: string; color: string; title: string; description: string }> = {
   none: {
@@ -52,20 +53,26 @@ interface PlanningWizardProps {
 
 export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
   const { phase, sprint, nextAction, canStartSprint, canAdvance } = useSprintPhase();
-  const queueAction = useBridgeStore((s) => s.queueAction);
+  const fetchSprints = useSprintStore((s) => s.fetchSprints);
+  const [advancing, setAdvancing] = useState(false);
   const config = PHASE_CONFIG[phase];
 
-  const handleAdvance = () => {
-    if (sprint) {
-      queueAction('advance_sprint', 'sprint', sprint.id, { current_phase: sprint.status });
+  const handleAdvance = async () => {
+    if (!sprint || advancing) return;
+    setAdvancing(true);
+    try {
+      await post(`/api/sprint/${sprint.id}/advance`, {});
+      await fetchSprints();
+    } catch {
+      // silent
+    } finally {
+      setAdvancing(false);
     }
   };
 
   const handleStartSprint = () => {
     if (onStartSprint) {
       onStartSprint();
-    } else {
-      queueAction('run_kickoff', 'ceremony', undefined, { step: 'kickoff' });
     }
   };
 
@@ -178,19 +185,20 @@ export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
           {canAdvance && (
             <button
               onClick={handleAdvance}
+              disabled={advancing}
               style={{
-                background: config.color,
-                color: '#fff',
+                background: advancing ? 'var(--surface3)' : config.color,
+                color: advancing ? 'var(--text3)' : '#fff',
                 border: 'none',
                 borderRadius: 8,
                 padding: '8px 16px',
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: advancing ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font)',
               }}
             >
-              {phase === 'planning' ? 'Start Implementation' : phase === 'done' ? 'Close Sprint' : 'Advance'}
+              {advancing ? 'Advancing...' : phase === 'planning' ? 'Start Implementation' : phase === 'done' ? 'Close Sprint' : 'Advance'}
             </button>
           )}
           {canStartSprint && (
