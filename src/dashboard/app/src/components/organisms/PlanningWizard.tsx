@@ -1,80 +1,138 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useSprintPhase, type SprintPhase } from '@/hooks/useSprintPhase';
 import { useSprintStore } from '@/stores/sprintStore';
+import { useBridgeStore } from '@/stores/bridgeStore';
 import { post } from '@/lib/api';
 
-const PHASE_CONFIG: Record<SprintPhase, { icon: string; color: string; title: string; description: string }> = {
-  none: {
-    icon: '◈',
-    color: '#8b5cf6',
-    title: 'No Sprint Yet',
-    description: 'Create your tickets below, then start a sprint when you\'re ready.',
-  },
-  planning: {
-    icon: '≡',
-    color: '#3b82f6',
-    title: 'Planning',
-    description: 'Refine your tickets — adjust points, assignees, and priorities. Start implementation when ready.',
-  },
-  implementation: {
-    icon: '▶',
-    color: '#10b981',
-    title: 'Implementation',
-    description: 'Sprint is in progress. Update ticket status as work completes.',
-  },
-  qa: {
-    icon: '✓',
-    color: '#f59e0b',
-    title: 'QA Review',
-    description: 'Verify completed work. Mark tickets as QA-verified when they pass.',
-  },
-  done: {
-    icon: '◁',
-    color: '#ec4899',
-    title: 'Sprint Done',
-    description: 'All work complete. Run the retrospective and close the sprint.',
-  },
-  rest: {
-    icon: '○',
-    color: '#6b7280',
-    title: 'Between Sprints',
-    description: 'Previous sprint is closed. Plan new tickets and start the next sprint.',
-  },
-};
+interface StepConfig {
+  label: string;
+  icon: string;
+  color: string;
+  description: string;
+  buttonLabel: string;
+  buttonAction: 'advance' | 'start' | 'implement' | null;
+  position: 'first' | 'next' | 'last';
+}
 
-const PHASES_ORDER: SprintPhase[] = ['planning', 'implementation', 'qa', 'done'];
+function getStepConfig(phase: SprintPhase, ticketsDone: number, ticketsTotal: number): StepConfig {
+  switch (phase) {
+    case 'none':
+      return {
+        label: 'First Step',
+        icon: '◈',
+        color: '#8b5cf6',
+        description: 'Add tickets below, then start a sprint.',
+        buttonLabel: 'Start Sprint',
+        buttonAction: 'start',
+        position: 'first',
+      };
+    case 'rest':
+      return {
+        label: 'First Step',
+        icon: '◈',
+        color: '#8b5cf6',
+        description: 'Previous sprint complete. Create tickets and start the next one.',
+        buttonLabel: 'Start Sprint',
+        buttonAction: 'start',
+        position: 'first',
+      };
+    case 'planning':
+      return {
+        label: 'Next Step',
+        icon: '▶',
+        color: '#3b82f6',
+        description: 'Review tickets, adjust points and assignees. Begin when ready.',
+        buttonLabel: 'Start Implementation',
+        buttonAction: 'advance',
+        position: 'next',
+      };
+    case 'implementation': {
+      const allDone = ticketsTotal > 0 && ticketsDone === ticketsTotal;
+      return {
+        label: allDone ? 'Last Step' : 'Next Step',
+        icon: allDone ? '✓' : '▶',
+        color: allDone ? '#10b981' : '#10b981',
+        description: allDone
+          ? `All ${ticketsTotal} tickets done. Finish the sprint.`
+          : `${ticketsDone}/${ticketsTotal} tickets done. Implement remaining tickets.`,
+        buttonLabel: allDone ? 'Finish Sprint' : 'Implement Next Ticket',
+        buttonAction: allDone ? 'advance' : 'implement',
+        position: allDone ? 'last' : 'next',
+      };
+    }
+    case 'qa':
+      return {
+        label: 'Next Step',
+        icon: '✓',
+        color: '#f59e0b',
+        description: 'Verify completed work passes QA.',
+        buttonLabel: 'Advance',
+        buttonAction: 'advance',
+        position: 'next',
+      };
+    case 'done':
+      return {
+        label: 'Last Step',
+        icon: '◁',
+        color: '#ec4899',
+        description: 'Sprint work complete. Close it out.',
+        buttonLabel: 'Close Sprint',
+        buttonAction: 'advance',
+        position: 'last',
+      };
+  }
+}
 
 interface PlanningWizardProps {
   onStartSprint?: () => void;
 }
 
 export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
-  const { phase, sprint, nextAction, canStartSprint, canAdvance } = useSprintPhase();
+  const { phase, sprint } = useSprintPhase();
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
-  const [advancing, setAdvancing] = useState(false);
-  const config = PHASE_CONFIG[phase];
+  const queueAction = useBridgeStore((s) => s.queueAction);
+  const [busy, setBusy] = useState(false);
+  const [lastResult, setLastResult] = useState<string | null>(null);
 
-  const handleAdvance = async () => {
-    if (!sprint || advancing) return;
-    setAdvancing(true);
+  const ticketsDone = sprint?.done_count ?? 0;
+  const ticketsTotal = sprint?.ticket_count ?? 0;
+  const step = getStepConfig(phase, ticketsDone, ticketsTotal);
+
+  const handleAction = async () => {
+    if (busy) return;
+    setBusy(true);
+    setLastResult(null);
+
     try {
-      await post(`/api/sprint/${sprint.id}/advance`, {});
-      await fetchSprints();
-    } catch {
-      // silent
+      if (step.buttonAction === 'advance' && sprint) {
+        const res = await post<{ from: string; to: string; automations: string[] }>(`/api/sprint/${sprint.id}/advance`, {});
+        const auto = res.automations?.length ? ` (${res.automations.join(', ')})` : '';
+        setLastResult(`${res.from} → ${res.to}${auto}`);
+        await fetchSprints();
+      } else if (step.buttonAction === 'start') {
+        if (onStartSprint) onStartSprint();
+      } else if (step.buttonAction === 'implement' && sprint) {
+        // Queue implement action for Claude to pick up via /sprint-connect
+        const tickets = await import('@/lib/api').then(m => m.get<{ id: number; title: string; status: string }[]>(`/api/sprint/${sprint.id}/tickets`));
+        const next = tickets?.find(t => t.status === 'TODO' || t.status === 'IN_PROGRESS');
+        if (next) {
+          await queueAction('implement_ticket', 'ticket', next.id, { sprint_id: sprint.id, title: next.title });
+          setLastResult(`Queued: ${next.title} — waiting for Claude...`);
+        } else {
+          setLastResult('No remaining tickets to implement');
+        }
+      }
+    } catch (e) {
+      setLastResult(`Error: ${(e as Error).message}`);
     } finally {
-      setAdvancing(false);
+      setBusy(false);
     }
   };
 
-  const handleStartSprint = () => {
-    if (onStartSprint) {
-      onStartSprint();
-    }
-  };
+  const positionColor = step.position === 'first' ? '#8b5cf6' : step.position === 'last' ? '#ec4899' : step.color;
 
   return (
     <motion.div
@@ -83,169 +141,110 @@ export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
       transition={{ duration: 0.3 }}
       style={{
         background: 'var(--surface)',
-        border: '1px solid var(--border)',
+        border: `1px solid var(--border)`,
         borderRadius: 14,
         padding: '20px 24px',
         marginBottom: 20,
+        borderLeft: `3px solid ${positionColor}`,
       }}
     >
-      {/* Phase stepper */}
-      {phase !== 'none' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 20 }}>
-          {PHASES_ORDER.map((p, i) => {
-            const pConf = PHASE_CONFIG[p];
-            const isActive = p === phase;
-            const isPast = PHASES_ORDER.indexOf(phase) > i;
-            const opacity = isActive ? 1 : isPast ? 0.7 : 0.3;
+      {/* Step label */}
+      <div style={{
+        fontSize: 10,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+        color: positionColor,
+        marginBottom: 12,
+      }}>
+        {step.icon} {step.label}
+      </div>
 
-            return (
-              <React.Fragment key={p}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity }}>
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      background: isActive ? pConf.color : isPast ? `${pConf.color}44` : 'var(--surface2)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      color: isActive ? '#fff' : isPast ? pConf.color : 'var(--text3)',
-                      fontWeight: 700,
-                      border: isActive ? `2px solid ${pConf.color}` : '1px solid var(--border2)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {isPast ? '✓' : pConf.icon}
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? 'var(--text)' : 'var(--text3)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {pConf.title}
-                  </span>
-                </div>
-                {i < PHASES_ORDER.length - 1 && (
-                  <div
-                    style={{
-                      flex: 1,
-                      height: 2,
-                      background: isPast ? pConf.color : 'var(--border2)',
-                      margin: '0 12px',
-                      borderRadius: 1,
-                      minWidth: 20,
-                    }}
-                  />
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Current phase info */}
+      {/* Main content */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
-            background: `${config.color}18`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            color: config.color,
-            flexShrink: 0,
-          }}
-        >
-          {config.icon}
-        </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
-            {sprint ? sprint.name : config.title}
+          {sprint && (
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+              {sprint.name}
+            </div>
+          )}
+          <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.5 }}>
+            {step.description}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>
-            {config.description}
-          </div>
-          {sprint && sprint.goal && (
+          {sprint?.goal && (
             <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, fontStyle: 'italic' }}>
               Goal: {sprint.goal}
             </div>
           )}
         </div>
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          {canAdvance && (
-            <button
-              onClick={handleAdvance}
-              disabled={advancing}
-              style={{
-                background: advancing ? 'var(--surface3)' : config.color,
-                color: advancing ? 'var(--text3)' : '#fff',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: advancing ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font)',
-              }}
-            >
-              {advancing ? 'Advancing...' : phase === 'planning' ? 'Start Implementation' : phase === 'done' ? 'Close Sprint' : 'Advance'}
-            </button>
-          )}
-          {canStartSprint && (
-            <button
-              onClick={handleStartSprint}
-              style={{
-                background: 'var(--accent)',
-                color: '#000',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: 'pointer',
-                fontFamily: 'var(--font)',
-              }}
-            >
-              Start Sprint
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Next action hint */}
-      <div
-        style={{
-          marginTop: 14,
-          padding: '8px 12px',
-          background: `${config.color}08`,
-          borderRadius: 8,
-          border: `1px solid ${config.color}20`,
-          fontSize: 12,
-          color: 'var(--text3)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <span style={{ color: config.color }}>▸</span>
-        Next: {nextAction}
-        {sprint && (
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>
-            {sprint.done_count}/{sprint.ticket_count} done
-            {sprint.velocity_committed > 0 && ` · ${sprint.velocity_completed}/${sprint.velocity_committed} pts`}
-          </span>
+        {/* Single action button */}
+        {step.buttonAction && (
+          <button
+            onClick={handleAction}
+            disabled={busy}
+            style={{
+              background: busy ? 'var(--surface3)' : positionColor,
+              color: busy ? 'var(--text3)' : '#fff',
+              border: 'none',
+              borderRadius: 10,
+              padding: '10px 20px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: busy ? 'not-allowed' : 'pointer',
+              fontFamily: 'var(--font)',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {busy ? '...' : step.buttonLabel}
+          </button>
         )}
       </div>
+
+      {/* Progress bar for implementation */}
+      {phase === 'implementation' && ticketsTotal > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{
+            height: 4,
+            background: 'var(--surface2)',
+            borderRadius: 2,
+            overflow: 'hidden',
+          }}>
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${(ticketsDone / ticketsTotal) * 100}%` }}
+              transition={{ duration: 0.5 }}
+              style={{ height: '100%', background: step.color, borderRadius: 2 }}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, textAlign: 'right' }}>
+            {ticketsDone}/{ticketsTotal} done
+            {sprint && sprint.velocity_committed > 0 && ` · ${sprint.velocity_completed}/${sprint.velocity_committed} pts`}
+          </div>
+        </div>
+      )}
+
+      {/* Result feedback */}
+      <AnimatePresence>
+        {lastResult && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            style={{
+              marginTop: 12,
+              padding: '8px 12px',
+              background: lastResult.startsWith('Error') ? 'rgba(239,68,68,0.1)' : `${positionColor}10`,
+              borderRadius: 8,
+              fontSize: 12,
+              color: lastResult.startsWith('Error') ? '#ef4444' : 'var(--text2)',
+            }}
+          >
+            {lastResult}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
