@@ -27,11 +27,16 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [groupByEpic, setGroupByEpic] = useState(false);
   const [epics, setEpics] = useState<Epic[]>([]);
+  const [localTickets, setLocalTickets] = useState<Ticket[]>(tickets);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
   const fetchGrouped = useSprintStore((s) => s.fetchGroupedSprints);
+
+  useEffect(() => { setLocalTickets(tickets); }, [tickets]);
 
   useEffect(() => {
     if (milestones.length === 0) fetchMilestones();
@@ -54,7 +59,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
   const epicGroups = useMemo(() => {
     if (!groupByEpic) return null;
     const groups = new Map<string, Ticket[]>();
-    for (const t of tickets) {
+    for (const t of localTickets) {
       const key = t.epic_name ?? 'No Epic';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(t);
@@ -66,7 +71,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
       return a[0].localeCompare(b[0]);
     });
     return sorted;
-  }, [groupByEpic, tickets]);
+  }, [groupByEpic, localTickets]);
 
   const handleMilestoneChange = async (ticketId: number, milestoneId: number | null) => {
     await patch(`/api/ticket/${ticketId}/milestone`, { milestone_id: milestoneId });
@@ -95,6 +100,24 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
     if (selectedSprintId) fetchTickets(selectedSprintId);
   };
 
+  const handleDrop = async (e: React.DragEvent, targetStatus: string) => {
+    e.preventDefault();
+    const ticketId = Number(e.dataTransfer.getData('ticketId'));
+    if (!ticketId) return;
+    const prev = localTickets;
+    setLocalTickets(ts =>
+      ts.map(t => t.id === ticketId ? { ...t, status: targetStatus } : t)
+    );
+    setDraggingId(null);
+    setDragOverCol(null);
+    try {
+      await patch(`/api/ticket/${ticketId}/status`, { status: targetStatus });
+      if (selectedSprintId) fetchTickets(selectedSprintId);
+    } catch {
+      setLocalTickets(prev);
+    }
+  };
+
   const renderColumns = (columnTickets: Ticket[]) => (
     <div
       style={{
@@ -111,13 +134,17 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
         return (
           <div
             key={status}
+            onDragOver={e => { e.preventDefault(); setDragOverCol(status); }}
+            onDragLeave={() => setDragOverCol(null)}
+            onDrop={e => handleDrop(e, status)}
             style={{
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
+              background: dragOverCol === status ? 'rgba(16,185,129,0.04)' : 'var(--bg)',
+              border: dragOverCol === status ? '1px solid var(--accent)' : '1px solid var(--border)',
               borderRadius: 'var(--radius)',
               display: 'flex',
               flexDirection: 'column',
               minHeight: 200,
+              transition: 'border-color 0.15s, background 0.15s',
             }}
           >
             {/* Column header */}
@@ -158,7 +185,19 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
             {/* Cards */}
             <div style={{ padding: 8, overflowY: 'auto', flex: 1 }}>
               {colTickets.map((ticket) => (
-                <TicketCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                <div
+                  key={ticket.id}
+                  draggable
+                  onDragStart={e => {
+                    setDraggingId(ticket.id);
+                    e.dataTransfer.setData('ticketId', String(ticket.id));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragEnd={() => { setDraggingId(null); setDragOverCol(null); }}
+                  style={{ cursor: 'grab', opacity: draggingId === ticket.id ? 0.4 : 1 }}
+                >
+                  <TicketCard ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                </div>
               ))}
               {colTickets.length === 0 && (
                 <div
@@ -233,7 +272,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
           })}
         </div>
       ) : (
-        renderColumns(tickets)
+        renderColumns(localTickets)
       )}
 
       <TicketDetailModal
