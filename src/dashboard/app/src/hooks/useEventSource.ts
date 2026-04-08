@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 interface StepProgressData {
   step: string;
@@ -34,6 +34,8 @@ type SSEEvent = {
   };
 };
 
+export type SSEConnectionState = 'connected' | 'disconnected' | 'reconnecting';
+
 interface UseEventSourceOptions {
   url?: string;
   onEvent?: (event: SSEEvent) => void;
@@ -50,16 +52,19 @@ export function useEventSource({
   const retryDelay = useRef(1000);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const [connectionState, setConnectionState] = useState<SSEConnectionState>('disconnected');
 
   const connect = useCallback(() => {
     if (!enabled) return;
 
     esRef.current?.close();
+    setConnectionState('reconnecting');
     const es = new EventSource(url);
     esRef.current = es;
 
     es.onopen = () => {
       retryDelay.current = 1000;
+      setConnectionState('connected');
     };
 
     es.onmessage = (e: MessageEvent) => {
@@ -78,12 +83,12 @@ export function useEventSource({
       if (data === 'updated') {
         onEventRef.current?.({ type: 'file_changed' });
       }
-      // 'connected' is just a keepalive, ignore
     };
 
     es.onerror = () => {
       es.close();
       esRef.current = null;
+      setConnectionState('disconnected');
       const delay = Math.min(retryDelay.current, 30_000);
       retryDelay.current = Math.min(delay * 2, 30_000);
       retryRef.current = setTimeout(connect, delay);
@@ -97,4 +102,6 @@ export function useEventSource({
       if (retryRef.current) clearTimeout(retryRef.current);
     };
   }, [connect]);
+
+  return { connectionState };
 }
