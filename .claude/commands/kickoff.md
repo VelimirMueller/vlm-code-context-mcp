@@ -1,395 +1,162 @@
-# Full Project Kickoff — Interactive Guided Sprint Lifecycle
+# /kickoff — Full Sprint Lifecycle (Automated)
 
-Run the complete scrum lifecycle from product vision through sprint rest. Ask the user beautifully formatted questions at each phase. Enforce all QA gates.
+Run the complete sprint lifecycle from vision through retrospective using MCP tools. All steps are automated — no user input required during execution.
 
-## Dashboard Detection
+## How it works
 
-Before asking any question, check if the dashboard is running by calling:
+1. Read existing project state
+2. Derive vision, milestone, epics, and tickets from context
+3. Create and start a sprint
+4. Work through all tickets
+5. Write retro findings
+6. Close and archive the sprint
 
-```
-request_user_input({ step, title, description, fields, hints })
-```
+---
 
-If the response contains `"fallback": true` → the dashboard is **not running**. Present the question as a boxed card directly in the terminal (the original format below).
-
-If the response contains `"fallback": false, "action_id": N` → the dashboard **is running**. The question was sent to the wizard modal. Poll for the answer:
-
-```
-get_user_response({ action_id: N, timeout_ms: 120000 })
-```
-
-This returns `{ "status": "completed", "response": { ... } }` when the user submits the wizard form, or `{ "status": "pending" }` if still waiting.
-
-**Always support both modes.** The terminal cards are the fallback; the dashboard wizard is the enhancement.
-
-## Resume Logic
-
-Before starting, check what already exists:
+## Step 1 — Read Project State
 
 ```
 get_project_status()
+list_sprints()
+list_epics()
 list_discoveries({ status: "discovered" })
 list_discoveries({ status: "planned" })
-list_epics()
-list_sprints()
 ```
 
-**Resume rules:**
-- If a vision already exists (non-empty) → skip Phase 1, confirm the existing vision to the user
-- If active/planned discoveries exist → skip Phase 2, show them and ask if more are needed
-- If an active milestone exists → skip Phase 3, show it
-- If epics already linked to the milestone → skip Phase 4, show them
-- If a sprint is in progress (not `rest`) → skip to Phase 7 (implementation loop)
-- Always start from the earliest phase that has NOT been completed yet
+Check existing state with these resume rules:
 
-Tell the user what was detected and where you're picking up:
+- **Vision exists** → use it. If missing → derive from project name and code context, then call `update_vision({ content: "..." })`
+- **Active milestone** → use it. If none → create one: `create_milestone({ name: "M1 — MVP", description: "...", status: "active" })`
+- **Epics linked to milestone** → use them. If none → create 2–3 from discovery/context
+- **Sprint in `implementation`** → skip to Step 4 (ticket loop)
+- **Sprint in `done`** → skip to Step 5 (retro)
+- **All sprints in `rest`** → start fresh from Step 2
+
+---
+
+## Step 2 — Discovery (Automated)
+
+Read `list_discoveries({ status: "discovered" })`. For each discovery, use it to shape the sprint goal and tickets.
+
+If no discoveries exist, derive scope from:
+- Existing epics and their ticket coverage
+- Recent retro findings via `analyze_retro_patterns()`
+- Open items in the backlog via `get_backlog()`
+
+---
+
+## Step 3 — Plan and Start Sprint
 
 ```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  RESUMING PROJECT                           │
-│                                                 │
-│   ✓  Vision ................ set                │
-│   ✓  Discovery ............. 2 active           │
-│   ○  Milestone ............. none yet           │
-│                                                 │
-│   Picking up at: MILESTONE                      │
-│                                                 │
-└─────────────────────────────────────────────────┘
+start_sprint({
+  name: "Sprint N — <descriptive name>",
+  goal: "<one sentence, measurable>",
+  milestone_id: <active milestone id>,
+  velocity: <committed points based on velocity trends>,
+  tickets: [
+    { title: "...", description: "...", assigned_to: "<agent role>", story_points: N, priority: "P1" },
+    ...
+  ]
+})
+```
+
+Rules:
+- Assign tickets to roles from `list_agents()`
+- Aim for ~19 story points total
+- Auto-create a QA ticket (1pt, assigned to `qa`) for every feature ticket
+- Link every ticket to an epic via `link_ticket_to_epic({ ticket_id, epic_id })`
+- Advance sprint: `advance_sprint({ sprint_id })` → moves `planning → implementation`
+
+---
+
+## Step 4 — Work Through Tickets
+
+For each ticket in priority order:
+
+```
+update_ticket({ ticket_id, status: "IN_PROGRESS" })
+```
+
+Do the work (read files, write code, run tests, check output). Then:
+
+```
+update_ticket({ ticket_id, status: "DONE", qa_verified: true, verified_by: "qa" })
+```
+
+**QA gate:** Verify the work actually happened before marking `qa_verified: true`. If it fails → `log_bug({ sprint_id, severity, description, ticket_id })` and keep the ticket `IN_PROGRESS`.
+
+Once all tickets are DONE:
+
+```
+advance_sprint({ sprint_id })   # → done
 ```
 
 ---
 
-## Question Format
+## Step 5 — Retrospective (Automated)
 
-Present every question as a boxed card. Consistent visual style throughout:
+Generate retro findings based on what happened this sprint:
 
 ```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  PHASE TITLE                                │
-│                                                 │
-│   Context — why this step matters.              │
-│                                                 │
-│   The question itself.                          │
-│                                                 │
-│   Hints:                                        │
-│     ▸ Option or example A                       │
-│     ▸ Option or example B                       │
-│                                                 │
-└─────────────────────────────────────────────────┘
+add_retro_finding({ sprint_id, category: "went_well",  finding: "...", role: "developer" })
+add_retro_finding({ sprint_id, category: "went_wrong", finding: "...", role: "qa" })
+add_retro_finding({ sprint_id, category: "try_next",   finding: "...", role: "developer", action_owner: "developer" })
 ```
 
-**Rules:**
-- One question block at a time. Wait for the user's answer before proceeding.
-- Never batch questions. Never assume answers.
-- After each user response, execute the MCP calls, confirm what was saved, then show the next card.
+Then produce a cumulative summary by comparing with past sprints:
+
+```
+analyze_retro_patterns()
+```
+
+Summarize: what patterns repeat, what improved, what to prioritize next sprint.
 
 ---
 
-## Phase 1 — Product Vision
+## Step 6 — Close and Archive
 
 ```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  PRODUCT VISION                             │
-│                                                 │
-│   The vision anchors every sprint, ticket, and  │
-│   priority decision. Get this right and the     │
-│   rest follows naturally.                       │
-│                                                 │
-│   Describe your project in plain language:      │
-│                                                 │
-│     ▸ What are you building?                    │
-│     ▸ Who is it for?                            │
-│     ▸ What does success look like?              │
-│                                                 │
-│   Example: "A CLI tool for devs that generates  │
-│   API docs from code comments. Success = used   │
-│   by 3 internal teams within a quarter."        │
-│                                                 │
-└─────────────────────────────────────────────────┘
+advance_sprint({ sprint_id })   # → rest
 ```
 
-→ `update_vision({ vision: "<cleaned up response>" })`
-
----
-
-## Phase 2 — Discovery
+Archive linked entities:
 
 ```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  DISCOVERY                                  │
-│                                                 │
-│   Before building, capture what needs figuring  │
-│   out. Discoveries track spikes, risks, and     │
-│   scope decisions.                              │
-│                                                 │
-│   What's the main thing to investigate first?   │
-│                                                 │
-│     ▸ spike — "Can we use X for Y?"             │
-│     ▸ feature_scope — "What's the MVP set?"     │
-│     ▸ risk — "Will it scale to N users?"        │
-│     ▸ architecture — "Monolith or services?"    │
-│                                                 │
-│   Describe the discovery and pick a type.       │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
+# Discoveries: mark implemented if their ticket is DONE, else dropped
+update_discovery({ discovery_id, status: "implemented" })
+update_discovery({ discovery_id, status: "dropped", drop_reason: "Sprint closed without completion" })
 
-→ `create_discovery({ title, description, discovery_type })`
+# Epics: complete if all tickets DONE
+update_epic({ epic_id, status: "completed" })
 
----
-
-## Phase 3 — Milestone
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  MILESTONE                                  │
-│                                                 │
-│   Milestones are big goals spanning multiple    │
-│   sprints. Think "v1.0" or "beta launch" —      │
-│   not individual features.                      │
-│                                                 │
-│   What's the first major milestone?             │
-│                                                 │
-│     ▸ Name  (e.g. "M1 — MVP Launch")           │
-│     ▸ Done looks like...                        │
-│     ▸ Target date (optional)                    │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-→ `create_milestone({ title, description, target_date })`
-→ Link discoveries to milestone where relevant
-
----
-
-## Phase 4 — Epics
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  EPICS                                      │
-│                                                 │
-│   Epics break the milestone into 2–4 big        │
-│   workstreams that together deliver the goal.   │
-│                                                 │
-│   What are the major workstreams?               │
-│                                                 │
-│   Example for an API project:                   │
-│     ▸ Core API — endpoints, auth, validation    │
-│     ▸ Frontend — UI, forms, dashboard           │
-│     ▸ Infra — CI/CD, monitoring, deploy         │
-│                                                 │
-│   List your epics (name + one-liner each).      │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-→ For each: `create_epic({ title, description })`
-→ `link_ticket_to_milestone({ ticket_id: <epic_id>, milestone_id })`
-
----
-
-## Phase 5 — Tickets
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  SPRINT TICKETS                             │
-│                                                 │
-│   Break the first epic(s) into sprint-sized     │
-│   work. Each ticket = one task completable in   │
-│   a day or less.                                │
-│                                                 │
-│   For each ticket provide:                      │
-│     ▸ Title                                     │
-│     ▸ Points (1=trivial, 2=small, 3=med, 5=lg) │
-│     ▸ Which epic                                │
-│                                                 │
-│   Target ~19 points total.                      │
-│   I'll auto-create a QA ticket for every        │
-│   feature ticket.                               │
-│                                                 │
-│   List your tickets.                            │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-After parsing, auto-generate a QA verification ticket (1–2pts, assigned to `qa`) for every feature ticket.
-
-Show a confirmation table:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│   ◈  CONFIRM BACKLOG                                            │
-│                                                                 │
-│   #  │ Title                    │ Pts │ Agent     │ Epic        │
-│   ───┼──────────────────────────┼─────┼───────────┼─────────────│
-│   1  │ Implement login API      │  3  │ developer │ Core API    │
-│   2  │ QA: Verify login API     │  1  │ qa        │ Core API    │
-│   …  │ …                        │  …  │ …         │ …           │
-│   ───┼──────────────────────────┼─────┼───────────┼─────────────│
-│      │ TOTAL                    │ 19  │           │             │
-│                                                                 │
-│   Look good?  (yes / adjust / add more)                         │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-Wait for confirmation before proceeding.
-
----
-
-## Phase 6 — Start Sprint
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  SPRINT LAUNCH                              │
-│                                                 │
-│   Everything is queued up. Name the sprint and  │
-│   set a one-line measurable goal.               │
-│                                                 │
-│   Example:                                      │
-│     ▸ Name: "Sprint 1 — Auth Foundation"        │
-│     ▸ Goal: "Users can register, log in, and    │
-│       access protected routes"                  │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-→ `start_sprint({ name, goal, milestone_id, velocity, tickets: [...] })`
-→ `advance_sprint({ sprint_id })` to move planning → implementation
-
-Show launch confirmation:
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ✦  SPRINT STARTED                             │
-│                                                 │
-│   Sprint:   <name>                              │
-│   Goal:     <goal>                              │
-│   Tickets:  <count> (<points> pts)              │
-│   Phase:    implementation                      │
-│                                                 │
-│   Start working. Tell me when each ticket is    │
-│   done and I'll handle status + QA gates.       │
-│                                                 │
-└─────────────────────────────────────────────────┘
+# Milestone: complete if ALL epics done, else update progress %
+update_milestone({ milestone_id, status: "completed", progress: 100 })
+update_milestone({ milestone_id, progress: <calculated %> })
 ```
 
 ---
 
-## Phase 7 — Implementation Loop
-
-For each ticket the user completes:
-
-1. `update_ticket({ ticket_id, status: "IN_PROGRESS" })`
-2. User does the work
-3. `update_ticket({ ticket_id, status: "DONE", qa_verified: true, verified_by: "qa" })`
-4. Also close the matching QA ticket
-
-**QA gate is mandatory.** Never mark `qa_verified: true` without verifying the work. If verification fails → `log_bug()` and keep the ticket in progress.
-
-Once all tickets are DONE + QA-verified:
-
-→ `advance_sprint({ sprint_id })` moves implementation → done
-
----
-
-## Phase 8 — Retrospective
+## Minimal chain (no issues)
 
 ```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  RETROSPECTIVE                              │
-│                                                 │
-│   Three quick reflections to close the sprint.  │
-│   Be honest — this feeds future planning.       │
-│                                                 │
-│     1. What went well?                          │
-│        (What should we keep doing?)             │
-│                                                 │
-│     2. What went wrong?                         │
-│        (What slowed us down or hurt?)           │
-│                                                 │
-│     3. What to try next sprint?                 │
-│        (One concrete experiment)                │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-→ `add_retro_finding` × 3 (one per category: went_well, went_wrong, try_next)
-
----
-
-## Phase 9 — Close & Archive
-
-After retro findings are saved:
-
-→ `advance_sprint({ sprint_id })` moves done → rest
-
-**Archive everything tied to this sprint:**
-
-1. Mark discoveries as `implemented` or `dropped`:
-   ```
-   update_discovery({ discovery_id, status: "implemented" })   # if ticket DONE
-   update_discovery({ discovery_id, status: "dropped", drop_reason: "..." })  # if not
-   ```
-
-2. Complete epics where all tickets are DONE:
-   ```
-   update_epic({ epic_id, status: "completed" })
-   ```
-
-3. If ALL epics in the milestone are completed, close the milestone:
-   ```
-   update_milestone({ milestone_id, status: "completed", progress: 100 })
-   ```
-
-4. If epics/milestone are NOT fully done, update progress:
-   ```
-   update_milestone({ milestone_id, progress: <calculated %> })
-   ```
-
-Show final summary:
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ✦  SPRINT COMPLETE                            │
-│                                                 │
-│   Sprint:     <name>                            │
-│   Velocity:   <completed>/<committed> pts       │
-│   Tickets:    <done>/<total>                    │
-│   QA:         All verified ✓                    │
-│                                                 │
-│   Archived:                                     │
-│     ▸ <N> discoveries → implemented/dropped     │
-│     ▸ <N> epics → completed                     │
-│     ▸ Milestone → <status> (<progress>%)        │
-│                                                 │
-│   Run /kickoff again for the next cycle.        │
-│   Run /sprint to jump straight to planning.     │
-│                                                 │
-└─────────────────────────────────────────────────┘
+ 1. start_sprint(...)                                          # plan
+ 2. advance_sprint({ sprint_id })                             # → implementation
+ 3. update_ticket({ ticket_id, status: "IN_PROGRESS" })       # work
+ 4. update_ticket({ ticket_id, status: "DONE", qa_verified: true })
+ 5. advance_sprint({ sprint_id })                             # → done
+ 6. add_retro_finding({ sprint_id, category: "went_well",  ... })
+ 7. add_retro_finding({ sprint_id, category: "went_wrong", ... })
+ 8. add_retro_finding({ sprint_id, category: "try_next",   ... })
+ 9. advance_sprint({ sprint_id })                             # → rest
+10. update_discovery({ discovery_id, status: "implemented" }) # archive
+11. update_epic({ epic_id, status: "completed" })             # archive
+12. update_milestone({ milestone_id, status: "completed" })   # archive
 ```
 
 ---
 
-## Rules
+## Recovery
 
-1. **One card at a time.** Never skip ahead. Never batch questions.
-2. **Wait for user input** before calling any MCP tool.
-3. **Never assume answers.** Ambiguous → ask a follow-up.
-4. **QA gates are mandatory.** Every ticket must be `qa_verified: true`.
-5. **Auto-generate QA tickets** for every feature ticket.
-6. **Link everything** — tickets→epics, epics→milestones, discoveries→tickets.
-7. **Archive on close** — discoveries, epics, milestones all get their final status.
-8. **Resume from where you left off** — check existing state before asking redundant questions.
+- **Sprint stuck?** → `get_sprint_playbook({ sprint_id })` tells you exactly what to fix
+- **Wrong phase?** → `update_sprint({ sprint_id, status: "planning" })` to reset
+- **See full state?** → `get_sprint({ sprint_id })` shows everything

@@ -66,28 +66,122 @@ function PatternsView() {
   const allFindings = useSprintStore((s) => s.allRetroFindings);
   const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
 
-  useEffect(() => {
-    fetchAllRetro();
-  }, [fetchAllRetro]);
+  useEffect(() => { fetchAllRetro(); }, [fetchAllRetro]);
 
-  const autoFindings = allFindings.filter((f) => f.category === 'auto_analysis');
+  const userFindings = allFindings.filter((f) => f.category !== 'auto_analysis');
 
-  if (autoFindings.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>No auto-analysis patterns yet. Close a sprint to generate analysis.</div>;
+  if (userFindings.length === 0) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>No retro findings yet. Complete a sprint to see patterns.</div>;
   }
 
+  // Group by sprint
+  const bySprint = new Map<string, typeof userFindings>();
+  for (const f of userFindings) {
+    const key = f.sprint_name ?? 'Unknown Sprint';
+    if (!bySprint.has(key)) bySprint.set(key, []);
+    bySprint.get(key)!.push(f);
+  }
+
+  // Category counts across all sprints
+  const totalWell = userFindings.filter(f => f.category === 'went_well').length;
+  const totalWrong = userFindings.filter(f => f.category === 'went_wrong').length;
+  const totalTry = userFindings.filter(f => f.category === 'try_next').length;
+  const total = userFindings.length;
+
+  // Recurring patterns: findings that share significant keywords across multiple sprints
+  const wordFreq = new Map<string, Set<string>>();
+  const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'was', 'are', 'were', 'it', 'this', 'that', 'we', 'not', 'no', 'be', 'have', 'had', 'has']);
+  for (const f of userFindings) {
+    const sprint = f.sprint_name ?? 'Unknown';
+    const words = f.finding.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(' ').filter(w => w.length > 4 && !stopWords.has(w));
+    for (const word of words) {
+      if (!wordFreq.has(word)) wordFreq.set(word, new Set());
+      wordFreq.get(word)!.add(sprint);
+    }
+  }
+  const recurring = [...wordFreq.entries()]
+    .filter(([, sprints]) => sprints.size >= 2)
+    .sort((a, b) => b[1].size - a[1].size)
+    .slice(0, 8);
+
+  const catColor: Record<string, string> = { went_well: '#10b981', went_wrong: '#ef4444', try_next: '#8b5cf6' };
+  const catLabel: Record<string, string> = { went_well: 'Went Well', went_wrong: 'Went Wrong', try_next: 'Try Next' };
+
   return (
-    <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--blue, #3b82f6)', marginBottom: 16 }}>Auto-Analysis Patterns</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
-        {autoFindings.map((f) => (
-          <div key={f.id} style={{ background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.25)', borderLeft: '3px solid var(--blue, #3b82f6)', borderRadius: 8, padding: '12px 14px' }}>
-            {f.sprint_name && (
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--blue, #3b82f6)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{f.sprint_name}</div>
-            )}
-            <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>{f.finding}</div>
+    <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Health bar */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+          Cumulative Health — {bySprint.size} sprint{bySprint.size !== 1 ? 's' : ''}, {total} findings
+        </div>
+        <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', gap: 2 }}>
+          {totalWell > 0 && <div style={{ flex: totalWell, background: '#10b981', borderRadius: 5 }} title={`${totalWell} went well`} />}
+          {totalTry > 0 && <div style={{ flex: totalTry, background: '#8b5cf6', borderRadius: 5 }} title={`${totalTry} try next`} />}
+          {totalWrong > 0 && <div style={{ flex: totalWrong, background: '#ef4444', borderRadius: 5 }} title={`${totalWrong} went wrong`} />}
+        </div>
+        <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+          {[['went_well', totalWell], ['try_next', totalTry], ['went_wrong', totalWrong]].map(([cat, count]) => (
+            <span key={cat as string} style={{ fontSize: 11, color: catColor[cat as string], fontFamily: 'var(--mono)' }}>
+              {count} {catLabel[cat as string]}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Recurring keywords */}
+      {recurring.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+            Recurring Themes
           </div>
-        ))}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {recurring.map(([word, sprints]) => (
+              <span key={word} style={{
+                background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.25)',
+                color: '#818cf8', borderRadius: 20, padding: '3px 10px',
+                fontSize: 11, fontFamily: 'var(--mono)',
+              }}>
+                {word} <span style={{ opacity: 0.6 }}>×{sprints.size}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sprint-by-sprint breakdown */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+          Sprint Breakdown
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {[...bySprint.entries()].map(([sprintName, findings]) => {
+            const well = findings.filter(f => f.category === 'went_well').length;
+            const wrong = findings.filter(f => f.category === 'went_wrong').length;
+            const tryN = findings.filter(f => f.category === 'try_next').length;
+            return (
+              <div key={sprintName}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 5 }}>{sprintName}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {findings.filter(f => f.category !== 'auto_analysis').map((f) => (
+                    <div key={f.id} style={{
+                      padding: '6px 10px', borderRadius: 6,
+                      background: 'var(--surface2)', borderLeft: `3px solid ${catColor[f.category] ?? '#888'}`,
+                      fontSize: 12, color: 'var(--text2)', lineHeight: 1.4,
+                    }}>
+                      {f.finding}
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
+                    {well > 0 && <span style={{ fontSize: 10, color: '#10b981', fontFamily: 'var(--mono)' }}>✓ {well} well</span>}
+                    {wrong > 0 && <span style={{ fontSize: 10, color: '#ef4444', fontFamily: 'var(--mono)' }}>✗ {wrong} wrong</span>}
+                    {tryN > 0 && <span style={{ fontSize: 10, color: '#8b5cf6', fontFamily: 'var(--mono)' }}>→ {tryN} try</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

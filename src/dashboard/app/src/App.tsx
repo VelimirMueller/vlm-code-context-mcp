@@ -17,7 +17,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m
 const Team = lazy(() => import('@/pages/Team').then(m => ({ default: m.Team })));
 const Retro = lazy(() => import('@/pages/Retro').then(m => ({ default: m.Retro })));
 const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
-const Demo = lazy(() => import('@/pages/Demo').then(m => ({ default: m.Demo })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
@@ -104,6 +103,7 @@ export function App() {
   const fetchTickets = useSprintStore((s) => s.fetchTickets);
   const fetchRetro = useSprintStore((s) => s.fetchRetro);
   const fetchAllRetro = useSprintStore((s) => s.fetchAllRetro);
+  const fetchActivities = useSprintStore((s) => s.fetchActivities);
   const fetchBurndown = useSprintStore((s) => s.fetchBurndown);
   const fetchBlockers = useSprintStore((s) => s.fetchBlockers);
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
@@ -129,6 +129,7 @@ export function App() {
       fetchBridgeStatus();
       fetchBridgeActions();
       fetchAllRetro();
+      fetchActivities();
       // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
@@ -224,7 +225,6 @@ export function App() {
               {normalizedPage === 'code' && <ErrorBoundary><CodeExplorer /></ErrorBoundary>}
               {normalizedPage === 'team' && <ErrorBoundary><Team /></ErrorBoundary>}
               {normalizedPage === 'retro' && <ErrorBoundary><Retro /></ErrorBoundary>}
-              {normalizedPage === 'demo' && <ErrorBoundary><Demo /></ErrorBoundary>}
             </Suspense>
           </motion.div>
         </AnimatePresence>
