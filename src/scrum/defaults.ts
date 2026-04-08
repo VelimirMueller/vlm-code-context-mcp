@@ -19,9 +19,25 @@ export interface AgentDefault {
 
 export const AGENT_DEFAULTS: AgentDefault[] = [
   {
-    role: "developer",
-    name: "Developer",
-    description: "Implements features and fixes bugs",
+    role: "fe-engineer",
+    name: "FE Engineer",
+    description: "Builds frontend UI components, pages, and client-side logic",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+  },
+  {
+    role: "be-engineer",
+    name: "BE Engineer",
+    description: "Builds backend APIs, database models, and server-side logic",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+  },
+  {
+    role: "devops",
+    name: "DevOps",
+    description: "Manages CI/CD, deployment, and infrastructure",
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
@@ -35,17 +51,17 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     system_prompt: "",
   },
   {
-    role: "product-owner",
-    name: "Product Owner",
-    description: "Manages requirements and priorities",
+    role: "team-lead",
+    name: "Team Lead",
+    description: "Coordinates the team, reviews code, and ensures quality",
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
   },
   {
-    role: "devops",
-    name: "DevOps",
-    description: "Manages CI/CD, deployment, and infrastructure",
+    role: "product-owner",
+    name: "Product Owner",
+    description: "Manages requirements, priorities, and stakeholder communication",
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
@@ -102,20 +118,24 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
   let agentCount = 0;
   let skillCount = 0;
 
-  // Seed agents if table is empty, or migrate from old 15-agent defaults to 4
+  // Seed agents if table is empty, or migrate from old factory defaults
   const agentRows = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
   const OLD_15_AGENT_COUNT = 15;
-  if (agentRows === 0 || agentRows === OLD_15_AGENT_COUNT) {
-    // Check if this is the old 15-agent set by looking for a legacy role
-    const isOldDefaults = agentRows === OLD_15_AGENT_COUNT &&
-      db.prepare("SELECT 1 FROM agents WHERE role = 'architect'").get() != null;
-    if (agentRows === 0 || isOldDefaults) {
-      if (isOldDefaults) db.prepare("DELETE FROM agents").run();
-      const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
-      for (const a of AGENT_DEFAULTS) {
-        stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
-        agentCount++;
-      }
+  const OLD_4_AGENT_COUNT = 4;
+
+  const isOld15 = agentRows === OLD_15_AGENT_COUNT &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'architect'").get() != null;
+  // Old 4-agent set had a 'developer' role; new 6-agent set uses 'fe-engineer'/'be-engineer'
+  const isOld4 = agentRows === OLD_4_AGENT_COUNT &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'developer'").get() != null &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'fe-engineer'").get() == null;
+
+  if (agentRows === 0 || isOld15 || isOld4) {
+    if (agentRows > 0) db.prepare("DELETE FROM agents").run();
+    const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
+    for (const a of AGENT_DEFAULTS) {
+      stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
+      agentCount++;
     }
   }
 

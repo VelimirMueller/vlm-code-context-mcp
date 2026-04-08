@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useSprintPhase, type SprintPhase } from '@/hooks/useSprintPhase';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useBridgeStore } from '@/stores/bridgeStore';
@@ -90,12 +90,33 @@ interface PlanningWizardProps {
   onStartSprint?: () => void;
 }
 
+const WIZARD_STEP_COLORS: Record<string, string> = {
+  vision: '#8b5cf6',
+  discovery: '#3b82f6',
+  milestone: '#10b981',
+  epics: '#f59e0b',
+  tickets: '#ec4899',
+  sprint_launch: '#06b6d4',
+  retro: '#ef4444',
+  dashboard_check: '#6366f1',
+};
+
 export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
   const { phase, sprint } = useSprintPhase();
   const fetchSprints = useSprintStore((s) => s.fetchSprints);
   const queueAction = useBridgeStore((s) => s.queueAction);
+  const wizardOpen = useBridgeStore((s) => s.wizardOpen);
+  const wizardSteps = useBridgeStore((s) => s.wizardSteps);
+  const stepProgress = useBridgeStore((s) => s.stepProgress);
+  const claudeStream = useBridgeStore((s) => s.claudeStream);
+  const prefersReducedMotion = useReducedMotion();
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
+
+  // Current wizard step: last in the queue is the most recently requested
+  const currentWizardStep = wizardSteps[wizardSteps.length - 1] ?? null;
+  const wizardStepColor = WIZARD_STEP_COLORS[currentWizardStep?.step ?? ''] ?? '#6366f1';
+  const isWizardActive = wizardOpen || claudeStream.isActive;
 
   const ticketsDone = sprint?.done_count ?? 0;
   const ticketsTotal = sprint?.ticket_count ?? 0;
@@ -242,6 +263,73 @@ export function PlanningWizard({ onStartSprint }: PlanningWizardProps) {
             }}
           >
             {lastResult}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Inline wizard step indicator */}
+      <AnimatePresence>
+        {isWizardActive && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginTop: 14 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 14px',
+              background: `${wizardStepColor}0f`,
+              border: `1px solid ${wizardStepColor}30`,
+              borderRadius: 10,
+            }}>
+              {/* Live dot */}
+              <motion.div
+                animate={prefersReducedMotion ? {} : { scale: [1, 1.4, 1], opacity: [1, 0.5, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: wizardStepColor,
+                  flexShrink: 0,
+                }}
+              />
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: wizardStepColor, marginBottom: 1 }}>
+                  {claudeStream.isActive ? 'Claude is working…' : 'Wizard active'}
+                  {wizardSteps.length > 0 && (
+                    <span style={{ color: 'var(--text3)', fontWeight: 500, marginLeft: 6 }}>
+                      step {wizardSteps.length}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {stepProgress?.title ?? currentWizardStep?.title ?? 'Waiting for input…'}
+                </div>
+                {stepProgress && (
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                    {stepProgress.description}
+                  </div>
+                )}
+              </div>
+
+              {/* Step progress fraction */}
+              {stepProgress && stepProgress.total > 0 && (
+                <div style={{
+                  fontSize: 11,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--text3)',
+                  flexShrink: 0,
+                }}>
+                  {stepProgress.current}/{stepProgress.total}
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
