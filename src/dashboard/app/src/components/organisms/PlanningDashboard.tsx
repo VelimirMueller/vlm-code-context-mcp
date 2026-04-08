@@ -21,7 +21,7 @@ type ViewMode = 'overview' | 'gantt' | 'burndown' | 'capacity' | 'table' | 'kanb
 
 const viewModes: { id: ViewMode; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: '\u229e' },
-  { id: 'kanban', label: 'Kanban', icon: '⊞' },
+  { id: 'kanban', label: 'Kanban', icon: '\u25a5' },
   { id: 'gantt', label: 'Timeline', icon: '\u25e7' },
   { id: 'burndown', label: 'Burndown', icon: '\u25e2' },
   { id: 'capacity', label: 'Capacity', icon: '\u25d0' },
@@ -376,7 +376,7 @@ export function PlanningDashboard() {
 
       {/* Kanban View */}
       {viewMode === 'kanban' && (
-        <div style={{ padding: '0 8px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
           {loadingKanban ? (
             <div style={{ color: 'var(--text3)', padding: 32, fontSize: 13 }}>Loading…</div>
           ) : (
