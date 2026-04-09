@@ -178,23 +178,26 @@ if (fs.existsSync(claudeSettingsPath)) {
 if (!claudeSettings.hooks) claudeSettings.hooks = {};
 if (!claudeSettings.hooks.PreToolUse) claudeSettings.hooks.PreToolUse = [];
 
-// Add bridge hook if not already present (Claude Code requires matcher-group structure)
+// Always write the correct bridge hook (repairs broken configs from older versions)
 const bridgeHookCmd = `node ${hookScript}`;
-const hasBridgeHook = claudeSettings.hooks.PreToolUse.some(
-  (group: any) => Array.isArray(group.hooks) && group.hooks.some(
-    (h: any) => h.type === "command" && h.command?.includes("bridge/hook")
-  )
+// Remove any existing bridge hook entries (including old flat-format ones)
+claudeSettings.hooks.PreToolUse = claudeSettings.hooks.PreToolUse.filter(
+  (entry: any) => {
+    // Remove old flat-format entries: { type: "command", command: "...bridge/hook..." }
+    if (entry.type === "command" && entry.command?.includes("bridge/hook")) return false;
+    // Remove existing matcher-group entries containing bridge hook
+    if (Array.isArray(entry.hooks) && entry.hooks.some(
+      (h: any) => h.command?.includes("bridge/hook")
+    )) return false;
+    return true;
+  }
 );
-if (!hasBridgeHook) {
-  claudeSettings.hooks.PreToolUse.push({
-    matcher: "",
-    hooks: [{ type: "command", command: bridgeHookCmd }],
-  });
-  fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2) + "\n");
-  console.log(`  Bridge hook added to ${claudeSettingsPath}`);
-} else {
-  console.log(`  Bridge hook already configured`);
-}
+claudeSettings.hooks.PreToolUse.push({
+  matcher: "",
+  hooks: [{ type: "command", command: bridgeHookCmd }],
+});
+fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2) + "\n");
+console.log(`  Bridge hook configured in ${claudeSettingsPath}`);
 console.log("");
 
 // 6. Copy .claude/commands into target project
