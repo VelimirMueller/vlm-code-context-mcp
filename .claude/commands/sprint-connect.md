@@ -2,6 +2,46 @@
 
 Connect the dashboard UI to this Claude session. Spawns a background agent that polls for dashboard actions and executes them using MCP tools. Re-spawns automatically when the agent times out.
 
+## Step 0 — Load Context
+
+Before connecting, load the full project context so the bridge agent understands what it's operating on.
+
+### 0a. Codebase context (ALWAYS first)
+
+```
+index_directory()                      # ensure file index is fresh
+search_files({ query: "" })            # get file tree overview
+```
+
+### 0b. Essential reads
+
+```
+get_project_status()                   # overall health
+get_sprint_playbook()                  # current phase, gates, next actions
+list_sprints()                         # sprint landscape
+list_agents()                          # team roster, who's assigned what
+get_velocity_trends()                  # capacity context
+```
+
+### 0c. Display smart summary
+
+```
+┌─────────────────────────────────────────────────┐
+│                                                 │
+│   ◈  CONTEXT LOADED                             │
+│                                                 │
+│   Sprint:   <name> (<phase>)                    │
+│   Tickets:  <done>/<total> done                 │
+│   Team:     <N> agents                          │
+│   Codebase: <files> files indexed               │
+│                                                 │
+│   Ready to bridge dashboard actions.            │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+---
+
 ## How It Works
 
 1. Spawn a background agent that polls `pending_actions` in context.db every second
@@ -25,17 +65,27 @@ Say "disconnect" to stop listening.
 
 ### Step 2: Spawn the polling agent
 
-Spawn a background agent with this prompt:
+The spawned agent MUST load context before handling actions. Include these instructions in the agent prompt:
 
 ```
 You are a bridge agent polling for dashboard actions in the MCP server project.
 
+BEFORE handling any action, load context from the MCP database:
+- get_sprint_playbook() — know the current phase and gates
+- list_agents() — know who's on the team
+- get_sprint({ sprint_id: <current> }) — know ticket state
+
 Your job:
 1. Read the pending_actions table from context.db using a bash command every second
 2. When you find a pending action, claim it and execute the corresponding MCP tool
-3. After executing, mark the action as completed in the database
-4. Report what you did back to the main session
-5. Continue polling until 3 minutes have passed with no actions, then exit
+3. Before executing implement_ticket actions, ALWAYS load code context first:
+   - get_ticket({ ticket_id: <id> }) — understand the ticket
+   - search_files({ query: "<ticket keywords>" }) — find related code
+   - get_file_context({ path: "<relevant file>" }) — understand dependencies
+   - Only THEN read actual files and implement
+4. After executing, mark the action as completed in the database
+5. Report what you did back to the main session
+6. Continue polling until 3 minutes have passed with no actions, then exit
 
 Polling command (run this in a loop):
 node -e '
@@ -57,7 +107,7 @@ Action mapping — when you find an action, call the MCP tool:
 - update_ticket → call update_ticket({ ticket_id: <entity_id>, ...JSON.parse(payload) })
 - create_ticket → call create_ticket({ ...JSON.parse(payload) })
 - run_kickoff → call handle_run_kickoff() if available, otherwise report "kickoff requested"
-- implement_ticket → Read the ticket details with get_ticket({ ticket_id: <entity_id> }), then actually implement it: read relevant files, write code, run tests, and mark the ticket DONE when finished
+- implement_ticket → Load ticket + code context from DB first, then implement
 
 After executing, mark completed:
 node -e '
@@ -82,3 +132,9 @@ When the background agent finishes (timeout or completion):
 When the user says "disconnect", "quit", or "stop":
 1. Let any running background agent finish its current action
 2. Say: "Sprint Connect disconnected. Dashboard buttons will use direct API only."
+
+## Rules
+
+1. **Context first.** Load project state before connecting so the bridge agent understands what it's operating on.
+2. **Code context before file reads.** Bridge agents implementing tickets must use `search_files()` and `get_file_context()` before reading source files.
+3. **Re-load on each action.** For implement_ticket actions, always refresh ticket and code context — state may have changed since last poll.

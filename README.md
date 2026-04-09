@@ -1,224 +1,235 @@
 # vlm-code-context-mcp
 
-**Structured codebase context and scrum process management for AI agents via MCP.**
+**Your AI agents forget everything between sessions. This fixes that.**
+
+A Node.js MCP server that gives AI coding agents persistent memory, structured project context, and a full scrum process — so they stop re-reading your entire codebase every conversation.
 
 ```bash
 npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 npx code-context-dashboard ./context.db
-# Opens at http://localhost:3333
 ```
+
+Three commands. Zero API keys. Everything lives in a single `context.db` file.
 
 ---
 
-## Slash Commands
+## The Problem
 
-Two built-in commands for Claude Code users. Type these directly in your Claude Code session.
+AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. Every new conversation starts from scratch — no memory of what was built, what failed, or what's next.
 
-### `/kickoff` — Full guided lifecycle (start here)
+**Without this tool:**
+- Agent reads 46,000 tokens of raw files per task
+- No continuity between sessions
+- No process, no tracking, no quality gates
+- Each agent operates in isolation
 
-Interactive walkthrough from zero to sprint complete. Claude asks you one beautiful question at a time, executes MCP tools based on your answers, and enforces all QA gates.
-
-```
-/kickoff
-```
-
-Covers: vision → discovery → milestone → epics → tickets → sprint → implementation → retro → rest → archive
-
-**Smart resume:** If you already have a vision, discoveries, or an active sprint, `/kickoff` detects them and picks up where you left off instead of starting from scratch.
-
-### `/sprint` — Sprint-only (for repeat cycles)
-
-Already have your vision, milestone, and epics? Skip straight to sprint planning and execution.
-
-```
-/sprint
-```
-
-Covers: plan → implement → QA verify → retro → rest → archive
-
-Both commands archive discoveries, epics, and milestones on sprint close — nothing is left dangling.
+**With this tool:**
+- Agent queries 1,800 tokens of structured metadata per task (**25x reduction**)
+- Full project state persists in SQLite across sessions
+- Sprint ceremonies, QA gates, velocity tracking built in
+- 7 specialized agents share context through the database
 
 ---
 
-## Overview
+## Complete Setup (5 minutes)
 
-AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. There is no structure, no process, and no continuity.
-
-`vlm-code-context-mcp` solves this by pre-indexing your project into a structured SQLite database. Agents query metadata instead of raw source — **25x fewer tokens, 26x less data on a 224-file codebase.** On top of that, it provides a virtual scrum team with sprint ceremonies, phase gates, velocity tracking, and a live React dashboard — all through 81 MCP tools.
-
-No API keys. No external services. No cloud dependency. Everything lives in a single `context.db` file.
-
----
-
-## Getting Started (Step by Step)
-
-This walks you through every command from zero to your first sprint. Copy-paste each step in order.
-
-### Step 1 — Install
+### 1. Install
 
 ```bash
 npm install vlm-code-context-mcp
 ```
 
-This installs the MCP server, dashboard, and all 81 tools. No API keys, no cloud accounts.
+Installs the MCP server, React dashboard, and all 76 tools. No API keys, no cloud accounts.
 
-### Step 2 — Run setup
+### 2. Initialize your project
 
 ```bash
 npx code-context-mcp setup .
 ```
 
-This does four things automatically:
-1. Creates `context.db` — a single SQLite file that holds everything
-2. Indexes your codebase — scans all files, extracts metadata, exports, and dependencies
-3. Seeds the default team — 4 agents (Product Owner, Developer, QA, DevOps)
-4. Writes `.mcp.json` — configures the MCP server so your AI client can find it
+This creates `context.db`, indexes your codebase (files, exports, dependencies), seeds the default team (7 agents), and writes `.mcp.json` so your AI client finds the server.
 
-You should see output like:
 ```
 === Code Context MCP — Setup (my-project) ===
 
 [1/4] Initializing database...
 [2/4] Indexing target directory...
-  Indexed 174 files, 328 exports, 59 dependencies.
+  Indexed 201 files, 347 exports, 89 dependencies.
 [3/4] Seeding factory defaults...
-  Seeded 4 agents, 2 skills
+  Seeded 7 agents, 5 skills
 [4/4] Configuring MCP client...
   Wrote .mcp.json
 
 === Setup complete! ===
 ```
 
-### Step 3 — Restart your AI client
+### 3. Restart your AI client
 
-After setup, **restart Claude Code** (or whichever MCP client you use). This loads the 81 MCP tools. You can verify by asking your AI:
+Restart Claude Code (or any MCP client). This loads the 76 tools. Verify:
 
 > "Call `get_project_status`"
 
-It should respond with your file count, agent count, and "Project is set up and ready."
+Should respond with your file count, agent count, and "Project is set up and ready."
 
-### Step 4 — Open the dashboard (optional)
+### 4. Open the dashboard
 
 ```bash
 npx code-context-dashboard ./context.db
-# Opens at http://localhost:3333
 ```
 
-The dashboard shows your sprint board, code explorer, team health, and more. It updates live — every MCP tool call triggers an instant UI refresh.
+Opens at `http://localhost:3333`. The dashboard updates live — every MCP tool call triggers an instant UI refresh via SSE.
 
-To also watch for file changes on disk (auto-reindex when you save files):
+To also auto-reindex when you save files on disk:
 
 ```bash
 npx code-context-dashboard ./context.db 3333 .
 ```
 
-### Step 5 — Set your product vision
+### 5. Run your first sprint
 
-Tell your AI client:
-
-> "Update the product vision to: We are building [your project description]. Our target users are [who]. Success looks like [what]."
-
-This calls `update_vision` behind the scenes. The vision guides sprint planning.
-
-### Step 6 — Create a milestone
-
-Milestones group sprints toward a larger goal. Setup creates a default "M1 — Getting Started" milestone automatically. To create your own:
-
-> "Create a milestone called 'M1 — MVP Launch' with description 'Core features ready for first users'"
-
-This calls `create_milestone`.
-
-### Step 7 — Start your first sprint
-
-This is the big one. Tell your AI:
-
-> "Start a new sprint called 'Sprint 1 — [Your Goal]' with these tickets: [list your tasks]"
-
-Or be more specific:
-
-> "Start a sprint with goal 'Set up authentication and user profiles' with these tickets:
-> - Implement login endpoint (3 points, assigned to developer)
-> - Add JWT middleware (2 points, assigned to developer)
-> - Write auth tests (2 points, assigned to qa)
-> - Review security posture (1 point, assigned to devops)"
-
-This calls ` `, which creates the sprint, creates all tickets, assigns agents, and returns a playbook telling you what to do next.
-
-### Step 8 — Work through the sprint
-
-The sprint follows 4 phases. Your AI handles the ceremony — you focus on the work.
+Type in Claude Code:
 
 ```
-planning → implementation → done → rest
+/kickoff
 ```
 
-**During implementation**, update tickets as you work:
-
-> "Mark ticket [id] as IN_PROGRESS"
-> "Mark ticket [id] as DONE"
-
-**To advance phases**, tell your AI:
-
-> "Advance sprint [id] to the next phase"
-
-This calls `advance_sprint`, which checks gate conditions (e.g., "all tickets must be QA-verified before closing") and either advances or tells you what's blocking.
-
-### Step 9 — Close the sprint
-
-Before closing, the sprint **requires**:
-- All tickets marked DONE (or explicitly NOT_DONE with a reason)
-- All DONE tickets QA-verified (`qa_verified = true`)
-- At least 3 retrospective findings (one went_well, one went_wrong, one try_next)
-
-Add retro findings:
-
-> "Add retro finding: went_well — 'Auth implementation was smooth, good test coverage'"
-> "Add retro finding: went_wrong — 'Underestimated JWT complexity, took extra day'"
-> "Add retro finding: try_next — 'Spike complex features before committing points'"
-
-Then advance to done → rest.
-
-### Step 10 — Repeat
-
-Start the next sprint. Your velocity history, retro patterns, and team mood carry forward. The system learns from each sprint.
+The orchestrator walks you through vision, discovery, milestone, epics, tickets, and launches your first sprint — one question at a time. Smart resume means you can stop and pick up later.
 
 ---
 
-### Quick Reference — Key Commands
+## Slash Commands
 
-| What you want | What to tell your AI |
+Six built-in commands for Claude Code. Type these directly in your session.
+
+### `/kickoff` — Full guided lifecycle (start here)
+
+Interactive walkthrough from zero to sprint complete. Claude asks one question at a time, executes MCP tools, and enforces all QA gates.
+
+**Phases:** vision → discovery → milestone → epics → tickets → sprint → implementation → retro → archive
+
+**Smart resume:** Detects existing state and picks up where you left off.
+
+### `/sprint` — Sprint-only (repeat cycles)
+
+Already have vision, milestone, and epics? Skip straight to sprint planning.
+
+**Phases:** plan → implement → QA verify → retro → rest → archive
+
+### `/ticket` — Ticket management
+
+Move tickets through their lifecycle. Loads full ticket context, related code files, and dependency graph before acting.
+
+### `/milestone` — Milestone management
+
+Create, update, and close milestones. Verifies all epics are complete before closing.
+
+### `/retro` — Retrospective
+
+Data-backed retrospectives using burndown, mood trends, and velocity data. Surfaces recurring patterns across sprints.
+
+### `/sprint-connect` — Bridge UI to Claude
+
+Connects the dashboard to your Claude session. Button clicks in the UI become MCP tool calls in your terminal.
+
+---
+
+## Context-First Architecture
+
+Every command follows the same pattern: **load context from the database before doing anything.** This is what makes the system work with small context windows.
+
+```
+Step 0a: index_directory() + search_files()     ← codebase map
+Step 0b: get_project_status() + list_sprints()   ← project state
+         list_agents() + get_velocity_trends()   ← team + capacity
+         analyze_retro_patterns()                ← lessons learned
+Step 0c: command-specific reads                  ← deep context
+Step 0d: display smart summary with anomalies    ← user visibility
+```
+
+The MCP database is the shared brain. Agents pull from it, act, and write back. No agent needs to hold the full project in its context window — they query what they need.
+
+**Before reading any source file, agents check the code context DB first:**
+
+```
+search_files("auth middleware")     → find the right file
+get_file_context("src/auth.ts")    → understand role, exports, dependents
+Read("src/auth.ts")                → only now read the actual code
+```
+
+This replaces "read everything and hope for the best" with "query the map, then read the territory."
+
+---
+
+## The Dashboard
+
+**5 pages. Live SSE updates. Zero polling.**
+
+Every database mutation triggers an instant refresh via SQLite WAL monitoring.
+
+<img width="3840" height="2585" alt="Dashboard overview showing sprint board with kanban, phase stepper, and completion checklist" src="https://github.com/user-attachments/assets/52e2fbca-1e65-4ec9-a0fe-f11f000b1510" />
+
+| Page | What it shows |
 |---|---|
-| Check project health | "Call `get_project_status`" |
-| See all agents | "Call `list_agents`" |
-| List all sprints | "Call `list_sprints`" |
-| See sprint details | "Call `get_sprint` for sprint [id]" |
-| See backlog | "Call `get_backlog`" |
-| Start a sprint | "Start a sprint with goal '...' and tickets [...]" |
-| Update a ticket | "Mark ticket [id] as DONE" |
-| Report a bug | "Log a bug on sprint [id]: [description]" |
-| Report a blocker | "Create a blocker on sprint [id]: [description]" |
-| Add retro finding | "Add retro finding: [category] — [finding]" |
-| Advance phase | "Advance sprint [id]" |
-| Search everything | "Search scrum for '[query]'" |
-| View sprint process | "Call `get_sprint_instructions`" |
+| **Dashboard** | Kanban board, phase gate stepper, burndown chart, velocity metrics, sprint completion checklist |
+| **Planning** | Milestone tracker, epic progress, discovery pipeline |
+| **Code** | File tree, dependency graph, export/import map, change history |
+| **Team** | Agent cards with model badges, mood trends, workload bars |
+| **Retro** | Bento grid insights, cross-sprint patterns, recurring themes |
+
+### Running the dashboard in development
+
+If you're contributing to the project:
+
+```bash
+# Terminal 1: MCP server
+npm run dev
+
+# Terminal 2: Dashboard (Vite dev server with HMR)
+npm run dashboard:dev
+```
+
+The Vite dev server runs on `http://localhost:5173` with hot module replacement.
 
 ---
 
-## Default team
+## Why This Exists
 
-| Role | Responsibility |
-|---|---|
-| Product Owner | Requirements, priorities, acceptance criteria |
-| Developer | Feature implementation, bug fixes |
-| QA Engineer | Testing, quality gates, verification |
-| DevOps | CI/CD, deployment, infrastructure |
+### Persistent memory across sessions
 
-Agents are fully configurable. Add, remove, or modify roles through MCP tools or direct database access. Each agent carries a mood score computed from workload and retrospective sentiment.
+The `context.db` file survives session resets. Sprint state, retro findings, velocity trends, team mood — everything persists. A fresh agent can run `/kickoff` and immediately know: what was built, what failed, what's next.
+
+### Small context windows, big projects
+
+Each agent reads structured metadata (summaries, export lists, dependency graphs) instead of raw source. The database acts as external memory — agents query what they need instead of loading everything.
+
+### Process that actually works
+
+Sprint ceremonies aren't bureaucracy — they're guard rails. QA gates prevent shipping unverified work. Retro patterns prevent repeating mistakes. Velocity trends prevent overcommitting.
+
+### Real-time visibility
+
+The dashboard isn't a reporting tool. It's a live view of what's happening. Every MCP tool call updates the UI instantly. You see tickets move, phases advance, and gates clear in real time.
 
 ---
 
-## Sprint process
+## The Agent Team
+
+| Role | Model | Responsibility |
+|---|---|---|
+| Product Owner | Opus 4.6 | Vision, priorities, stakeholder alignment |
+| Scrum Master | Sonnet 4.6 | Sprint facilitation, process improvement |
+| Lead Developer | Opus 4.6 | Architecture decisions, complex implementations |
+| Backend Developer | Sonnet 4.6 | API endpoints, database, server logic |
+| Frontend Developer | Sonnet 4.6 | Dashboard components, UI/UX |
+| QA Engineer | Sonnet 4.6 | Testing, verification, quality gates |
+| DevOps | Haiku 4.5 | CI/CD, build automation, deployment |
+
+Agents are fully configurable — add, remove, or modify roles through MCP tools. Each agent carries a mood score computed from workload and retrospective sentiment. Models can be changed per agent with a single click in the dashboard.
+
+---
+
+## Sprint Process
 
 Sprints follow 4 phases with gate checks:
 
@@ -226,100 +237,126 @@ Sprints follow 4 phases with gate checks:
 planning → implementation → done → rest
 ```
 
-- **Planning** (1 day) — Define sprint goal, assign tickets and points (~19pts target), confirm capacity
-- **Implementation** (3 days) — Development work, daily standups, QA verification, code reviews
-- **Done** (0.5 day) — Sprint summary, retrospective findings, velocity review (requires retro findings + all tickets resolved)
-- **Rest** (0.5 day) — Team recovery, knowledge sharing
+| Phase | Duration | Gate to advance |
+|---|---|---|
+| **Planning** | 1 day | Tickets assigned, velocity committed |
+| **Implementation** | 3 days | All tickets DONE or NOT_DONE, blockers resolved |
+| **Done** | 0.5 day | Retro findings recorded, QA verified |
+| **Rest** | 0.5 day | Automatic after retro |
 
 Phases, durations, and gate criteria are fully customizable via the `update_sprint_config` MCP tool.
 
 ---
 
-## Dashboard
+## Context Efficiency
 
-**6 pages. Live SSE updates.**
+Measured on a 224-file, 54K-line, 2.1 MB codebase:
 
-Every database mutation triggers an instant dashboard refresh via SQLite WAL monitoring. No polling.
+| Metric | With MCP | Without MCP | Improvement |
+|---|---|---|---|
+| Tokens per task | ~1,800 | ~46,000 | **25x fewer** |
+| Data transferred | ~7K chars | ~184K chars | **26x less** |
+| Tool calls per task | 8 | 21 | **2.6x fewer** |
 
-- **Sprint Board** — Kanban, planning view, burndown chart
-- **Code Explorer** — File tree, dependency graph, export/import map, change history
-- **Project Management** — Gantt timeline, milestone tracker, discovery pipeline, vision editor
-- **Team** — Agent health cards, mood trends, workload distribution
-- **Retro** — Findings by category, cross-sprint pattern analysis, action tracking
-- **Marketing** — Release notes, positioning, Remotion vision animation
-
-<img width="3840" height="2585" alt="image" src="https://github.com/user-attachments/assets/52e2fbca-1e65-4ec9-a0fe-f11f000b1510" />
+The first index costs more (files must be read to generate metadata). Every subsequent query is 25x cheaper. **Break-even after 1 use.**
 
 ---
 
-## Bridge layer
+## Technical Details
 
-`src/bridge/` implements a `PreToolUse` hook that connects Claude Code to the dashboard bidirectionally. Actions queued in the UI are processed by the running Claude Code session.
+### Architecture
 
-**Wizard bridge (new in M2):** The `/kickoff` command can route interactive questions to the dashboard as a modal wizard. Two new MCP tools drive this:
+```
+┌─────────────────────────────────────────────────────┐
+│  Claude Code / MCP Client                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
+│  │ /kickoff │  │ /sprint  │  │ /ticket  │  ...      │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘          │
+│       └──────────────┼─────────────┘                │
+│                      ▼                              │
+│              76 MCP Tools                           │
+│       (32 read + 44 write)                          │
+│                      │                              │
+│                      ▼                              │
+│  ┌─────────────────────────────────────┐            │
+│  │         context.db (SQLite)         │            │
+│  │  30 tables · WAL mode · <5ms reads  │            │
+│  └──────────────────┬──────────────────┘            │
+│                     │ WAL watcher                   │
+│                     ▼                               │
+│  ┌─────────────────────────────────────┐            │
+│  │      React Dashboard (Vite)         │            │
+│  │  58 components · SSE live updates   │            │
+│  └─────────────────────────────────────┘            │
+└─────────────────────────────────────────────────────┘
+```
 
-- `request_user_input` — Writes a question to the bridge queue. If the dashboard is running, it appears as a wizard modal; if not, the terminal handles it.
-- `get_user_response` — Polls for the user's answer (supports blocking timeout).
+### Engine numbers
 
-The dashboard responds via `PATCH /api/bridge/actions/:id/respond`, which writes to the `result` column and fires a `response_ready` SSE event.
+| Component | Count |
+|---|---|
+| MCP tools | 76 (32 read + 44 write) |
+| Database tables | 30 (25 scrum + 5 code) |
+| React components | 58 |
+| Agent roles | 7 (configurable) |
+| Source files | 201 |
+| Sprint phases | 4 with gate checks |
+| Slash commands | 6 |
 
-**SSE event types:**
+### Tech stack
 
-| Event | Fires when |
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js 24 LTS |
+| Database | SQLite via better-sqlite3, WAL mode |
+| MCP protocol | @anthropic-ai/sdk |
+| Dashboard | React 19 + Vite + Zustand + Framer Motion |
+| Styling | CSS variables + Tailwind, dark theme |
+| Live updates | SSE via WAL file watcher |
+| Testing | Vitest (backend + frontend) |
+| Build | TypeScript strict mode |
+
+### Database schema highlights
+
+- **Sprints** — id, name, goal, status, velocity_committed/completed, dates
+- **Tickets** — id, ref, title, priority, status, assigned_to, story_points, qa_verified
+- **Agents** — role, name, model, mood, active/done/blocked ticket counts
+- **Retro findings** — category (went_well/went_wrong/try_next), finding, action_owner
+- **File index** — path, language, line_count, exports, imports, summary
+- **Audit trail** — every state change logged with old/new values
+
+### Bridge layer
+
+`src/bridge/` implements a `PreToolUse` hook connecting Claude Code to the dashboard bidirectionally:
+
+| SSE Event | Fires when |
 |---|---|
 | `updated` | Any DB mutation (WAL watcher) |
 | `bridge_action` | Dashboard queues an action |
 | `input_requested` | MCP tool requests user input |
 | `response_ready` | User submits wizard form |
+| `step_progress` | Agent reports progress |
+| `claude_output` | Agent streams output |
 
 ---
 
-## Context efficiency
+## Key Learnings
 
-Measured on this project's own codebase (224 files, 54K lines, 2.1 MB):
+Built entirely through its own scrum process — 5 sprints, 4 milestones, 41 tickets shipped.
 
-| Metric | With MCP | Without MCP | Improvement |
-|---|---|---|---|
-| Tokens per feature task | ~1,800 | ~46,000 | **25x reduction** |
-| Raw data transferred | ~7K chars | ~184K chars | **26x reduction** |
-| Tool calls required | 8 | 21 | **2.6x fewer** |
+<img width="1922" height="968" alt="Retro insights showing cross-sprint patterns and recurring themes" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
 
-The agent queries structured metadata via `search_files`, `find_symbol`, and `get_file_context` — summaries, export lists, and dependency graphs instead of raw source. The first index costs more (files must be read to generate metadata); every subsequent query is 25x cheaper. Break-even after 1 use.
+**What works:**
+- **Discovery-first** — spiking approaches before coding eliminates wasted implementation
+- **Context-first commands** — agents load from DB before acting, never assume state
+- **SSE + WAL watcher** — every mutation triggers instant UI updates, no polling
+- **Gate checks** — QA verification is mandatory, not optional
+- **Retro patterns** — recurring findings surface automatically across sprints
 
+**What we learned the hard way:**
+- Mood tracking catches burnout before it causes quality drops
 ---
 
-## At a glance
+## License
 
-| Component | Count |
-|---|---|
-| MCP tools | 81 (10 code + 71 scrum) |
-| React components | 58 |
-| Database tables | 30 (25 scrum + 5 code) |
-| Default agent roles | 4 |
-| Source files | 112 |
-
----
-
-## Project history
-
-Built entirely through its own scrum process across multiple milestones and sprints, with velocity tracking and retrospectives driving continuous improvement.
-
-### Key learnings
-
-<img width="1922" height="968" alt="image" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
-
-**What works well:**
-
-- **Discovery-first approach** — spiking multiple approaches before writing code eliminates wasted implementation.
-- **Parallel agent execution** — independent tasks run simultaneously while the main thread coordinates.
-- **Research-before-code** — catching dead ends early (e.g., evaluating bridge approaches) saves significant rework.
-- **Schema migration pattern** — `schema_versions` table makes incremental DB changes safe and repeatable.
-- **Security audits in parallel** — running audits alongside implementation, not after, catches issues before code ships.
-- **SSE + WAL watcher** — every MCP mutation triggers instant UI updates. No polling required.
-
-**Known limitations:**
-
-- Bridge only works when Claude is actively making tool calls — no push-based signaling yet.
-- Frontend components carry accumulated tech debt from rapid iteration.
-
----
+MIT
