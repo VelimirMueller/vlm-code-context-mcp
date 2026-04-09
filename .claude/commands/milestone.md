@@ -2,59 +2,25 @@
 
 Create, update, and close milestones using MCP tools.
 
-## Step 0 — Load Context
-
-Before any milestone operation, load the full context. You may be a fresh agent.
-
-### 0a. Codebase context (ALWAYS first)
+## Step 0 — Load Context (1-2 calls)
 
 ```
-index_directory()                      # ensure file index is fresh
-search_files({ query: "" })            # get file tree overview
+get_resume_state()                     # project state, milestones, epics
 ```
 
-### 0b. Essential reads
+### Deferred — use `load_phase_context()` when needed
 
-```
-get_project_status()                   # overall health
-list_sprints()                         # sprint landscape + milestone links
-list_agents()                          # team roster
-get_velocity_trends()                  # capacity to estimate remaining sprints
-analyze_retro_patterns()               # past lessons
-```
-
-### 0c. Milestone-specific reads
-
-```
-list_epics()                           # epics + milestone links + ticket progress
-list_discoveries({ status: "planned" }) # open discoveries to track
-get_discovery_coverage()               # what's been implemented
-```
-
-### 0d. Display smart summary
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  CONTEXT LOADED                             │
-│                                                 │
-│   Project:  <name> — <file count> files indexed │
-│   Milestones: <active> active, <done> completed │
-│   Epics:    <N> total (<done> completed)        │
-│   Velocity: <avg> pts/sprint                    │
-│   Codebase: <files> files, <exports> exports    │
-│                                                 │
-│   ⚠ <epics with no progress>                    │
-│   ⚠ <milestones past target date>               │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
+| Action | Call |
+|--------|------|
+| View epics for milestone | `load_phase_context({ phase: "epics" })` |
+| Estimate remaining sprints | `load_phase_context({ phase: "tickets" })` (has velocity) |
+| Review discovery coverage | `load_phase_context({ phase: "discovery" })` |
 
 ---
 
 ## View milestones
 
-Already loaded in Step 0. Display the data from `list_epics()` and `get_project_status()`.
+Already loaded in Step 0. Display the data from `get_resume_state()`.
 
 ## Update milestone progress
 
@@ -101,6 +67,6 @@ create_epic({ name: "...", description: "...", milestone_id: <id> })
 ## Rules
 
 1. **Context first.** Always load from MCP DB before acting. Never assume state.
-2. **Code context before file reads.** Use `search_files()` and `get_file_context()` before any `Read` tool call.
+2. **Code context before file reads.** Use `search_files()` and `get_file_context({ include_changes: false })` before any `Read` tool call.
 3. **Surface anomalies.** Flag milestones past target date, epics with no progress, or discoveries not yet implemented.
 4. **Verify before closing.** Never close a milestone without checking all epics are completed.

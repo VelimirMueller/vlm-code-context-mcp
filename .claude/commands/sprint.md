@@ -8,60 +8,20 @@ Run a complete sprint from planning to rest using code-context MCP tools. All da
 planning → implementation → done → rest → (next sprint)
 ```
 
-## Step 0: Load Context
-
-Before anything else, populate your context window from the MCP database. You may be a fresh agent with no prior conversation — the DB is your memory.
-
-### 0a. Codebase context (ALWAYS first)
+## Step 0: Load Context (2 calls)
 
 ```
-index_directory()                      # ensure file index is fresh
-search_files({ query: "" })            # get file tree overview
+index_directory({ freshness_check: true })   # skip if <5 min old
+get_resume_state()                           # single-call resume detection
 ```
 
-### 0b. Essential reads
+### Phase context — use `load_phase_context()` when entering each step
 
-```
-get_project_status()                   # overall health, setup status
-get_sprint_playbook()                  # current phase, gates, next actions
-list_sprints()                         # sprint landscape
-list_agents()                          # team roster, roles, workload
-get_velocity_trends()                  # capacity history
-analyze_retro_patterns()               # lessons from past sprints
-get_sprint_config()                    # process customization
-```
-
-### 0c. Sprint-specific reads
-
-```
-get_backlog()                          # unassigned / carryover tickets
-get_mood_trends()                      # team health / burnout signals
-list_discoveries({ status: "planned" }) # open discoveries to implement
-list_epics()                           # active workstreams
-```
-
-### 0d. Display smart summary
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  CONTEXT LOADED                             │
-│                                                 │
-│   Project:  <name> — <file count> files indexed │
-│   Sprints:  <completed> done, <active> active   │
-│   Velocity: <avg> pts/sprint (trend: ↑/↓/→)    │
-│   Team:     <N> agents (<active> active now)    │
-│   Backlog:  <N> unassigned tickets              │
-│   Codebase: <files> files, <exports> exports    │
-│                                                 │
-│   ⚠ <retro pattern warnings>                    │
-│   ⚠ <mood/burnout concerns>                     │
-│   ⚠ <velocity trend alerts>                     │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-Only show ⚠ lines when something is noteworthy.
+| Step | Call |
+|------|------|
+| Step 1 (Planning) | `load_phase_context({ phase: "tickets" })` |
+| Step 4 (Implementation) | `load_phase_context({ phase: "implementation", sprint_id, ticket_id })` |
+| Step 6 (Retrospective) | `load_phase_context({ phase: "retro", sprint_id })` |
 
 ---
 
@@ -116,16 +76,10 @@ This moves `planning → implementation`. Gate warnings appear if:
 Before working on each ticket, load its context from the DB:
 
 ```
-get_ticket({ ticket_id: <id> })                    # full details, subtasks, bugs
-search_files({ query: "<ticket keywords>" })       # find related code files
-get_file_context({ path: "<relevant file>" })      # understand file role + deps
-get_dependency_graph({ ticket_id: <id> })           # blocking relationships
+load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> })
 ```
 
-**IMPORTANT: Before using the Read tool on any file, ALWAYS check the code context DB first:**
-1. `search_files()` to find the right file
-2. `get_file_context()` to understand its role, exports, imports, and dependents
-3. Only then Read the actual file content — now you know what to look for
+For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
 For each ticket:
 
@@ -172,14 +126,10 @@ Moves `implementation → done`. Auto-calculates velocity and generates retro an
 
 ## Step 6: Retrospective — `add_retro_finding`
 
-Before the retro, load performance data:
+Before the retro, load all performance data in one call:
 
 ```
-get_sprint({ sprint_id: <id> })        # full sprint state
-get_burndown({ sprint_id: <id> })      # point burndown over time
-get_mood_trends()                      # team health changes
-get_time_report({ sprint_id: <id> })   # actual vs estimated hours
-analyze_retro_patterns()               # compare against historical patterns
+load_phase_context({ phase: "retro", sprint_id: <id> })
 ```
 
 Use this data to inform specific, data-backed findings — not generic observations.
@@ -237,14 +187,14 @@ Go back to Step 0. The context loading ensures you always start with fresh, comp
 ## Minimal Chain (no issues)
 
 ```
- 0. index_directory() + get_project_status() + list_agents() + ...  # context
+ 0. index_directory({ freshness_check: true }) + get_resume_state()  # 2 calls
  1. start_sprint(...)                                         # plan
  2. advance_sprint({ sprint_id: N })                          # → implementation
- 3. get_ticket() + search_files() + get_file_context()        # load ticket context
+ 3. load_phase_context({ phase: "implementation", sprint_id: N, ticket_id: X })  # 1 call
  4. update_ticket({ ticket_id: X, status: "IN_PROGRESS" })   # work
  5. update_ticket({ ticket_id: X, status: "DONE", qa_verified: true })
  6. advance_sprint({ sprint_id: N })                          # → done
- 7. get_burndown() + get_mood_trends() + analyze_retro_patterns()  # retro context
+ 7. load_phase_context({ phase: "retro", sprint_id: N })           # 1 call
  8. add_retro_finding({ sprint_id: N, category: "went_well", ... })
  9. add_retro_finding({ sprint_id: N, category: "went_wrong", ... })
 10. add_retro_finding({ sprint_id: N, category: "try_next", ... })
@@ -263,6 +213,6 @@ Go back to Step 0. The context loading ensures you always start with fresh, comp
 ## Rules
 
 1. **Context first.** Always load from MCP DB before acting. Never assume state.
-2. **Code context before file reads.** Use `search_files()` and `get_file_context()` before any `Read` tool call.
+2. **Code context before file reads.** Use `search_files()` and `get_file_context({ include_changes: false })` before any `Read` tool call.
 3. **Surface anomalies.** Highlight retro patterns, mood concerns, velocity shifts to the user.
 4. **Data-backed findings.** Use burndown, mood, and time data to write specific retro findings.

@@ -2,61 +2,38 @@
 
 Run the complete scrum lifecycle from product vision through sprint rest. Ask the user beautifully formatted questions at each phase. Enforce all QA gates.
 
-## Step 0 — Load Context
-
-Before anything else, load the full project context from the MCP database. This is critical — you may be a fresh agent with no prior conversation history. The MCP server IS your memory.
-
-### 0a. Codebase context (ALWAYS first)
+## Step 0 — Load Context (2 calls)
 
 ```
-index_directory()                      # ensure file index is fresh
-search_files({ query: "" })            # get file tree overview
+index_directory({ freshness_check: true })   # skip if <5 min old
+get_resume_state()                           # single-call resume detection
 ```
 
-### 0b. Essential reads (every run)
+That's it. `get_resume_state()` returns vision, sprints, discoveries, milestones, epics, agents, and next_phase in ~150 tokens.
 
-```
-get_project_status()                   # overall health, setup status
-list_sprints()                         # all sprints, statuses, velocity
-list_agents()                          # team roster, roles, models, workload
-get_velocity_trends()                  # capacity history across sprints
-analyze_retro_patterns()               # recurring wins/issues to learn from
-get_sprint_config()                    # process customization
-```
+### Phase context — load with `load_phase_context()` when entering each phase
 
-### 0c. Planning-specific reads
+| Phase | Call |
+|-------|------|
+| Phase 2 | `load_phase_context({ phase: "discovery" })` |
+| Phase 4 | `load_phase_context({ phase: "epics" })` |
+| Phase 5 | `load_phase_context({ phase: "tickets" })` |
+| Phase 7 | `load_phase_context({ phase: "implementation", sprint_id, ticket_id })` |
+| Phase 8 | `load_phase_context({ phase: "retro", sprint_id })` |
 
-```
-list_discoveries({ status: "discovered" })
-list_discoveries({ status: "planned" })
-list_epics()
-list_decisions()                       # past architectural decisions
-get_mood_trends()                      # team health / burnout signals
-```
+### Display summary
 
-### 0d. Display smart summary
-
-Show a context card with anomaly highlighting:
+Show a context card from the `get_resume_state()` data:
 
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
 │   ◈  CONTEXT LOADED                             │
 │                                                 │
-│   Project:  <name> — <file count> files indexed │
-│   Sprints:  <N> completed, <N> active           │
-│   Velocity: <avg> pts/sprint (trend: ↑/↓/→)    │
-│   Team:     <N> agents (<active> active now)    │
-│   Codebase: <files> files, <exports> exports    │
-│                                                 │
-│   ⚠ <any anomalies from retro patterns>         │
-│   ⚠ <any mood concerns>                         │
-│   ⚠ <any velocity trend warnings>               │
+│   <render get_resume_state() fields>            │
 │                                                 │
 └─────────────────────────────────────────────────┘
 ```
-
-Only show ⚠ lines if there's something noteworthy. No warnings = clean card.
 
 ---
 
@@ -147,14 +124,13 @@ Present every question as a boxed card. Consistent visual style throughout:
 
 ## Phase 2 — Discovery
 
-Before asking, load discovery-specific context:
+Before asking, load discovery context in one call:
 
 ```
-get_discovery_coverage()               # what's already covered
-list_decisions()                       # past architecture decisions
+load_phase_context({ phase: "discovery" })
 ```
 
-Use these to suggest discoveries the user might not have thought of.
+Use the discoveries, decisions, and coverage data to suggest discoveries the user might not have thought of.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -235,15 +211,13 @@ Use these to suggest discoveries the user might not have thought of.
 
 ## Phase 5 — Tickets
 
-Before ticket creation, load codebase context to inform estimation:
+Before ticket creation, load context in one call:
 
 ```
-search_files({ query: "<relevant keywords>" })    # find related code
-get_file_context({ path: "<key file>" })           # understand complexity
-get_dependency_graph()                             # see what touches what
+load_phase_context({ phase: "tickets" })
 ```
 
-Use codebase knowledge to suggest realistic point estimates and catch scope that the user might miss.
+This returns velocity trends, backlog, and active epics. Use codebase knowledge to suggest realistic point estimates.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -337,19 +311,13 @@ Show launch confirmation:
 
 ## Phase 7 — Implementation Loop
 
-Before working on each ticket, load its context:
+Before working on each ticket, load its context in one call:
 
 ```
-get_ticket({ ticket_id: <id> })                    # full ticket details
-get_file_context({ path: "<relevant file>" })      # understand affected code
-search_files({ query: "<ticket keywords>" })       # find related files
-get_dependency_graph({ ticket_id: <id> })           # see dependencies
+load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> })
 ```
 
-**Before reading any file with the Read tool, ALWAYS check the code context DB first:**
-- Use `search_files()` to find the right file
-- Use `get_file_context()` to understand its role and dependencies
-- Only then Read the actual file content
+This returns sprint progress, ticket detail, and open blockers. For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
 For each ticket the user completes:
 
@@ -368,17 +336,13 @@ Once all tickets are DONE + QA-verified:
 
 ## Phase 8 — Retrospective
 
-Before the retro, load sprint performance data:
+Before the retro, load all performance data in one call:
 
 ```
-get_sprint({ sprint_id: <id> })        # full sprint state
-get_burndown({ sprint_id: <id> })      # how points burned down
-get_mood_trends()                      # team health
-get_time_report({ sprint_id: <id> })   # actual vs estimated time
-analyze_retro_patterns()               # past patterns to compare against
+load_phase_context({ phase: "retro", sprint_id: <id> })
 ```
 
-Use this data to surface specific observations (e.g., "velocity dropped 20% from last sprint", "3 tickets were re-estimated mid-sprint").
+This returns sprint state, burndown, mood, retro patterns, and velocity comparison. Use this data to surface specific observations.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -461,7 +425,7 @@ Show final summary:
 ## Rules
 
 1. **Context first.** Always load from MCP DB before acting. Never assume state.
-2. **Code context before file reads.** Use `search_files()` and `get_file_context()` before any `Read` tool call.
+2. **Code context before file reads.** Use `search_files()` and `get_file_context({ include_changes: false })` before any `Read` tool call. Only include change history when debugging.
 3. **One card at a time.** Never skip ahead. Never batch questions.
 4. **Wait for user input** before calling any write MCP tool.
 5. **Never assume answers.** Ambiguous → ask a follow-up.
