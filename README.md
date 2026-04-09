@@ -5,8 +5,13 @@
 A Node.js MCP server that gives AI coding agents persistent memory, structured project context, and a full scrum process — so they stop re-reading your entire codebase every conversation.
 
 ```bash
+# cd /path/to/your/project
 npm install vlm-code-context-mcp
+
 npx code-context-mcp setup .
+
+claude mcp add code-context npx -y vlm-code-context-mcp ./context.db 
+
 npx code-context-dashboard ./context.db
 ```
 
