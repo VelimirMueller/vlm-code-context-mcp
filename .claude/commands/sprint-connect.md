@@ -2,42 +2,11 @@
 
 Connect the dashboard UI to this Claude session. Spawns a background agent that polls for dashboard actions and executes them using MCP tools. Re-spawns automatically when the agent times out.
 
-## Step 0 — Load Context
-
-Before connecting, load the full project context so the bridge agent understands what it's operating on.
-
-### 0a. Codebase context (ALWAYS first)
+## Step 0 — Load Context (2 calls)
 
 ```
-index_directory()                      # ensure file index is fresh
-search_files({ query: "" })            # get file tree overview
-```
-
-### 0b. Essential reads
-
-```
-get_project_status()                   # overall health
+get_resume_state()                     # project state + active sprint
 get_sprint_playbook()                  # current phase, gates, next actions
-list_sprints()                         # sprint landscape
-list_agents()                          # team roster, who's assigned what
-get_velocity_trends()                  # capacity context
-```
-
-### 0c. Display smart summary
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   ◈  CONTEXT LOADED                             │
-│                                                 │
-│   Sprint:   <name> (<phase>)                    │
-│   Tickets:  <done>/<total> done                 │
-│   Team:     <N> agents                          │
-│   Codebase: <files> files indexed               │
-│                                                 │
-│   Ready to bridge dashboard actions.            │
-│                                                 │
-└─────────────────────────────────────────────────┘
 ```
 
 ---
@@ -81,7 +50,7 @@ Your job:
 3. Before executing implement_ticket actions, ALWAYS load code context first:
    - get_ticket({ ticket_id: <id> }) — understand the ticket
    - search_files({ query: "<ticket keywords>" }) — find related code
-   - get_file_context({ path: "<relevant file>" }) — understand dependencies
+   - get_file_context({ path: "<relevant file>", include_changes: false }) — deps only, skip diff history
    - Only THEN read actual files and implement
 4. After executing, mark the action as completed in the database
 5. Report what you did back to the main session
@@ -136,5 +105,5 @@ When the user says "disconnect", "quit", or "stop":
 ## Rules
 
 1. **Context first.** Load project state before connecting so the bridge agent understands what it's operating on.
-2. **Code context before file reads.** Bridge agents implementing tickets must use `search_files()` and `get_file_context()` before reading source files.
+2. **Code context before file reads.** Bridge agents implementing tickets must use `search_files()` and `get_file_context({ include_changes: false })` before reading source files.
 3. **Re-load on each action.** For implement_ticket actions, always refresh ticket and code context — state may have changed since last poll.

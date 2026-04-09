@@ -143,13 +143,30 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "list_sprints",
-    "List all sprints with status and ticket counts",
-    { status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional().describe("Filter by status") },
-    async ({ status }) => {
+    "List all sprints with status and ticket counts. Use compact=true for minimal output (id, name, status only) to save tokens.",
+    {
+      status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional().describe("Filter by status"),
+      compact: z.boolean().optional().describe("Return minimal fields (id, name, status) to save tokens"),
+      last_n: z.number().optional().describe("Return only the last N sprints (default: 20)"),
+    },
+    async ({ status, compact, last_n }) => {
+      const limit = last_n ?? 20;
+      if (compact) {
+        let q = `SELECT id, name, status FROM sprints`;
+        const params: any[] = [];
+        if (status) { q += " WHERE status=?"; params.push(status); }
+        q += ` ORDER BY created_at DESC LIMIT ?`;
+        params.push(limit);
+        const sprints = db.prepare(q).all(...params) as any[];
+        if (sprints.length === 0) return { content: [{ type: "text" as const, text: "No sprints found." }] };
+        const text = sprints.map((s: any) => `#${s.id} ${s.name} [${s.status}]`).join("\n");
+        return { content: [{ type: "text" as const, text: `# Sprints (${sprints.length})\n${text}` }] };
+      }
       let q = `SELECT s.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM sprints s LEFT JOIN tickets t ON t.sprint_id=s.id`;
       const params: any[] = [];
       if (status) { q += " WHERE s.status=?"; params.push(status); }
-      q += " GROUP BY s.id ORDER BY s.created_at DESC LIMIT 20";
+      q += ` GROUP BY s.id ORDER BY s.created_at DESC LIMIT ?`;
+      params.push(limit);
       const sprints = db.prepare(q).all(...params) as any[];
       if (sprints.length === 0) return { content: [{ type: "text" as const, text: "No sprints found." }] };
       const text = sprints.map(s => `**${s.name}** [${s.status.toUpperCase()}]\nGoal: ${s.goal || "—"}\nTickets: ${s.done_count}/${s.ticket_count} done | Velocity: ${s.velocity_completed}/${s.velocity_committed}`).join("\n\n");
@@ -1330,6 +1347,217 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
     }
   );
 
+  // ─── Resume State (Token-Efficient) ─────────────────────────────────────────
+  server.tool(
+    "get_resume_state",
+    "Single-call resume detection. Returns minimal structured data (~150 tokens) for all command Step 0 flows. Replaces get_project_status + list_sprints + list_epics + list_discoveries.",
+    {},
+    async () => {
+      const files = (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c;
+      const exports = (db.prepare("SELECT COUNT(*) as c FROM exports").get() as any).c;
+      const agents = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
+
+      // Vision
+      const vision = db.prepare("SELECT content FROM skills WHERE name = 'PRODUCT_VISION' LIMIT 1").get() as { content: string } | undefined;
+      const hasVision = !!(vision?.content);
+
+      // Sprints
+      const sprintsCompleted = (db.prepare("SELECT COUNT(*) as c FROM sprints WHERE status IN ('rest', 'done', 'closed') AND deleted_at IS NULL").get() as any).c;
+      const activeSprint = db.prepare("SELECT id, name, status FROM sprints WHERE status NOT IN ('rest', 'done', 'closed') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").get() as any | undefined;
+
+      // Discoveries
+      const activeDiscoveries = (db.prepare("SELECT COUNT(*) as c FROM discoveries WHERE status IN ('discovered', 'planned')").get() as any).c;
+
+      // Milestones
+      const activeMilestone = db.prepare("SELECT id, name, status, progress FROM milestones WHERE status IN ('planned', 'active') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").get() as any | undefined;
+
+      // Epics
+      const activeEpics = (db.prepare("SELECT COUNT(*) as c FROM epics WHERE status IN ('planned', 'active')").get() as any).c;
+      const completedEpics = (db.prepare("SELECT COUNT(*) as c FROM epics WHERE status = 'completed'").get() as any).c;
+
+      // Determine next phase
+      let nextPhase = "vision";
+      if (hasVision) nextPhase = "discovery";
+      if (activeDiscoveries > 0 || completedEpics > 0) nextPhase = "milestone";
+      if (activeMilestone) nextPhase = "epics";
+      if (activeEpics > 0) nextPhase = "tickets";
+      if (activeSprint) nextPhase = "implementation";
+
+      const lines = [
+        `# Resume State`,
+        `files: ${files} | exports: ${exports} | agents: ${agents}`,
+        `vision: ${hasVision ? "set" : "none"}`,
+        `sprints: ${sprintsCompleted} completed${activeSprint ? ` | active: #${activeSprint.id} ${activeSprint.name} [${activeSprint.status}]` : " | active: none"}`,
+        `discoveries: ${activeDiscoveries} active`,
+        `milestone: ${activeMilestone ? `#${activeMilestone.id} ${activeMilestone.name} [${activeMilestone.status}] ${activeMilestone.progress}%` : "none"}`,
+        `epics: ${activeEpics} active, ${completedEpics} completed`,
+        `next_phase: ${nextPhase}`,
+      ];
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
+
+  // ─── Phase Context (Token-Efficient) ────────────────────────────────────────
+  server.tool(
+    "load_phase_context",
+    "Single-call phase context loader. Bundles all data needed for a specific workflow phase into one response, replacing 2-5 separate tool calls per phase.",
+    {
+      phase: z.enum(["discovery", "epics", "tickets", "implementation", "retro"]).describe("Workflow phase to load context for"),
+      sprint_id: z.number().optional().describe("Sprint ID (required for implementation and retro phases)"),
+      ticket_id: z.number().optional().describe("Ticket ID (for implementation phase)"),
+    },
+    async ({ phase, sprint_id, ticket_id }) => {
+      try {
+        const sections: string[] = [`# Phase Context: ${phase}`];
+
+        if (phase === "discovery") {
+          // Bundles: list_discoveries (active) + list_decisions + get_discovery_coverage
+          const discoveries = db.prepare(`
+            SELECT d.id, d.finding, d.status, d.priority, d.category, d.created_by, d.resolution_plan, s.name as sprint_name
+            FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id
+            WHERE d.status IN ('discovered', 'planned')
+            ORDER BY d.priority, d.created_at
+          `).all() as any[];
+          sections.push(`## Active Discoveries (${discoveries.length})`);
+          if (discoveries.length === 0) sections.push("None");
+          else discoveries.forEach((d: any) => sections.push(`- [${d.status}] ${d.priority} #${d.id}: ${d.finding}${d.resolution_plan ? " (has plan)" : ""}`));
+
+          const decisions = db.prepare(`SELECT id, title, category, rationale FROM decisions ORDER BY created_at DESC LIMIT 10`).all() as any[];
+          sections.push(`\n## Recent Decisions (${decisions.length})`);
+          if (decisions.length === 0) sections.push("None");
+          else decisions.forEach((d: any) => sections.push(`- #${d.id} [${d.category}] ${d.title}`));
+
+          // Discovery coverage counts
+          const coverage = db.prepare(`SELECT status, COUNT(*) as c FROM discoveries GROUP BY status`).all() as any[];
+          if (coverage.length > 0) {
+            sections.push(`\n## Coverage`);
+            coverage.forEach((c: any) => sections.push(`- ${c.status}: ${c.c}`));
+          }
+        }
+
+        else if (phase === "epics") {
+          // Bundles: list_epics (full) + list_agents
+          const epics = db.prepare(`
+            SELECT e.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count
+            FROM epics e LEFT JOIN tickets t ON t.epic_id = e.id
+            WHERE e.status IN ('planned', 'active')
+            GROUP BY e.id ORDER BY e.priority DESC, e.id
+          `).all() as any[];
+          sections.push(`## Active Epics (${epics.length})`);
+          if (epics.length === 0) sections.push("None");
+          else epics.forEach((e: any) => sections.push(`- #${e.id} ${e.name} [${e.status}] ${e.done_count || 0}/${e.ticket_count || 0} tickets done`));
+
+          const agents = db.prepare(`SELECT role, name FROM agents ORDER BY role`).all() as any[];
+          sections.push(`\n## Agents (${agents.length})`);
+          agents.forEach((a: any) => sections.push(`- ${a.role}: ${a.name}`));
+        }
+
+        else if (phase === "tickets") {
+          // Bundles: get_velocity_trends + get_backlog + epic summary
+          const velocity = db.prepare(`
+            SELECT s.name as sprint_name, s.velocity_committed as committed, s.velocity_completed as completed
+            FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC LIMIT 5
+          `).all() as any[];
+          const avgVelocity = velocity.length > 0 ? Math.round(velocity.reduce((s: number, v: any) => s + (v.completed || 0), 0) / velocity.length) : 0;
+          sections.push(`## Velocity (last ${velocity.length} sprints, avg: ${avgVelocity}pts)`);
+          velocity.forEach((v: any) => sections.push(`- ${v.sprint_name}: ${v.completed || 0}/${v.committed || 0}pts`));
+
+          const backlog = db.prepare(`SELECT id, title, story_points, priority FROM tickets WHERE sprint_id IS NULL AND status NOT IN ('DONE', 'NOT_DONE') ORDER BY priority, id`).all() as any[];
+          sections.push(`\n## Backlog (${backlog.length} tickets)`);
+          if (backlog.length === 0) sections.push("None");
+          else backlog.forEach((t: any) => sections.push(`- #${t.id}: ${t.title} (${t.story_points || 0}pts) ${t.priority}`));
+
+          const epics = db.prepare(`SELECT id, name, status FROM epics WHERE status IN ('planned', 'active') ORDER BY priority DESC`).all() as any[];
+          sections.push(`\n## Active Epics (${epics.length})`);
+          epics.forEach((e: any) => sections.push(`- #${e.id} ${e.name} [${e.status}]`));
+        }
+
+        else if (phase === "implementation") {
+          // Bundles: get_ticket + sprint progress
+          const sid = sprint_id || (db.prepare(`SELECT id FROM sprints WHERE status NOT IN ('rest', 'done', 'closed') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`).get() as any)?.id;
+          if (!sid) { return { content: [{ type: "text" as const, text: "No active sprint found." }] }; }
+
+          const tickets = db.prepare(`SELECT id, ticket_ref, title, status, story_points, assigned_to, qa_verified FROM tickets WHERE sprint_id = ? ORDER BY priority, status`).all(sid) as any[];
+          const done = tickets.filter((t: any) => t.status === "DONE").length;
+          const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+          const donePts = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+          sections.push(`## Sprint Progress: ${donePts}/${totalPts}pts | ${done}/${tickets.length} tickets`);
+          tickets.forEach((t: any) => {
+            const qa = t.qa_verified ? " ✓QA" : "";
+            sections.push(`- [${t.status}] ${t.ticket_ref || "#"+t.id}: ${t.title} (${t.story_points || 0}pts) @${t.assigned_to || "?"}${qa}`);
+          });
+
+          // If specific ticket requested, include full details
+          if (ticket_id) {
+            const t = db.prepare(`SELECT * FROM tickets WHERE id = ?`).get(ticket_id) as any;
+            if (t) {
+              sections.push(`\n## Ticket Detail: ${t.ticket_ref || "#"+t.id} — ${t.title}`);
+              if (t.description) sections.push(`Description: ${t.description}`);
+              if (t.acceptance_criteria) {
+                sections.push(`Acceptance Criteria:`);
+                try { JSON.parse(t.acceptance_criteria).forEach((c: string) => sections.push(`  - ${c}`)); } catch { sections.push(`  ${t.acceptance_criteria}`); }
+              }
+            }
+          }
+
+          const blockers = db.prepare(`SELECT id, description FROM blockers WHERE sprint_id = ? AND status = 'open'`).all(sid) as any[];
+          if (blockers.length > 0) {
+            sections.push(`\n## Open Blockers (${blockers.length})`);
+            blockers.forEach((b: any) => sections.push(`- #${b.id}: ${b.description}`));
+          }
+        }
+
+        else if (phase === "retro") {
+          // Bundles: get_sprint + get_burndown + get_mood_trends + analyze_retro_patterns + get_velocity_trends
+          const sid = sprint_id || (db.prepare(`SELECT id FROM sprints WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1`).get() as any)?.id;
+          if (!sid) { return { content: [{ type: "text" as const, text: "No sprints found." }] }; }
+
+          const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sid) as any;
+          sections.push(`## Sprint: ${sprint.name} [${sprint.status}]`);
+          sections.push(`Velocity: ${sprint.velocity_completed || 0}/${sprint.velocity_committed || 0}pts`);
+
+          const tickets = db.prepare(`SELECT status, COUNT(*) as c FROM tickets WHERE sprint_id = ? GROUP BY status`).all(sid) as any[];
+          sections.push(`Tickets: ${tickets.map((t: any) => `${t.status}: ${t.c}`).join(", ")}`);
+
+          // Burndown
+          const burndown = db.prepare(`SELECT date, completed_points, remaining_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sid) as any[];
+          if (burndown.length > 0) {
+            sections.push(`\n## Burndown (${burndown.length} snapshots)`);
+            burndown.forEach((b: any) => sections.push(`- ${b.date}: ${b.completed_points}pts done, ${b.remaining_points}pts remaining`));
+          }
+
+          // Mood trends (last 5 sprints)
+          const moods = db.prepare(`SELECT agent_id, sprint_id, mood_score FROM agent_moods ORDER BY sprint_id DESC LIMIT 35`).all() as any[];
+          if (moods.length > 0) {
+            const avgMood = Math.round(moods.reduce((s: number, m: any) => s + m.mood_score, 0) / moods.length * 10) / 10;
+            sections.push(`\n## Mood: avg ${avgMood}/5 (${moods.length} readings)`);
+          }
+
+          // Retro patterns
+          const categories = db.prepare(`SELECT category, COUNT(*) as count FROM retro_findings GROUP BY category ORDER BY count DESC`).all() as any[];
+          const actionStats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN action_applied = 1 THEN 1 ELSE 0 END) as applied FROM retro_findings WHERE action_owner IS NOT NULL`).get() as any;
+          if (categories.length > 0) {
+            sections.push(`\n## Retro Patterns`);
+            categories.forEach((c: any) => sections.push(`- ${c.category}: ${c.count}`));
+            sections.push(`Action follow-through: ${actionStats.applied || 0}/${actionStats.total || 0}`);
+          }
+
+          // Recent velocity for comparison
+          const recentVelocity = db.prepare(`SELECT name, velocity_completed, velocity_committed FROM sprints WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 3`).all() as any[];
+          if (recentVelocity.length > 1) {
+            sections.push(`\n## Recent Velocity`);
+            recentVelocity.forEach((v: any) => sections.push(`- ${v.name}: ${v.velocity_completed || 0}/${v.velocity_committed || 0}pts`));
+          }
+        }
+
+        return { content: [{ type: "text" as const, text: sections.join("\n") }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error loading ${phase} context: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ─── Onboarding ──────────────────────────────────────────────────────────────
   server.tool(
     "get_onboarding_status",
@@ -1570,12 +1798,26 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
 
   server.tool(
     "list_epics",
-    "List epics with optional status and milestone filters, including ticket progress counts",
+    "List epics with optional status and milestone filters, including ticket progress counts. Use compact=true for minimal output (id, name, status) to save tokens.",
     {
       status: z.string().optional().describe("Filter by status"),
       milestone_id: z.number().optional().describe("Filter by milestone ID"),
+      compact: z.boolean().optional().describe("Return minimal fields (id, name, status) to save tokens"),
     },
-    async ({ status, milestone_id }) => {
+    async ({ status, milestone_id, compact }) => {
+      if (compact) {
+        let q = `SELECT e.id, e.name, e.status FROM epics e`;
+        const conditions: string[] = [];
+        const params: any[] = [];
+        if (status) { conditions.push("e.status = ?"); params.push(status); }
+        if (milestone_id !== undefined) { conditions.push("e.milestone_id = ?"); params.push(milestone_id); }
+        if (conditions.length) { q += " WHERE " + conditions.join(" AND "); }
+        q += " ORDER BY e.priority DESC, e.id";
+        const epics = db.prepare(q).all(...params) as any[];
+        if (epics.length === 0) return { content: [{ type: "text" as const, text: "No epics found." }] };
+        const text = epics.map((e: any) => `#${e.id} ${e.name} [${e.status || "open"}]`).join("\n");
+        return { content: [{ type: "text" as const, text: `# Epics (${epics.length})\n${text}` }] };
+      }
       let q = `SELECT e.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM epics e LEFT JOIN tickets t ON t.epic_id = e.id`;
       const conditions: string[] = [];
       const params: any[] = [];

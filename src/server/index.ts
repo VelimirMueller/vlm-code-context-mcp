@@ -30,11 +30,31 @@ const server = new McpServer({ name: "code-context", version: "1.0.0" });
 // ─── Tool: index_directory ───────────────────────────────────────────────────
 server.tool(
   "index_directory",
-  "Scan a directory, parse all files, extract metadata/exports and build a dependency graph",
-  { path: z.string().describe("Absolute path to the directory to index") },
-  async ({ path: dirPath }) => {
+  "Scan a directory, parse all files, extract metadata/exports and build a dependency graph. Use freshness_check=true to skip re-indexing if the index is recent (<5 min), returning only a summary (~20 tokens).",
+  {
+    path: z.string().describe("Absolute path to the directory to index"),
+    freshness_check: z.boolean().optional().describe("If true, skip re-indexing when fresh (<5 min). Returns summary only."),
+  },
+  async ({ path: dirPath, freshness_check }) => {
     try {
       const rootDir = path.resolve(dirPath);
+
+      // Freshness check: skip full re-index if data is recent
+      if (freshness_check) {
+        const latest = db.prepare(`SELECT MAX(indexed_at) as last_indexed FROM files`).get() as { last_indexed: string | null };
+        if (latest?.last_indexed) {
+          const lastTime = new Date(latest.last_indexed + "Z").getTime();
+          const ageMs = Date.now() - lastTime;
+          const ageMin = Math.round(ageMs / 60000);
+          if (ageMs < 5 * 60 * 1000) { // < 5 minutes
+            const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as any).c;
+            const exportCount = (db.prepare("SELECT COUNT(*) as c FROM exports").get() as any).c;
+            const depCount = (db.prepare("SELECT COUNT(*) as c FROM dependencies").get() as any).c;
+            return { content: [{ type: "text", text: `Index fresh (${ageMin}m ago): ${fileCount} files, ${exportCount} exports, ${depCount} deps. Skipped re-index.` }] };
+          }
+        }
+      }
+
       const stats = indexDirectory(db, rootDir);
 
       // Build structured description output
@@ -134,9 +154,13 @@ server.tool(
 // ─── Tool: get_file_context ──────────────────────────────────────────────────
 server.tool(
   "get_file_context",
-  "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents)",
-  { path: z.string().describe("Absolute file path") },
-  async ({ path: filePath }) => {
+  "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents). Use include_changes=false to skip change history and save tokens.",
+  {
+    path: z.string().describe("Absolute file path"),
+    include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: true). Set to false to save tokens."),
+    change_limit: z.number().optional().describe("Max number of recent changes to include (default: 3)"),
+  },
+  async ({ path: filePath, include_changes, change_limit }) => {
     const file = db.prepare(`SELECT * FROM files WHERE path = ?`)
       .get(filePath) as any | undefined;
 
@@ -165,13 +189,6 @@ server.tool(
       return (bytes / (1024 * 1024)).toFixed(1) + " MB";
     }
 
-    const changes = db.prepare(`
-      SELECT event, timestamp, old_summary, new_summary,
-             old_line_count, new_line_count, old_size_bytes, new_size_bytes,
-             old_exports, new_exports, diff_text, reason
-      FROM changes WHERE file_path = ? ORDER BY timestamp DESC LIMIT 20
-    `).all(filePath) as any[];
-
     const sections = [
       `# ${file.path}`,
       `Language: ${file.language} | Extension: ${file.extension} | Size: ${formatSize(file.size_bytes)} | Lines: ${file.line_count}`,
@@ -189,9 +206,21 @@ server.tool(
       "",
       `## Imported by (${dependents.length})`,
       ...dependents.map(d => `  - ${d.path} [${d.symbols}]\n    ${d.summary}`),
-      "",
-      `## Recent changes (${changes.length})`,
-      ...changes.map(c => {
+    ];
+
+    // Only include change history if requested (default: true for backward compat)
+    const shouldIncludeChanges = include_changes !== false;
+    if (shouldIncludeChanges) {
+      const maxChanges = change_limit ?? 3;
+      const changes = db.prepare(`
+        SELECT event, timestamp, old_summary, new_summary,
+               old_line_count, new_line_count, old_size_bytes, new_size_bytes,
+               old_exports, new_exports, diff_text, reason
+        FROM changes WHERE file_path = ? ORDER BY timestamp DESC LIMIT ?
+      `).all(filePath, maxChanges) as any[];
+
+      sections.push("", `## Recent changes (${changes.length})`);
+      for (const c of changes) {
         const parts = [`- **${c.event}** at ${c.timestamp}`];
         if (c.old_line_count != null && c.new_line_count != null) {
           const delta = c.new_line_count - c.old_line_count;
@@ -213,9 +242,9 @@ server.tool(
         if (c.diff_text) {
           parts.push(`  Diff:\n${c.diff_text.split("\n").map((l: string) => `    ${l}`).join("\n")}`);
         }
-        return parts.join("\n");
-      }),
-    ];
+        sections.push(parts.join("\n"));
+      }
+    }
 
     return { content: [{ type: "text", text: sections.join("\n") }] };
   }

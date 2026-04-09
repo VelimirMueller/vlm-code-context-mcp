@@ -50,20 +50,3 @@ jobs:
             exit 1
           fi
           echo "Skill count validation passed: $SKILL_COUNT skills"
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [test, validate-counts]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run build
-      - name: Deploy to npm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
