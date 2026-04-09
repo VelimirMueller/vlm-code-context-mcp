@@ -112,7 +112,7 @@ function computeMilestoneStats(milestone: Milestone): MilestoneStats {
   return { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress };
 }
 
-function MilestoneCard({ milestone, stats }: { milestone: Milestone; stats: MilestoneStats }) {
+function MilestoneCard({ milestone, stats, onClose }: { milestone: Milestone; stats: MilestoneStats; onClose?: (id: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const { linkedSprints, totalTickets, doneTickets, totalPoints, donePoints, progress } = stats;
   const hasSprintData = linkedSprints.length > 0;
@@ -137,6 +137,24 @@ function MilestoneCard({ milestone, stats }: { milestone: Milestone; stats: Mile
           </span>
           <StatusBadge status={milestone.status} />
         </div>
+        {onClose && milestone.status !== 'completed' && (
+          <button
+            onClick={() => onClose(milestone.id)}
+            style={{
+              background: 'var(--surface2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 8,
+              color: 'var(--text2)',
+              fontSize: 12,
+              padding: '4px 12px',
+              cursor: 'pointer',
+              flexShrink: 0,
+              fontFamily: 'var(--font)',
+            }}
+          >
+            Close
+          </button>
+        )}
       </div>
 
       {/* Description */}
@@ -248,6 +266,17 @@ function MilestoneCard({ milestone, stats }: { milestone: Milestone; stats: Mile
 export function MilestoneList() {
   const milestones = usePlanningStore((s) => s.milestones);
   const loading = usePlanningStore((s) => s.loading.milestones);
+  const updateMilestone = usePlanningStore((s) => s.updateMilestone);
+  const [closing, setClosing] = useState<number | null>(null);
+
+  const handleClose = async (id: number) => {
+    setClosing(id);
+    try {
+      await updateMilestone(id, { status: 'completed' });
+    } finally {
+      setClosing(null);
+    }
+  };
 
   const milestoneStats = useMemo(() => {
     const map = new Map<number, MilestoneStats>();
@@ -291,6 +320,7 @@ export function MilestoneList() {
           key={m.id}
           milestone={m}
           stats={milestoneStats.get(m.id) ?? defaultStats}
+          onClose={closing === m.id ? undefined : handleClose}
         />
       ))}
 
