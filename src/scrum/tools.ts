@@ -175,6 +175,30 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   );
 
   server.tool(
+    "get_sprint_summary",
+    "Get a one-line summary per sprint — name, status, velocity, ticket progress. Ultra-compact for quick overviews.",
+    {
+      last_n: z.number().optional().describe("Number of recent sprints (default: 5)"),
+    },
+    async ({ last_n }) => {
+      const limit = last_n ?? 5;
+      const sprints = db.prepare(`
+        SELECT s.name, s.status, s.velocity_committed, s.velocity_completed,
+               COUNT(t.id) as tickets, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done
+        FROM sprints s LEFT JOIN tickets t ON t.sprint_id = s.id
+        WHERE s.deleted_at IS NULL
+        GROUP BY s.id ORDER BY s.created_at DESC LIMIT ?
+      `).all(limit) as any[];
+      if (sprints.length === 0) return { content: [{ type: "text" as const, text: "No sprints." }] };
+      const lines = sprints.map((s: any) => {
+        const pct = s.velocity_committed > 0 ? Math.round((s.velocity_completed / s.velocity_committed) * 100) : 0;
+        return `${s.name} [${s.status}] ${s.velocity_completed}/${s.velocity_committed}pts (${pct}%) ${s.done}/${s.tickets} tickets`;
+      });
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
+
+  server.tool(
     "get_sprint",
     "Get full sprint details with tickets, bugs, blockers, and retro findings",
     { sprint_id: z.number().describe("Sprint ID") },
@@ -204,13 +228,26 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "list_tickets",
-    "List tickets with optional filters",
+    "List tickets with optional filters. Use compact=true for minimal output (id, title, status) to save tokens.",
     {
       sprint_id: z.number().optional().describe("Filter by sprint"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
       assigned_to: z.string().optional(),
+      compact: z.boolean().optional().describe("Return minimal fields (id, title, status) to save tokens"),
     },
-    async ({ sprint_id, status, assigned_to }) => {
+    async ({ sprint_id, status, assigned_to, compact }) => {
+      if (compact) {
+        let q = `SELECT t.id, t.title, t.status FROM tickets t WHERE 1=1`;
+        const p: any[] = [];
+        if (sprint_id !== undefined) { q += " AND t.sprint_id=?"; p.push(sprint_id); }
+        if (status) { q += " AND t.status=?"; p.push(status); }
+        if (assigned_to) { q += " AND t.assigned_to=?"; p.push(assigned_to); }
+        q += " ORDER BY t.status, t.id LIMIT 50";
+        const tickets = db.prepare(q).all(...p) as any[];
+        if (tickets.length === 0) return { content: [{ type: "text" as const, text: "No tickets found." }] };
+        const text = tickets.map((t: any) => `#${t.id} [${t.status}] ${t.title}`).join("\n");
+        return { content: [{ type: "text" as const, text: `# Tickets (${tickets.length})\n${text}` }] };
+      }
       let q = `SELECT t.*, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id=s.id WHERE 1=1`;
       const p: any[] = [];
       if (sprint_id !== undefined) { q += " AND t.sprint_id=?"; p.push(sprint_id); }
