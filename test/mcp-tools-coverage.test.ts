@@ -877,3 +877,50 @@ describe("Dashboard API — ticket queries with milestone/epic data", () => {
     expect(milestones[1].sprint_count).toBe(1);
   });
 });
+
+// ── get_sprint_summary query pattern ─────────────────────────────────────────
+
+describe("get_sprint_summary query", () => {
+  it("returns one-line summary per sprint with velocity and ticket progress", () => {
+    const s1 = createSprint("Sprint 1", "rest", { velocity_committed: 20 });
+    db.prepare("UPDATE sprints SET velocity_completed = 18 WHERE id = ?").run(s1);
+    createTicket(s1, "T-1", "Task A", { story_points: 5 });
+    createTicket(s1, "T-2", "Task B", { story_points: 3 });
+    db.prepare("UPDATE tickets SET status = 'DONE' WHERE ticket_ref = 'T-1'").run();
+
+    const s2 = createSprint("Sprint 2", "implementation", { velocity_committed: 15 });
+    db.prepare("UPDATE sprints SET velocity_completed = 8 WHERE id = ?").run(s2);
+    createTicket(s2, "T-3", "Task C", { story_points: 5 });
+
+    const sprints = db.prepare(`
+      SELECT s.name, s.status, s.velocity_committed, s.velocity_completed,
+             COUNT(t.id) as tickets, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done
+      FROM sprints s LEFT JOIN tickets t ON t.sprint_id = s.id
+      GROUP BY s.id ORDER BY s.created_at DESC LIMIT 5
+    `).all() as any[];
+
+    expect(sprints).toHaveLength(2);
+    // In-memory DB: both created at same instant, find by name
+    const sumSprint2 = sprints.find((s: any) => s.name === "Sprint 2");
+    const sumSprint1 = sprints.find((s: any) => s.name === "Sprint 1");
+    expect(sumSprint2).toBeDefined();
+    expect(sumSprint2.velocity_completed).toBe(8);
+    expect(sumSprint2.tickets).toBe(1);
+    expect(sumSprint2.done).toBe(0);
+    expect(sumSprint1).toBeDefined();
+    expect(sumSprint1.velocity_completed).toBe(18);
+    expect(sumSprint1.tickets).toBe(2);
+    expect(sumSprint1.done).toBe(1);
+  });
+
+  it("handles empty sprint table", () => {
+    const sprints = db.prepare(`
+      SELECT s.name, s.status, s.velocity_committed, s.velocity_completed,
+             COUNT(t.id) as tickets, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done
+      FROM sprints s LEFT JOIN tickets t ON t.sprint_id = s.id
+      GROUP BY s.id ORDER BY s.created_at DESC LIMIT 5
+    `).all() as any[];
+
+    expect(sprints).toHaveLength(0);
+  });
+});
