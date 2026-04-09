@@ -2,17 +2,67 @@
 
 Run the complete scrum lifecycle from product vision through sprint rest. Ask the user beautifully formatted questions at each phase. Enforce all QA gates.
 
-## Resume Logic
+## Step 0 — Load Context
 
-Before starting, check what already exists:
+Before anything else, load the full project context from the MCP database. This is critical — you may be a fresh agent with no prior conversation history. The MCP server IS your memory.
+
+### 0a. Codebase context (ALWAYS first)
 
 ```
-get_project_status()
+index_directory()                      # ensure file index is fresh
+search_files({ query: "" })            # get file tree overview
+```
+
+### 0b. Essential reads (every run)
+
+```
+get_project_status()                   # overall health, setup status
+list_sprints()                         # all sprints, statuses, velocity
+list_agents()                          # team roster, roles, models, workload
+get_velocity_trends()                  # capacity history across sprints
+analyze_retro_patterns()               # recurring wins/issues to learn from
+get_sprint_config()                    # process customization
+```
+
+### 0c. Planning-specific reads
+
+```
 list_discoveries({ status: "discovered" })
 list_discoveries({ status: "planned" })
 list_epics()
-list_sprints()
+list_decisions()                       # past architectural decisions
+get_mood_trends()                      # team health / burnout signals
 ```
+
+### 0d. Display smart summary
+
+Show a context card with anomaly highlighting:
+
+```
+┌─────────────────────────────────────────────────┐
+│                                                 │
+│   ◈  CONTEXT LOADED                             │
+│                                                 │
+│   Project:  <name> — <file count> files indexed │
+│   Sprints:  <N> completed, <N> active           │
+│   Velocity: <avg> pts/sprint (trend: ↑/↓/→)    │
+│   Team:     <N> agents (<active> active now)    │
+│   Codebase: <files> files, <exports> exports    │
+│                                                 │
+│   ⚠ <any anomalies from retro patterns>         │
+│   ⚠ <any mood concerns>                         │
+│   ⚠ <any velocity trend warnings>               │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+Only show ⚠ lines if there's something noteworthy. No warnings = clean card.
+
+---
+
+## Resume Logic
+
+Using the data already loaded in Step 0, determine where to pick up:
 
 **Resume rules:**
 - If a vision already exists (non-empty) → skip Phase 1, confirm the existing vision to the user
@@ -97,6 +147,15 @@ Present every question as a boxed card. Consistent visual style throughout:
 
 ## Phase 2 — Discovery
 
+Before asking, load discovery-specific context:
+
+```
+get_discovery_coverage()               # what's already covered
+list_decisions()                       # past architecture decisions
+```
+
+Use these to suggest discoveries the user might not have thought of.
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -176,6 +235,16 @@ Present every question as a boxed card. Consistent visual style throughout:
 
 ## Phase 5 — Tickets
 
+Before ticket creation, load codebase context to inform estimation:
+
+```
+search_files({ query: "<relevant keywords>" })    # find related code
+get_file_context({ path: "<key file>" })           # understand complexity
+get_dependency_graph()                             # see what touches what
+```
+
+Use codebase knowledge to suggest realistic point estimates and catch scope that the user might miss.
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                                                 │
@@ -190,7 +259,7 @@ Present every question as a boxed card. Consistent visual style throughout:
 │     ▸ Points (1=trivial, 2=small, 3=med, 5=lg) │
 │     ▸ Which epic                                │
 │                                                 │
-│   Target ~19 points total.                      │
+│   Target ~<velocity from trends> points total.  │
 │   I'll auto-create a QA ticket for every        │
 │   feature ticket.                               │
 │                                                 │
@@ -268,6 +337,20 @@ Show launch confirmation:
 
 ## Phase 7 — Implementation Loop
 
+Before working on each ticket, load its context:
+
+```
+get_ticket({ ticket_id: <id> })                    # full ticket details
+get_file_context({ path: "<relevant file>" })      # understand affected code
+search_files({ query: "<ticket keywords>" })       # find related files
+get_dependency_graph({ ticket_id: <id> })           # see dependencies
+```
+
+**Before reading any file with the Read tool, ALWAYS check the code context DB first:**
+- Use `search_files()` to find the right file
+- Use `get_file_context()` to understand its role and dependencies
+- Only then Read the actual file content
+
 For each ticket the user completes:
 
 1. `update_ticket({ ticket_id, status: "IN_PROGRESS" })`
@@ -284,6 +367,18 @@ Once all tickets are DONE + QA-verified:
 ---
 
 ## Phase 8 — Retrospective
+
+Before the retro, load sprint performance data:
+
+```
+get_sprint({ sprint_id: <id> })        # full sprint state
+get_burndown({ sprint_id: <id> })      # how points burned down
+get_mood_trends()                      # team health
+get_time_report({ sprint_id: <id> })   # actual vs estimated time
+analyze_retro_patterns()               # past patterns to compare against
+```
+
+Use this data to surface specific observations (e.g., "velocity dropped 20% from last sprint", "3 tickets were re-estimated mid-sprint").
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -365,11 +460,14 @@ Show final summary:
 
 ## Rules
 
-1. **One card at a time.** Never skip ahead. Never batch questions.
-2. **Wait for user input** before calling any MCP tool.
-3. **Never assume answers.** Ambiguous → ask a follow-up.
-4. **QA gates are mandatory.** Every ticket must be `qa_verified: true`.
-5. **Auto-generate QA tickets** for every feature ticket.
-6. **Link everything** — tickets→epics, epics→milestones, discoveries→tickets.
-7. **Archive on close** — discoveries, epics, milestones all get their final status.
-8. **Resume from where you left off** — check existing state before asking redundant questions.
+1. **Context first.** Always load from MCP DB before acting. Never assume state.
+2. **Code context before file reads.** Use `search_files()` and `get_file_context()` before any `Read` tool call.
+3. **One card at a time.** Never skip ahead. Never batch questions.
+4. **Wait for user input** before calling any write MCP tool.
+5. **Never assume answers.** Ambiguous → ask a follow-up.
+6. **QA gates are mandatory.** Every ticket must be `qa_verified: true`.
+7. **Auto-generate QA tickets** for every feature ticket.
+8. **Link everything** — tickets→epics, epics→milestones, discoveries→tickets.
+9. **Archive on close** — discoveries, epics, milestones all get their final status.
+10. **Resume from where you left off** — check existing state before asking redundant questions.
+11. **Surface anomalies.** If retro patterns, mood trends, or velocity suggest a problem, highlight it.
