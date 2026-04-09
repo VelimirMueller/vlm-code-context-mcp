@@ -178,13 +178,18 @@ if (fs.existsSync(claudeSettingsPath)) {
 if (!claudeSettings.hooks) claudeSettings.hooks = {};
 if (!claudeSettings.hooks.PreToolUse) claudeSettings.hooks.PreToolUse = [];
 
-// Add bridge hook if not already present
+// Add bridge hook if not already present (Claude Code requires matcher-group structure)
 const bridgeHookCmd = `node ${hookScript}`;
 const hasBridgeHook = claudeSettings.hooks.PreToolUse.some(
-  (h: any) => h.type === "command" && h.command?.includes("bridge/hook")
+  (group: any) => Array.isArray(group.hooks) && group.hooks.some(
+    (h: any) => h.type === "command" && h.command?.includes("bridge/hook")
+  )
 );
 if (!hasBridgeHook) {
-  claudeSettings.hooks.PreToolUse.push({ type: "command", command: bridgeHookCmd });
+  claudeSettings.hooks.PreToolUse.push({
+    matcher: "",
+    hooks: [{ type: "command", command: bridgeHookCmd }],
+  });
   fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2) + "\n");
   console.log(`  Bridge hook added to ${claudeSettingsPath}`);
 } else {
