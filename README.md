@@ -96,6 +96,29 @@ Type in Claude Code:
 
 The orchestrator walks you through vision, discovery, milestone, epics, tickets, and launches your first sprint — one question at a time. Smart resume means you can stop and pick up later.
 
+### Manual MCP Server Setup
+
+If the automatic `.mcp.json` setup doesn't work, or you want to add the server to a specific Claude Code project manually:
+
+```bash
+# Add to current project (recommended)
+claude mcp add code-context node /path/to/node_modules/vlm-code-context-mcp/dist/server/index.js ./context.db
+
+# Or with npx (no global install needed)
+claude mcp add code-context npx -y vlm-code-context-mcp ./context.db
+
+# Add globally (available in all projects)
+claude mcp add --scope user code-context node /path/to/node_modules/vlm-code-context-mcp/dist/server/index.js ./context.db
+```
+
+After adding, restart Claude Code and verify with `get_project_status`.
+
+To remove:
+
+```bash
+claude mcp remove code-context
+```
+
 ---
 
 ## Slash Commands
