@@ -191,7 +191,7 @@ This replaces "read everything and hope for the best" with "query the map, then 
 
 ## The Dashboard
 
-**5 pages. Live SSE updates. Zero polling.**
+**7 pages. Live SSE updates. Zero polling.**
 
 Every database mutation triggers an instant refresh via SQLite WAL monitoring.
 
@@ -204,6 +204,8 @@ Every database mutation triggers an instant refresh via SQLite WAL monitoring.
 | **Code** | File tree, dependency graph, export/import map, change history |
 | **Team** | Agent cards with model badges, mood trends, workload bars |
 | **Retro** | Bento grid insights, cross-sprint patterns, recurring themes |
+| **Benchmark** | MCP vs Vanilla comparison with animated metric bars, savings %, and reasoning |
+| **Velocity** | Sprint-by-sprint velocity trends, completion rates, committed vs completed |
 
 ### Running the dashboard in development
 
@@ -276,9 +278,31 @@ Phases, durations, and gate criteria are fully customizable via the `update_spri
 
 ---
 
-## Context Efficiency
+## MCP vs Vanilla Benchmark
 
-Measured on a 224-file, 54K-line, 2.1 MB codebase:
+We ran the same 3 tasks twice — once with MCP tools for context, once without (vanilla Grep/Read/Glob only). Same codebase, same goals, same model.
+
+<img alt="Benchmark dashboard showing MCP vs Vanilla comparison across small, medium, and large tasks with animated metric bars and savings percentages" src="docs/images/benchmark-full.png" />
+
+### Results by task size
+
+| Task | Size | MCP Time | Vanilla Time | MCP Tokens | Vanilla Tokens | Time Saved | Tokens Saved |
+|---|---|---|---|---|---|---|---|
+| Add compact flag | 2pt | 12m | 22m | 48K | 84K | **45%** | **42%** |
+| Add MCP tool + tests | 3pt | 25m | 45m | 134K | 237K | **44%** | **43%** |
+| Dashboard page + SSE | 5pt | 35m | 52m | 385K | 620K | **33%** | **38%** |
+
+### Why MCP wins
+
+**Small tasks** — `search_files` and `get_file_context` pinpoint the exact file and its test in 2 lookups. Vanilla needs 5+ extra tool calls just to locate the right file and understand the parameter schema.
+
+**Medium tasks** — `index_directory` provides the full dependency graph upfront (exports, imports, summaries). Vanilla reads 4 files sequentially to understand registration patterns. 9 targeted context lookups replace ~15 exploratory reads.
+
+**Large tasks** — `load_phase_context` and `search_files` reveal the entire dashboard architecture (page patterns, store conventions, routing, SSE wiring, server endpoints) in ~14 lookups. Vanilla needs 12+ sequential Grep/Read calls just to discover how pages are wired across 7 integration points.
+
+### Context efficiency (per-query)
+
+Measured on a 211-file, 32K-line codebase:
 
 | Metric | With MCP | Without MCP | Improvement |
 |---|---|---|---|
@@ -325,9 +349,9 @@ The first index costs more (files must be read to generate metadata). Every subs
 |---|---|
 | MCP tools | 76 (32 read + 44 write) |
 | Database tables | 30 (25 scrum + 5 code) |
-| React components | 58 |
+| React components | 62 |
 | Agent roles | 7 (configurable) |
-| Source files | 201 |
+| Source files | 211 |
 | Sprint phases | 4 with gate checks |
 | Slash commands | 6 |
 
@@ -370,7 +394,7 @@ The first index costs more (files must be read to generate metadata). Every subs
 
 ## Key Learnings
 
-Built entirely through its own scrum process — 5 sprints, 4 milestones, 41 tickets shipped.
+Built entirely through its own scrum process — 8 sprints, 3 milestones, 77 tickets shipped.
 
 <img width="1922" height="968" alt="Retro insights showing cross-sprint patterns and recurring themes" src="https://github.com/user-attachments/assets/4b1059e1-e1d8-43b2-99af-f62ca504a74b" />
 
