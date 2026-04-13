@@ -24,16 +24,16 @@ Three commands. Zero API keys. Everything lives in a single `context.db` file.
 AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. Every new conversation starts from scratch — no memory of what was built, what failed, or what's next.
 
 **Without this tool:**
-- Agent reads 46,000 tokens of raw files per task
+- Agent burns ~314K tokens per task exploring with Grep/Read
+- 52 tool calls avg — most spent discovering file structure
 - No continuity between sessions
 - No process, no tracking, no quality gates
-- Each agent operates in isolation
 
 **With this tool:**
-- Agent queries 1,800 tokens of structured metadata per task (**25x reduction**)
+- Agent uses ~189K tokens per task with structured context lookups (**40% fewer tokens**)
+- 35 tool calls avg — targeted queries replace exploratory reads (**32% fewer calls**)
 - Full project state persists in SQLite across sessions
 - Sprint ceremonies, QA gates, velocity tracking built in
-- 7 specialized agents share context through the database
 
 ---
 
@@ -300,17 +300,19 @@ We ran the same 3 tasks twice — once with MCP tools for context, once without 
 
 **Large tasks** — `load_phase_context` and `search_files` reveal the entire dashboard architecture (page patterns, store conventions, routing, SSE wiring, server endpoints) in ~14 lookups. Vanilla needs 12+ sequential Grep/Read calls just to discover how pages are wired across 7 integration points.
 
-### Context efficiency (per-query)
+### Aggregate benchmark stats
 
-Measured on a 211-file, 32K-line codebase:
+Measured across 3 tasks (10pts total) on a 211-file, 32K-line codebase:
 
-| Metric | With MCP | Without MCP | Improvement |
+| Metric | MCP | Vanilla | Improvement |
 |---|---|---|---|
-| Tokens per task | ~1,800 | ~46,000 | **25x fewer** |
-| Data transferred | ~7K chars | ~184K chars | **26x less** |
-| Tool calls per task | 8 | 21 | **2.6x fewer** |
+| Total tokens | 567K | 941K | **40% fewer** |
+| Total tool calls | 106 | 156 | **32% fewer** |
+| Total time | 72 min | 119 min | **40% faster** |
+| Avg tokens/task | 189K | 314K | **1.7x less** |
+| Avg tool calls/task | 35 | 52 | **1.5x fewer** |
 
-The first index costs more (files must be read to generate metadata). Every subsequent query is 25x cheaper. **Break-even after 1 use.**
+The savings come from replacing exploratory Grep/Read loops with targeted `search_files` and `get_file_context` queries that return structured metadata. The larger the task, the more exploration overhead MCP eliminates.
 
 ---
 
