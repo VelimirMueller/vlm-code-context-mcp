@@ -282,7 +282,12 @@ Phases, durations, and gate criteria are fully customizable via the `update_spri
 
 We ran the same 3 tasks twice — once with MCP tools for context, once without (vanilla Grep/Read/Glob only). Same codebase, same goals, same model.
 
-<img alt="Benchmark dashboard showing MCP vs Vanilla comparison across small, medium, and large tasks with animated metric bars and savings percentages" src="docs/images/benchmark-full.png" />
+
+![benchmark](https://github.com/user-attachments/assets/2e76e697-4a46-4c58-a168-4d8792500ad9)
+
+![bench2](https://github.com/user-attachments/assets/13f8c5dc-79fb-416c-96a0-ad79dbd6ab1e)
+
+![bench3](https://github.com/user-attachments/assets/a6bdec34-e4f3-4efc-8ba8-7e9b4e2b9938)
 
 ### Results by task size
 
