@@ -712,6 +712,28 @@ function apiActivity() {
   catch { return []; }
 }
 
+function apiVelocity() {
+  try {
+    const trends = writeDb.prepare(`SELECT * FROM velocity_trends`).all() as any[];
+    const completed = trends.filter((t: any) => t.status === 'rest' || t.status === 'closed' || t.status === 'done');
+    const avgCommitted = completed.length > 0 ? Math.round(completed.reduce((s: number, t: any) => s + t.committed, 0) / completed.length) : 0;
+    const avgCompleted = completed.length > 0 ? Math.round(completed.reduce((s: number, t: any) => s + t.completed, 0) / completed.length) : 0;
+    const avgCompletionRate = completed.length > 0 ? Math.round(completed.reduce((s: number, t: any) => s + t.completion_rate, 0) / completed.length * 10) / 10 : 0;
+    return {
+      sprints: trends,
+      summary: {
+        total_sprints: trends.length,
+        completed_sprints: completed.length,
+        avg_committed: avgCommitted,
+        avg_completed: avgCompleted,
+        avg_completion_rate: avgCompletionRate,
+        total_bugs_found: trends.reduce((s: number, t: any) => s + t.bugs_found, 0),
+        total_bugs_fixed: trends.reduce((s: number, t: any) => s + t.bugs_fixed, 0),
+      },
+    };
+  } catch { return { sprints: [], summary: null }; }
+}
+
 function apiHealth() {
   const agentCount = (writeDb.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
   const skillCount = (writeDb.prepare("SELECT COUNT(*) as c FROM skills").get() as any).c;
@@ -1720,6 +1742,15 @@ const server = http.createServer(async (req, res) => {
         notifyClients();
       }
       else if (url.pathname === "/api/activity") data = apiActivity();
+      else if (url.pathname === "/api/comparison") {
+        const compPath = path.join(path.dirname(dbPath), "comparison.json");
+        try {
+          data = JSON.parse(fs.readFileSync(compPath, "utf-8"));
+        } catch {
+          data = { meta: null, tasks: [] };
+        }
+      }
+      else if (url.pathname === "/api/velocity") data = apiVelocity();
       else if (url.pathname === "/api/backlog") data = apiBacklog();
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
