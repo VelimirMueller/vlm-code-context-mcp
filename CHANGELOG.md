@@ -5,6 +5,26 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-04-14
+
+### Added
+- Composite database indexes on `tickets(sprint_id, deleted_at)` and `sprints(status, deleted_at)` for faster soft-delete queries
+- Migration v19 for existing databases to add ticket composite index
+- `DASHBOARD_PORT` env var support in dashboard.ts (previously only accepted CLI arg)
+
+### Changed
+- **Transactional database operations** — `runMigrations`, `start_sprint`, `update_ticket`, and `advance_sprint` now wrap multi-step writes in `db.transaction()` for atomicity; partial failures roll back cleanly
+- **Token efficiency** — `get_file_context` output consolidated (removed redundant `Indexed` timestamp, merged metadata to single line, removed dependency summaries); `index_directory` output reduced structural padding
+- Version bumped to 1.0.0 for launch readiness
+- ESLint `no-console` rule enabled (warn level, allowing `warn`/`error`)
+- All documentation reconciled: tool count 76/81/83 → 93, agent count 9/16 → 7, stale sprint/ticket/milestone numbers removed from LAUNCH.md
+- Setup and dashboard console output now respects `DASHBOARD_PORT` env var instead of hardcoding `localhost:3333`
+
+### Fixed
+- `retro_findings.linked_ticket_id` FK now uses `ON DELETE SET NULL` (fresh installs)
+- Sprints table rebuild (`sprints_v3` migration) now always includes `deleted_at` column — previously dropped by migration 5 and never restored, causing broken `velocity_trends` view on fresh databases
+- Removed 5 noisy debug `console.log` statements from dashboard.ts (SSE change notifications, re-index, marketing stats rebuild, client connect)
+
 ## [0.3.1] - 2026-04-14
 
 ### Added
@@ -155,6 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `zod` schema validation
 - MIT license
 
+[1.0.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.3.1...v1.0.0
 [0.3.1]: https://github.com/VelimirMueller/mcp-server/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.1.0...v0.2.0
