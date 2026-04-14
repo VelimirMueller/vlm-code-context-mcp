@@ -475,22 +475,19 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       // Gates are advisory — always proceed, but include warnings in response
       const warningText = gates.warnings.length > 0 ? `\nWarnings:\n${gates.warnings.map(w => `- ${w}`).join("\n")}` : "";
 
-      // Advance the sprint
-      const sets = ["status=?", "updated_at=datetime('now')"];
-      const vals: any[] = [nextPhase];
-      if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
-      vals.push(sprint_id);
-      db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
-
-      // Event trail
-      try {
-        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
-      } catch {}
-
-      // Auto retro analysis when reaching done or closed
+      // Advance sprint + archive discoveries atomically — partial failure rolls back cleanly
       let retroNote = "";
-      if (nextPhase === "done" || nextPhase === "closed") {
-        try {
+      db.transaction(() => {
+        const sets = ["status=?", "updated_at=datetime('now')"];
+        const vals: any[] = [nextPhase];
+        if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
+        vals.push(sprint_id);
+        db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
+
+        // Auto retro analysis when reaching done or closed
+        if (nextPhase === "done" || nextPhase === "closed") {
           const totalTickets = tickets.length;
           const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
           const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
@@ -498,26 +495,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           const summary = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). Velocity: ${pts}pt completed of ${sprint.velocity_committed || 0}pt committed.`;
           db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
           retroNote = "\nAuto retro analysis generated.";
-        } catch {}
 
-        // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
-        try {
+          // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
           db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
           `).run(sprint_id, sprint_id);
-        } catch {}
 
-        // Auto-drop discoveries that were planned but ticket was not completed
-        try {
+          // Auto-drop discoveries that were planned but ticket was not completed
           db.prepare(`
             UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
           `).run(sprint_id, sprint_id);
-        } catch {}
-      }
+        }
+      })();
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
@@ -617,17 +610,17 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
-      db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+      // Update ticket + auto-promote discoveries atomically
+      db.transaction(() => {
+        db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
 
-      // ─── Auto-promote linked discoveries when ticket moves to DONE ─
-      if (status === 'DONE') {
-        try {
+        if (status === 'DONE') {
           db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE status = 'planned' AND implementation_ticket_id = ?
           `).run(ticket_id);
-        } catch {}
-      }
+        }
+      })();
 
       // ─── Event trail ────────────────────────────────────────────
       if (status && status !== oldStatus) {
@@ -1011,27 +1004,36 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets }) => {
       try {
-        // Create the sprint
-        const sprintResult = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date, milestone_id) VALUES (?, ?, 'planning', ?, ?, ?, ?)`).run(
-          name, goal, velocity || 0, start_date || null, end_date || null, milestone_id || null
-        );
-        const sprintId = Number(sprintResult.lastInsertRowid);
-
-        // Create tickets
-        const ticketStmt = db.prepare(`INSERT INTO tickets (title, description, priority, assigned_to, story_points, sprint_id, epic_id, milestone_id, ticket_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        const maxRef = (db.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any)?.m ?? 0;
-        const createdTickets: string[] = [];
-
-        for (let i = 0; i < tickets.length; i++) {
-          const t = tickets[i];
-          const ref = `T-${maxRef + i + 1}`;
-          ticketStmt.run(
-            t.title, t.description || null, t.priority || "P1",
-            t.assigned_to || null, t.story_points || 0,
-            sprintId, epic_id || null, milestone_id || null, ref
-          );
-          createdTickets.push(`${ref}: ${t.title} (${t.story_points || 0}pt → ${t.assigned_to || "unassigned"})`);
+        // Validate assigned_to values against real agents
+        const validRoles = new Set((db.prepare("SELECT role FROM agents").all() as { role: string }[]).map(a => a.role));
+        const invalidAssignments = tickets.filter(t => t.assigned_to && !validRoles.has(t.assigned_to)).map(t => `"${t.assigned_to}" (${t.title})`);
+        if (invalidAssignments.length > 0) {
+          return { content: [{ type: "text" as const, text: `Invalid agent roles: ${invalidAssignments.join(", ")}. Valid roles: ${[...validRoles].join(", ")}. Use \`list_agents\` to see available agents.` }], isError: true };
         }
+
+        // Create sprint + tickets atomically — partial failure rolls back cleanly
+        const createdTickets: string[] = [];
+        const sprintId = db.transaction(() => {
+          const sprintResult = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date, milestone_id) VALUES (?, ?, 'planning', ?, ?, ?, ?)`).run(
+            name, goal, velocity || 0, start_date || null, end_date || null, milestone_id || null
+          );
+          const sid = Number(sprintResult.lastInsertRowid);
+
+          const ticketStmt = db.prepare(`INSERT INTO tickets (title, description, priority, assigned_to, story_points, sprint_id, epic_id, milestone_id, ticket_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          const maxRef = (db.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any)?.m ?? 0;
+
+          for (let i = 0; i < tickets.length; i++) {
+            const t = tickets[i];
+            const ref = `T-${maxRef + i + 1}`;
+            ticketStmt.run(
+              t.title, t.description || null, t.priority || "P1",
+              t.assigned_to || null, t.story_points || 0,
+              sid, epic_id || null, milestone_id || null, ref
+            );
+            createdTickets.push(`${ref}: ${t.title} (${t.story_points || 0}pt → ${t.assigned_to || "unassigned"})`);
+          }
+          return sid;
+        })();
 
         // Log event
         try {
@@ -1306,13 +1308,14 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 - Action items need an \`action_owner\` assigned
 - Sprint CANNOT close until retro findings exist (minimum 3, one per category)`,
 
-    roles: `## Role Responsibilities (Default Team)
-- **product-owner** — Requirements, prioritization, milestone roadmap, accept/reject work
-- **developer** — Feature implementation, bug fixes, code quality
-- **qa** — Test plans, acceptance verification, bug tickets, set qa_verified
-- **devops** — CI/CD, deployment, infrastructure, technical standards
-
-Additional roles can be added via \`reset_agents\` or direct database access (e.g. scrum-master, architect, security-specialist).`,
+    roles: (() => {
+      try {
+        const agents = db.prepare("SELECT role, name, description, department FROM agents ORDER BY department, role").all() as { role: string; name: string; description: string; department: string }[];
+        if (agents.length === 0) return "## Role Responsibilities\nNo agents configured. Use `reset_agents` to seed the default team.";
+        const lines = agents.map(a => `- **${a.role}** (${a.department}) — ${a.description}`);
+        return `## Role Responsibilities (${agents.length} agents from DB)\n${lines.join("\n")}\n\nManage agents via \`list_agents\`, \`create_agent\`, or \`reset_agents\`. Always use \`list_agents\` to check real roles before assigning tickets.`;
+      } catch { return "## Role Responsibilities\nUse `list_agents` to see current team."; }
+    })(),
 
     checklist: `## Sprint Close Checklist
 - [ ] All tickets DONE or explicitly NOT_DONE with reason
@@ -1565,9 +1568,9 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
           }
 
           // Mood trends (last 5 sprints)
-          const moods = db.prepare(`SELECT agent_id, sprint_id, mood_score FROM agent_moods ORDER BY sprint_id DESC LIMIT 35`).all() as any[];
+          const moods = db.prepare(`SELECT agent_id, sprint_id, mood FROM agent_mood_history ORDER BY sprint_id DESC LIMIT 35`).all() as any[];
           if (moods.length > 0) {
-            const avgMood = Math.round(moods.reduce((s: number, m: any) => s + m.mood_score, 0) / moods.length * 10) / 10;
+            const avgMood = Math.round(moods.reduce((s: number, m: any) => s + m.mood, 0) / moods.length * 10) / 10;
             sections.push(`\n## Mood: avg ${avgMood}/5 (${moods.length} readings)`);
           }
 
@@ -2363,6 +2366,66 @@ Additional roles can be added via \`reset_agents\` or direct database access (e.
 
         const lines = rows.map((r: any) => `- ${r.agent_name} @ ${r.sprint_name}: mood ${r.mood}/5, ${r.workload_points}pts${r.notes ? ` — ${r.notes}` : ""}`);
         return { content: [{ type: "text" as const, text: `# Mood Trends\n\n${alerts.length > 0 ? alerts.join("\n") + "\n\n" : ""}${lines.join("\n")}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Token Usage Tracking
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "log_token_usage",
+    "Record token usage for a session/task. Use at the end of a task to track real consumption for benchmarking.",
+    {
+      sprint_id: z.number().optional().describe("Sprint ID"),
+      ticket_id: z.number().optional().describe("Ticket ID"),
+      input_tokens: z.number().describe("Input tokens consumed"),
+      output_tokens: z.number().describe("Output tokens consumed"),
+      tool_calls: z.number().optional().describe("Number of tool calls made"),
+      duration_sec: z.number().optional().describe("Duration in seconds"),
+      label: z.string().optional().describe("Label for this measurement (e.g. 'S-MCP', 'L-Vanilla')"),
+      session_id: z.string().optional().describe("Session identifier"),
+    },
+    async ({ sprint_id, ticket_id, input_tokens, output_tokens, tool_calls, duration_sec, label, session_id }) => {
+      try {
+        const total = input_tokens + output_tokens;
+        db.prepare(`INSERT INTO token_usage (session_id, sprint_id, ticket_id, input_tokens, output_tokens, total_tokens, tool_calls, duration_sec, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          session_id || null, sprint_id || null, ticket_id || null,
+          input_tokens, output_tokens, total, tool_calls || 0, duration_sec || null, label || null
+        );
+        notifyDashboard(db);
+        return { content: [{ type: "text" as const, text: `Token usage recorded: ${total.toLocaleString()} total (${input_tokens.toLocaleString()} in + ${output_tokens.toLocaleString()} out)${label ? ` [${label}]` : ""}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get_token_usage",
+    "Get token usage history, optionally filtered by sprint or ticket",
+    {
+      sprint_id: z.number().optional().describe("Filter by sprint"),
+      ticket_id: z.number().optional().describe("Filter by ticket"),
+    },
+    async ({ sprint_id, ticket_id }) => {
+      try {
+        let rows: any[];
+        if (ticket_id) {
+          rows = db.prepare(`SELECT * FROM token_usage WHERE ticket_id = ? ORDER BY created_at DESC`).all(ticket_id);
+        } else if (sprint_id) {
+          rows = db.prepare(`SELECT * FROM token_usage WHERE sprint_id = ? ORDER BY created_at DESC`).all(sprint_id);
+        } else {
+          rows = db.prepare(`SELECT * FROM token_usage ORDER BY created_at DESC LIMIT 50`).all();
+        }
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No token usage recorded. Use log_token_usage to start tracking." }] };
+        const totalIn = rows.reduce((s: number, r: any) => s + r.input_tokens, 0);
+        const totalOut = rows.reduce((s: number, r: any) => s + r.output_tokens, 0);
+        const lines = rows.map((r: any) => `- ${r.label || "unlabeled"}: ${r.total_tokens.toLocaleString()} tokens (${r.input_tokens.toLocaleString()} in + ${r.output_tokens.toLocaleString()} out), ${r.tool_calls} calls${r.duration_sec ? `, ${Math.round(r.duration_sec / 60)}m` : ""}`);
+        return { content: [{ type: "text" as const, text: `# Token Usage (${rows.length} records)\nTotal: ${(totalIn + totalOut).toLocaleString()} tokens\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }

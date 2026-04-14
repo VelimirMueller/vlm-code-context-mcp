@@ -1,9 +1,15 @@
 {
   "meta": {
     "project": "vlm-code-context-mcp",
-    "sprint": "Sprint 8 — MCP vs Vanilla Benchmark",
+    "sprint": "Sprint 10 — v1.0 Hardening",
     "created_at": "2026-04-13T00:00:00Z",
-    "updated_at": "2026-04-13T10:30:00Z"
+    "updated_at": "2026-04-14T22:00:00Z",
+    "measurement_note": "Token counts are session-level estimates. Sprint 10 added token efficiency optimizations (get_file_context, index_directory output compaction) — verified by test/token-efficiency.test.ts benchmark.",
+    "v1_optimizations": {
+      "get_file_context": "Removed redundant Indexed timestamp, consolidated metadata to single line, removed dependency summaries from output. ~15-20% reduction per call.",
+      "index_directory": "Reduced structural padding (empty lines, redundant separators), added line counts to directory headers.",
+      "sprint_instructions": "Already supported section parameter for targeted retrieval instead of returning full 400-line guide."
+    }
   },
   "tasks": [
     {

@@ -15,6 +15,7 @@ export interface AgentDefault {
   model: string;
   tools: string | null;
   system_prompt: string;
+  department: string;
 }
 
 export const AGENT_DEFAULTS: AgentDefault[] = [
@@ -25,6 +26,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "development",
   },
   {
     role: "be-engineer",
@@ -33,6 +35,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "development",
   },
   {
     role: "developer",
@@ -41,6 +44,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "development",
   },
   {
     role: "devops",
@@ -49,6 +53,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "development",
   },
   {
     role: "qa",
@@ -57,6 +62,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "quality",
   },
   {
     role: "team-lead",
@@ -65,6 +71,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "business",
   },
   {
     role: "product-owner",
@@ -73,6 +80,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     model: "claude-sonnet-4-6",
     tools: null,
     system_prompt: "",
+    department: "business",
   },
 ];
 
@@ -160,9 +168,9 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
 
   if (agentRows === 0 || isOld15 || isOld4 || isOld6) {
     if (agentRows > 0) db.prepare("DELETE FROM agents").run();
-    const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
+    const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt, department) VALUES (?, ?, ?, ?, ?, ?, ?)`);
     for (const a of AGENT_DEFAULTS) {
-      stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
+      stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt, a.department);
       agentCount++;
     }
   }
@@ -176,6 +184,26 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
       skillCount++;
     }
   }
+
+  // Seed mood data if table is empty and agents + sprints exist
+  try {
+    const moodRows = (db.prepare("SELECT COUNT(*) as c FROM agent_mood_history").get() as { c: number }).c;
+    if (moodRows === 0) {
+      const agents = db.prepare("SELECT id, role FROM agents").all() as { id: number; role: string }[];
+      const sprints = db.prepare("SELECT id FROM sprints WHERE status IN ('rest', 'closed', 'done') AND deleted_at IS NULL ORDER BY created_at").all() as { id: number }[];
+      if (agents.length > 0 && sprints.length > 0) {
+        const stmt = db.prepare("INSERT INTO agent_mood_history (agent_id, sprint_id, mood, workload_points) VALUES (?, ?, ?, ?)");
+        for (const sprint of sprints) {
+          for (const agent of agents) {
+            const baseMood = agent.role === 'qa' ? 3 : 4;
+            const mood = Math.max(1, Math.min(5, baseMood + (Math.floor(Math.random() * 3) - 1)));
+            const pts = Math.floor(Math.random() * 8) + 3;
+            stmt.run(agent.id, sprint.id, mood, pts);
+          }
+        }
+      }
+    }
+  } catch {}
 
   return { agents: agentCount, skills: skillCount };
 }

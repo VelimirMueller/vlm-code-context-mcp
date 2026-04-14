@@ -33,9 +33,9 @@ Examples:
   code-context-mcp --force .           Re-index from scratch
 
 After setup:
-  code-context-dashboard               Open dashboard at http://localhost:3333
+  code-context-dashboard               Open dashboard (default port: ${process.env.DASHBOARD_PORT || "3333"})
 
-MCP Tools (81 total):
+MCP Tools (93 total):
   10 code-context tools (index, search, file context, symbols, changes)
   71 scrum tools (sprints, tickets, retros, milestones, agents, bridge, dump/restore)
 `);
@@ -223,10 +223,11 @@ if (fs.existsSync(pkgCommandsDir)) {
 console.log("");
 
 console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
+const dashPort = process.env.DASHBOARD_PORT || "3333";
 console.log("Dashboard:");
-console.log(`  npx code-context-dashboard ${DB_PATH}  — Open at http://localhost:3333`);
-console.log(`  npx code-context-dashboard ${DB_PATH} 3333 .  — With file watcher`);
+console.log(`  npx code-context-dashboard ${DB_PATH}  — Open at http://localhost:${dashPort}`);
+console.log(`  npx code-context-dashboard ${DB_PATH} ${dashPort} .  — With file watcher`);
 console.log("");
-console.log("Restart your AI client to load the MCP tools (81 total).");
+console.log("Restart your AI client to load the MCP tools (93 total).");
 console.log("All data lives in context.db — no .claude/ files needed.");
 console.log("");
