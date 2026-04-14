@@ -82,6 +82,24 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     system_prompt: "",
     department: "business",
   },
+  {
+    role: "architect",
+    name: "Architect",
+    description: "Designs system architecture, defines technical standards, reviews structural decisions, and ensures scalability and maintainability",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+    department: "development",
+  },
+  {
+    role: "security-specialist",
+    name: "Security Specialist",
+    description: "Reviews code for vulnerabilities, enforces security best practices, audits dependencies, and validates authentication/authorization flows",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+    department: "quality",
+  },
 ];
 
 // ─── Sprint Process Default ────────────────────────────────────────────────
@@ -230,8 +248,8 @@ export function resetAgents(db: Database.Database, { skipBuild = false }: { skip
 
   // Validation: ensure agent count is exactly 7
   const count = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
-  if (count !== 7) {
-    throw new Error(`Agent validation failed: expected 7 agents, got ${count}`);
+  if (count !== AGENT_DEFAULTS.length) {
+    throw new Error(`Agent validation failed: expected ${AGENT_DEFAULTS.length} agents, got ${count}`);
   }
 
   return AGENT_DEFAULTS.length;

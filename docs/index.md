@@ -17,8 +17,8 @@ hero:
 features:
   - title: 93 MCP Tools
     details: 11 code intelligence tools (index, search, symbols, file context, changes) + 82 scrum tools (sprints, tickets, epics, milestones, retros, agents, analytics).
-  - title: 7-Agent Scrum Team
-    details: FE Engineer, BE Engineer, Developer, DevOps, QA, Team Lead, Product Owner — each with defined roles, sprint assignments, and mood tracking.
+  - title: 9-Agent Scrum Team
+    details: FE Engineer, BE Engineer, Developer, DevOps, QA, Team Lead, Product Owner, Architect, Security Specialist — each with defined roles, sprint assignments, and mood tracking.
   - title: Sprint Management
     details: Full lifecycle — planning, implementation, done, rest. Velocity tracking, QA gates, burndown, retro findings, blocker management.
   - title: React Dashboard

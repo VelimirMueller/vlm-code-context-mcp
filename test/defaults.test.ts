@@ -110,7 +110,7 @@ describe("resetSprintProcess", () => {
 
 describe("AGENT_DEFAULTS integrity", () => {
   it("has 7 agents", () => {
-    expect(AGENT_DEFAULTS.length).toBe(7);
+    expect(AGENT_DEFAULTS.length).toBe(9);
   });
 
   it("all agents have required fields", () => {
@@ -122,9 +122,9 @@ describe("AGENT_DEFAULTS integrity", () => {
     }
   });
 
-  it("has the 7 core roles", () => {
+  it("has the 9 core roles", () => {
     const roles = AGENT_DEFAULTS.map(a => a.role).sort();
-    expect(roles).toEqual(["be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "team-lead"]);
+    expect(roles).toEqual(["architect", "be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "security-specialist", "team-lead"]);
   });
 
   it("no duplicate roles", () => {

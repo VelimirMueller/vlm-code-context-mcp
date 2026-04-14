@@ -2,7 +2,7 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "vlm-code-context-mcp",
-  description: "AI-powered virtual IT department — codebase intelligence, 7-agent scrum team, sprint management, and React dashboard",
+  description: "AI-powered virtual IT department — codebase intelligence, 9-agent scrum team, sprint management, and React dashboard",
   ignoreDeadLinks: [/^http:\/\/localhost/, /ux-user-journey-map/],
   appearance: "dark",
   head: [

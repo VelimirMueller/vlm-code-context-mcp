@@ -1,8 +1,8 @@
 # Agents & Team
 
-## The 7-Agent Team
+## The 9-Agent Team
 
-vlm-code-context-mcp seeds a default team of 7 specialized agents:
+vlm-code-context-mcp seeds a default team of 9 specialized agents:
 
 | Role | Name | Department | Focus |
 |------|------|------------|-------|
@@ -10,7 +10,9 @@ vlm-code-context-mcp seeds a default team of 7 specialized agents:
 | `be-engineer` | Backend Engineer | development | APIs, database, server logic |
 | `developer` | Full-Stack Developer | development | General implementation |
 | `devops` | DevOps Engineer | development | CI/CD, deployment, infrastructure |
+| `architect` | Architect | development | System design, technical standards, scalability |
 | `qa` | QA Engineer | quality | Testing, verification, bug tracking |
+| `security-specialist` | Security Specialist | quality | Vulnerability review, auth audits, dependency security |
 | `team-lead` | Team Lead | business | Coordination, sprint planning |
 | `product-owner` | Product Owner | business | Priorities, vision, stakeholders |
 

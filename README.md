@@ -53,7 +53,7 @@ Installs the MCP server, React dashboard, and all 93 tools. No API keys, no clou
 npx code-context-mcp setup .
 ```
 
-This creates `context.db`, indexes your codebase (files, exports, dependencies), seeds the default team (7 agents), and writes `.mcp.json` so your AI client finds the server.
+This creates `context.db`, indexes your codebase (files, exports, dependencies), seeds the default team (9 agents), and writes `.mcp.json` so your AI client finds the server.
 
 ```
 === Code Context MCP — Setup (my-project) ===
@@ -62,7 +62,7 @@ This creates `context.db`, indexes your codebase (files, exports, dependencies),
 [2/4] Indexing target directory...
   Indexed 201 files, 347 exports, 89 dependencies.
 [3/4] Seeding factory defaults...
-  Seeded 7 agents, 5 skills
+  Seeded 9 agents, 5 skills
 [4/4] Configuring MCP client...
   Wrote .mcp.json
 

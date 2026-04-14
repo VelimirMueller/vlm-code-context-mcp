@@ -3,7 +3,7 @@
 ## Launch Announcement
 
 ### Headline
-**Ship software with a 7-agent AI scrum team — one `npm install` away.**
+**Ship software with a 9-agent AI scrum team — one `npm install` away.**
 
 ### Body
 
@@ -11,7 +11,7 @@ We just open-sourced `vlm-code-context-mcp` — an MCP server that turns Claude,
 
 **What it does:**
 - **Code intelligence**: Pre-indexes your codebase into SQLite. AI queries files, exports, dependencies, and change history through 11 MCP tools — 3x fewer tokens than reading raw source.
-- **7-agent scrum team**: Frontend Engineer, Backend Engineer, Developer, DevOps, QA, Team Lead, and Product Owner. Each has defined responsibilities and runs real sprint processes.
+- **9-agent scrum team**: Frontend Engineer, Backend Engineer, Developer, DevOps, QA, Team Lead, and Product Owner. Each has defined responsibilities and runs real sprint processes.
 - **82 scrum MCP tools**: Create sprints, manage tickets, run retrospectives, track blockers, plan milestones, bridge wizard, generate reports — all through MCP.
 - **React dashboard**: Enterprise-grade UI with kanban board, Gantt charts, velocity tracking, code explorer with dependency graphs, and team health indicators.
 - **One-command setup**: `npx code-context-mcp setup .` bootstraps everything — agents, skills, database, MCP config — in under 60 seconds.
@@ -31,7 +31,7 @@ MIT licensed. GitHub: github.com/VelimirMueller/mcp-server
 ## Social Posts
 
 ### Twitter/X (Short)
-Ship software with a 7-agent AI scrum team.
+Ship software with a 9-agent AI scrum team.
 
 vlm-code-context-mcp: one MCP server that gives Claude a Product Owner, QA, Team Lead, and 4 more devs.
 
@@ -71,7 +71,7 @@ Show HN: MCP server with 7 AI agents running real scrum (93 tools, React dashboa
 | Metric | Value |
 |--------|-------|
 | MCP Tools | 93 (11 code + 82 scrum) |
-| AI Agents | 7 (FE, BE, Dev, DevOps, QA, Team Lead, PO) |
+| AI Agents | 9 (FE, BE, Dev, DevOps, QA, Team Lead, PO, Architect, Security) |
 | Test Coverage | 295 tests passing |
 | Dashboard Pages | 8 (Dashboard, Sprint, Code Explorer, Project Management, Marketing, Team, Retro, Me) |
 | Bundle Size | 211KB main (code-split into 18 chunks) |
