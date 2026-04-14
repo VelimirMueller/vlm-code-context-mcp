@@ -35,6 +35,8 @@ AI coding tools burn through context windows reading raw source files, then lose
 - Full project state persists in SQLite across sessions
 - Sprint ceremonies, QA gates, velocity tracking built in
 
+![benchmark](https://github.com/user-attachments/assets/e553c734-ebc0-4e9e-8efb-5f79ab010d3e)
+
 ---
 
 ## Complete Setup (5 minutes)
