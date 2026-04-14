@@ -73,6 +73,7 @@ export interface Agent {
   name: string;
   description: string;
   model: string;
+  department: string;
   done_tickets: number;
   active_tickets: number;
   blocked_tickets: number;

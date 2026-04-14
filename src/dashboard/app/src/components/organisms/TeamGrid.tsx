@@ -7,11 +7,11 @@ import { AgentCard } from '@/components/molecules/AgentCard';
 import { TeamManagementModal } from '@/components/organisms/TeamManagementModal';
 import type { Agent } from '@/types';
 
-const ROLE_GROUPS: { label: string; color: string; roles: Set<string> }[] = [
-  { label: 'Development', color: '#3b82f6', roles: new Set(['architect', 'lead-developer', 'backend-developer', 'frontend-developer', 'fullstack-developer', 'data-engineer', 'devops']) },
-  { label: 'Business', color: '#8b5cf6', roles: new Set(['product-owner', 'manager', 'marketing-lead', 'growth-strategist', 'ux-designer']) },
-  { label: 'Quality & Process', color: '#10b981', roles: new Set(['qa', 'security-specialist', 'scrum-master']) },
-];
+const DEPARTMENT_DISPLAY: Record<string, { label: string; color: string }> = {
+  development: { label: 'Development', color: '#3b82f6' },
+  business: { label: 'Business', color: '#8b5cf6' },
+  quality: { label: 'Quality & Process', color: '#10b981' },
+};
 
 export function TeamGrid() {
   const agents = useAgentStore((s) => s.agents);
@@ -119,15 +119,29 @@ function GroupedAgentGrid({ agents, onEdit }: GroupedAgentGridProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => {
-    const result: { label: string; color: string; agents: Agent[] }[] = [];
-    for (const group of ROLE_GROUPS) {
-      const matching = agents.filter((a) => group.roles.has(a.role));
-      if (matching.length > 0) result.push({ label: group.label, color: group.color, agents: matching });
+    const byDept = new Map<string, Agent[]>();
+    for (const a of agents) {
+      const dept = a.department || 'other';
+      if (!byDept.has(dept)) byDept.set(dept, []);
+      byDept.get(dept)!.push(a);
     }
-    // Ungrouped agents
-    const allGrouped = new Set(ROLE_GROUPS.flatMap((g) => [...g.roles]));
-    const ungrouped = agents.filter((a) => !allGrouped.has(a.role));
-    if (ungrouped.length > 0) result.push({ label: 'Other', color: 'var(--text3)', agents: ungrouped });
+    const result: { label: string; color: string; agents: Agent[] }[] = [];
+    // Show known departments first in a stable order
+    for (const key of ['development', 'business', 'quality']) {
+      const group = byDept.get(key);
+      if (group && group.length > 0) {
+        const display = DEPARTMENT_DISPLAY[key] ?? { label: key.charAt(0).toUpperCase() + key.slice(1), color: 'var(--text3)' };
+        result.push({ label: display.label, color: display.color, agents: group });
+        byDept.delete(key);
+      }
+    }
+    // Any remaining departments (custom ones added by users)
+    for (const [key, group] of byDept) {
+      if (group.length > 0) {
+        const display = DEPARTMENT_DISPLAY[key] ?? { label: key.charAt(0).toUpperCase() + key.slice(1), color: 'var(--text3)' };
+        result.push({ label: display.label, color: display.color, agents: group });
+      }
+    }
     return result;
   }, [agents]);
 
