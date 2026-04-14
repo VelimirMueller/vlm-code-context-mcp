@@ -1,26 +1,29 @@
 import { create } from 'zustand';
 import { get } from '@/lib/api';
 
-export interface TaskMetrics {
-  status: string;
-  ticket_id: number;
-  duration_min: number | null;
-  tokens_used: number | null;
-  tool_calls: number | null;
-  files_modified: number | null;
-  lines_changed: number | null;
-  tests_added: number | null;
-  context_lookups: number | null;
+export interface PerCallAvg {
+  tool: string;
+  old_tokens: number;
+  new_tokens: number;
+  saved: number;
+  saved_pct: number;
+  samples: number;
+  change: string;
 }
 
-export interface ComparisonTask {
+export interface TaskProjection {
   id: string;
   label: string;
   description: string;
   points: number;
-  reasoning: string | null;
-  mcp: TaskMetrics;
-  vanilla: TaskMetrics;
+  target_tokens: number;
+  total_calls: number;
+  reasoning: string;
+  old: { total_tokens: number; total_chars: number };
+  new: { total_tokens: number; total_chars: number };
+  saved_tokens: number;
+  saved_pct: number;
+  call_distribution: Record<string, number>;
 }
 
 export interface ComparisonData {
@@ -29,8 +32,22 @@ export interface ComparisonData {
     sprint: string;
     created_at: string;
     updated_at: string;
+    measurement_note: string;
   };
-  tasks: ComparisonTask[];
+  benchmark: {
+    description: string;
+    audit_notes: Record<string, string>;
+    per_call_averages: PerCallAvg[];
+  };
+  tasks: TaskProjection[];
+  grand_total: {
+    total_calls: number;
+    old_tokens: number;
+    new_tokens: number;
+    saved_tokens: number;
+    saved_pct: number;
+    quality: string;
+  };
 }
 
 interface ComparisonStore {

@@ -2,47 +2,20 @@
 
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useComparisonStore, type ComparisonTask, type TaskMetrics } from '@/stores/comparisonStore';
+import { useComparisonStore, type PerCallAvg, type TaskProjection } from '@/stores/comparisonStore';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import { HeroText } from '@/components/molecules/HeroText';
 import { pageVariants, pageTransition } from '@/lib/motion';
 
-const MCP_COLOR = '#10b981';
-const VANILLA_COLOR = '#f59e0b';
+const OLD_COLOR = '#f59e0b';
+const NEW_COLOR = '#10b981';
 
-function statusBadge(status: string) {
-  const map: Record<string, { bg: string; color: string; label: string }> = {
-    done: { bg: 'rgba(16,185,129,.12)', color: '#10b981', label: 'Done' },
-    in_progress: { bg: 'rgba(59,130,246,.12)', color: '#3b82f6', label: 'In Progress' },
-    pending: { bg: 'rgba(113,113,122,.12)', color: '#71717a', label: 'Pending' },
-  };
-  const s = map[status] ?? map.pending;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 600,
-      background: s.bg, color: s.color, fontFamily: 'var(--mono)',
-    }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.color }} />
-      {s.label}
-    </span>
-  );
-}
-
-function MetricBar({ label, mcp, vanilla, unit, lowerIsBetter }: {
-  label: string;
-  mcp: number | null;
-  vanilla: number | null;
-  unit?: string;
-  lowerIsBetter?: boolean;
-}) {
-  if (mcp == null && vanilla == null) return null;
-  const max = Math.max(mcp ?? 0, vanilla ?? 0) || 1;
-  const mcpPct = ((mcp ?? 0) / max) * 100;
-  const vanillaPct = ((vanilla ?? 0) / max) * 100;
-
-  const mcpWins = lowerIsBetter ? (mcp ?? Infinity) < (vanilla ?? Infinity) : (mcp ?? 0) > (vanilla ?? 0);
-  const vanillaWins = !mcpWins && mcp !== vanilla;
+function TokenBar({ label, old, nw, unit }: { label: string; old: number; nw: number; unit?: string }) {
+  const max = Math.max(old, nw) || 1;
+  const oldPct = (old / max) * 100;
+  const newPct = (nw / max) * 100;
+  const saved = old - nw;
+  const pct = old > 0 ? Math.round((saved / old) * 100) : 0;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -51,215 +24,158 @@ function MetricBar({ label, mcp, vanilla, unit, lowerIsBetter }: {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 42, fontSize: 10, color: MCP_COLOR, fontFamily: 'var(--mono)', fontWeight: 600, textAlign: 'right' }}>MCP</span>
+          <span style={{ width: 42, fontSize: 10, color: OLD_COLOR, fontFamily: 'var(--mono)', fontWeight: 600, textAlign: 'right' }}>OLD</span>
           <div style={{ flex: 1, height: 14, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${mcpPct}%` }}
-              transition={{ duration: 0.6, ease: 'easeOut' }}
-              style={{ height: '100%', background: MCP_COLOR, borderRadius: 4, opacity: mcpWins ? 1 : 0.5 }}
-            />
+            <motion.div initial={{ width: 0 }} animate={{ width: `${oldPct}%` }} transition={{ duration: 0.6 }}
+              style={{ height: '100%', background: OLD_COLOR, borderRadius: 4, opacity: 0.5 }} />
           </div>
-          <span style={{ width: 60, fontSize: 11, color: mcpWins ? MCP_COLOR : 'var(--text3)', fontFamily: 'var(--mono)', fontWeight: mcpWins ? 700 : 400 }}>
-            {mcp != null ? `${mcp.toLocaleString()}${unit ?? ''}` : '—'}
+          <span style={{ width: 64, fontSize: 11, fontFamily: 'var(--mono)', textAlign: 'right', color: 'var(--text2)' }}>
+            {old.toLocaleString()}{unit ? ` ${unit}` : ''}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 42, fontSize: 10, color: VANILLA_COLOR, fontFamily: 'var(--mono)', fontWeight: 600, textAlign: 'right' }}>VAN</span>
+          <span style={{ width: 42, fontSize: 10, color: NEW_COLOR, fontFamily: 'var(--mono)', fontWeight: 600, textAlign: 'right' }}>NEW</span>
           <div style={{ flex: 1, height: 14, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${vanillaPct}%` }}
-              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
-              style={{ height: '100%', background: VANILLA_COLOR, borderRadius: 4, opacity: vanillaWins ? 1 : 0.5 }}
-            />
+            <motion.div initial={{ width: 0 }} animate={{ width: `${newPct}%` }} transition={{ duration: 0.6 }}
+              style={{ height: '100%', background: NEW_COLOR, borderRadius: 4 }} />
           </div>
-          <span style={{ width: 60, fontSize: 11, color: vanillaWins ? VANILLA_COLOR : 'var(--text3)', fontFamily: 'var(--mono)', fontWeight: vanillaWins ? 700 : 400 }}>
-            {vanilla != null ? `${vanilla.toLocaleString()}${unit ?? ''}` : '—'}
+          <span style={{ width: 64, fontSize: 11, fontFamily: 'var(--mono)', textAlign: 'right', color: 'var(--text2)' }}>
+            {nw.toLocaleString()}{unit ? ` ${unit}` : ''}
           </span>
         </div>
       </div>
+      {saved > 0 && (
+        <div style={{ fontSize: 10, color: NEW_COLOR, fontFamily: 'var(--mono)', marginTop: 2, textAlign: 'right' }}>
+          {saved.toLocaleString()} saved ({pct}%)
+        </div>
+      )}
     </div>
   );
 }
 
-function savingsPct(mcp: number | null, vanilla: number | null): string {
-  if (mcp == null || vanilla == null || vanilla === 0) return '—';
-  const pct = Math.round(((vanilla - mcp) / vanilla) * 100);
-  return pct > 0 ? `${pct}% less` : pct < 0 ? `${Math.abs(pct)}% more` : 'same';
+function PerCallTable({ averages }: { averages: PerCallAvg[] }) {
+  return (
+    <div style={{ background: 'var(--surface1)', borderRadius: 12, padding: 16, border: '1px solid var(--border)' }}>
+      <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text1)', marginBottom: 12 }}>Per-Call Token Averages (measured)</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--mono)' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+            <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text3)', fontWeight: 600 }}>Tool</th>
+            <th style={{ textAlign: 'right', padding: '6px 8px', color: OLD_COLOR, fontWeight: 600 }}>OLD</th>
+            <th style={{ textAlign: 'right', padding: '6px 8px', color: NEW_COLOR, fontWeight: 600 }}>NEW</th>
+            <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text3)', fontWeight: 600 }}>Saved</th>
+            <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text3)', fontWeight: 600 }}>Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {averages.map((a) => (
+            <tr key={a.tool} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={{ padding: '6px 8px', color: 'var(--text1)' }}>{a.tool}</td>
+              <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text2)' }}>{a.old_tokens}</td>
+              <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text2)' }}>{a.new_tokens}</td>
+              <td style={{ padding: '6px 8px', textAlign: 'right', color: a.saved > 0 ? NEW_COLOR : a.saved < 0 ? OLD_COLOR : 'var(--text3)' }}>
+                {a.saved > 0 ? `-${a.saved}` : a.saved < 0 ? `+${Math.abs(a.saved)}` : '0'} ({a.saved_pct}%)
+              </td>
+              <td style={{ padding: '6px 8px', color: 'var(--text3)', fontSize: 10, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {a.change}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-function TaskCard({ task }: { task: ComparisonTask }) {
-  const done = task.mcp.status === 'done' && task.vanilla.status === 'done';
-
+function TaskCard({ task }: { task: TaskProjection }) {
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-      padding: 20, flex: 1, minWidth: 320,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{task.label}</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{task.description}</div>
-        </div>
-        <span style={{
-          background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8,
-          padding: '4px 10px', fontSize: 12, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text2)',
-        }}>
-          {task.points}pt
+    <div style={{ background: 'var(--surface1)', borderRadius: 12, padding: 16, border: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text1)' }}>[{task.id}] {task.label}</h3>
+        <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: NEW_COLOR, fontWeight: 700 }}>
+          -{task.saved_pct}%
         </span>
       </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text3)' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: MCP_COLOR }} /> MCP {statusBadge(task.mcp.status)}
+      <p style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12 }}>{task.description}</p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text1)', fontFamily: 'var(--mono)' }}>
+            <AnimatedNumber value={task.total_calls} />
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase' }}>Tool calls</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text3)' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: VANILLA_COLOR }} /> Vanilla {statusBadge(task.vanilla.status)}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: OLD_COLOR, fontFamily: 'var(--mono)' }}>
+            <AnimatedNumber value={task.old.total_tokens} />
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase' }}>Old tokens</div>
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: NEW_COLOR, fontFamily: 'var(--mono)' }}>
+            <AnimatedNumber value={task.new.total_tokens} />
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase' }}>New tokens</div>
         </div>
       </div>
-
-      <MetricBar label="Duration" mcp={task.mcp.duration_min} vanilla={task.vanilla.duration_min} unit="m" lowerIsBetter />
-      <MetricBar label="Tokens" mcp={task.mcp.tokens_used} vanilla={task.vanilla.tokens_used} lowerIsBetter />
-      <MetricBar label="Tool Calls" mcp={task.mcp.tool_calls} vanilla={task.vanilla.tool_calls} lowerIsBetter />
-      <MetricBar label="Lines Changed" mcp={task.mcp.lines_changed} vanilla={task.vanilla.lines_changed} lowerIsBetter />
-      <MetricBar label="Context Lookups" mcp={task.mcp.context_lookups} vanilla={task.vanilla.context_lookups} />
-
-      {done && (
-        <div style={{
-          marginTop: 12, padding: '8px 12px', background: 'rgba(16,185,129,.06)',
-          border: '1px solid rgba(16,185,129,.15)', borderRadius: 8,
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-            MCP Savings
-          </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[
-              { label: 'Time', val: savingsPct(task.mcp.duration_min, task.vanilla.duration_min) },
-              { label: 'Tokens', val: savingsPct(task.mcp.tokens_used, task.vanilla.tokens_used) },
-              { label: 'Tool Calls', val: savingsPct(task.mcp.tool_calls, task.vanilla.tool_calls) },
-            ].map(({ label, val }) => (
-              <span key={label} style={{ fontSize: 11, color: MCP_COLOR, fontFamily: 'var(--mono)' }}>
-                {label}: <strong>{val}</strong>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {task.reasoning && (
-        <div style={{
-          marginTop: 12, padding: '10px 14px', background: 'var(--surface2)',
-          border: '1px solid var(--border)', borderRadius: 8,
-          borderLeft: `3px solid ${MCP_COLOR}`,
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-            Why MCP Won
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
-            {task.reasoning}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SummaryCards({ tasks }: { tasks: ComparisonTask[] }) {
-  const completed = tasks.filter(t => t.mcp.status === 'done' && t.vanilla.status === 'done');
-  const totalMcpTime = completed.reduce((s, t) => s + (t.mcp.duration_min ?? 0), 0);
-  const totalVanillaTime = completed.reduce((s, t) => s + (t.vanilla.duration_min ?? 0), 0);
-  const totalMcpTokens = completed.reduce((s, t) => s + (t.mcp.tokens_used ?? 0), 0);
-  const totalVanillaTokens = completed.reduce((s, t) => s + (t.vanilla.tokens_used ?? 0), 0);
-  const timeSaved = totalVanillaTime > 0 ? Math.round(((totalVanillaTime - totalMcpTime) / totalVanillaTime) * 100) : 0;
-  const tokensSaved = totalVanillaTokens > 0 ? Math.round(((totalVanillaTokens - totalMcpTokens) / totalVanillaTokens) * 100) : 0;
-
-  const cards = [
-    { label: 'Tasks Benchmarked', value: `${completed.length}/${tasks.length}`, color: 'var(--text)' },
-    { label: 'MCP Time', value: `${totalMcpTime}m`, color: MCP_COLOR },
-    { label: 'Vanilla Time', value: `${totalVanillaTime}m`, color: VANILLA_COLOR },
-    { label: 'Time Saved', value: `${timeSaved}%`, color: timeSaved > 0 ? MCP_COLOR : 'var(--text3)' },
-    { label: 'Token Saved', value: `${tokensSaved}%`, color: tokensSaved > 0 ? MCP_COLOR : 'var(--text3)' },
-  ];
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
-      {cards.map((c) => (
-        <div key={c.label} style={{
-          padding: 14, background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{c.label}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--mono)', color: c.color }}>{c.value}</div>
-        </div>
-      ))}
+      <TokenBar label="Output tokens" old={task.old.total_tokens} nw={task.new.total_tokens} unit="tok" />
     </div>
   );
 }
 
 export function Benchmark() {
-  const data = useComparisonStore((s) => s.data);
-  const loading = useComparisonStore((s) => s.loading);
-  const error = useComparisonStore((s) => s.error);
-  const fetchComparison = useComparisonStore((s) => s.fetchComparison);
+  const { data, loading, error, fetchComparison } = useComparisonStore();
 
-  useEffect(() => {
-    fetchComparison();
-  }, [fetchComparison]);
+  useEffect(() => { fetchComparison(); }, [fetchComparison]);
 
-  const tasks = data?.tasks ?? [];
-  const completedCount = tasks.filter(t => t.mcp.status === 'done' && t.vanilla.status === 'done').length;
+  if (loading) return <div style={{ padding: 32, color: 'var(--text3)' }}>Loading benchmark data...</div>;
+  if (error) return <div style={{ padding: 32, color: '#ef4444' }}>Error: {error}</div>;
+  if (!data?.benchmark) return <div style={{ padding: 32, color: 'var(--text3)' }}>No benchmark data. Place comparison.json next to context.db.</div>;
 
-  if (loading && !data) {
-    return (
-      <div style={{ padding: 20 }}>
-        {[1, 2, 3].map((i) => (
-          <div key={i} style={{ height: 200, background: 'var(--surface2)', borderRadius: 12, marginBottom: 12, animation: 'pulse 1.5s ease-in-out infinite' }} />
-        ))}
-      </div>
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: 'var(--red, #ef4444)', fontSize: 13 }}>
-        Failed to load benchmark data: {error}
-      </div>
-    );
-  }
+  const { benchmark, tasks, grand_total, meta } = data;
 
   return (
-    <motion.div
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      transition={pageTransition}
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
-    >
-      <HeroText>
-        MCP vs Vanilla — <AnimatedNumber value={completedCount} /> of <AnimatedNumber value={tasks.length} /> tasks benchmarked
-      </HeroText>
+    <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}
+      style={{ padding: '0 24px 24px', maxWidth: 1100, margin: '0 auto' }}>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-        {data?.meta && (
-          <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 12 }}>
-            {data.meta.sprint} &middot; Updated {new Date(data.meta.updated_at).toLocaleDateString()}
-          </div>
-        )}
+      <HeroText
+        title="Token Benchmark"
+        subtitle={meta.sprint}
+        stats={[
+          { label: 'Saved', value: `${grand_total.saved_pct}%`, color: NEW_COLOR },
+          { label: 'Old tokens', value: grand_total.old_tokens.toLocaleString() },
+          { label: 'New tokens', value: grand_total.new_tokens.toLocaleString() },
+          { label: 'Tool calls', value: grand_total.total_calls.toLocaleString() },
+        ]}
+      />
 
-        <SummaryCards tasks={tasks} />
+      {/* Grand total bar */}
+      <div style={{ background: 'var(--surface1)', borderRadius: 12, padding: 16, border: '1px solid var(--border)', marginBottom: 16 }}>
+        <TokenBar label="Total output tokens across all tasks" old={grand_total.old_tokens} nw={grand_total.new_tokens} unit="tok" />
+        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>{grand_total.quality}</div>
+      </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} />
+      {/* Task cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginBottom: 16 }}>
+        {tasks.map((t) => <TaskCard key={t.id} task={t} />)}
+      </div>
+
+      {/* Per-call averages table */}
+      <PerCallTable averages={benchmark.per_call_averages} />
+
+      {/* Audit notes */}
+      <div style={{ background: 'var(--surface1)', borderRadius: 12, padding: 16, border: '1px solid var(--border)', marginTop: 12 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text1)', marginBottom: 8 }}>Audit Notes</h3>
+        <div style={{ display: 'grid', gap: 6 }}>
+          {Object.entries(benchmark.audit_notes).map(([key, value]) => (
+            <div key={key} style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+              <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{key}:</span> {value}
+            </div>
           ))}
         </div>
+      </div>
 
-        {tasks.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-            No benchmark data yet. comparison.json will be populated as tasks complete.
-          </div>
-        )}
+      <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 8, textAlign: 'center' }}>
+        {meta.measurement_note}
       </div>
     </motion.div>
   );

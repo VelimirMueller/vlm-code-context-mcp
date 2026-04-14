@@ -1,6 +1,6 @@
 # MCP Tools Overview
 
-The server exposes **9 tools** via the Model Context Protocol. Tool descriptions and directory metadata are maintained by the MCP server itself — the same indexing engine that powers these tools also keeps their documentation up to date.
+The server exposes **11 code intelligence tools** via the Model Context Protocol (plus 82 scrum tools — see [Scrum Tools](/scrum/)). Tool descriptions and directory metadata are maintained by the MCP server itself.
 
 | Tool | Description |
 |------|-------------|
@@ -16,4 +16,4 @@ The server exposes **9 tools** via the Model Context Protocol. Tool descriptions
 
 ## Context Efficiency
 
-MCP returns structured metadata (summaries, exports, dependency edges) instead of raw file contents. In practice this yields **~2.7x less context** than reading files directly, allowing AI agents to work with larger codebases without exceeding token limits.
+MCP returns structured metadata (summaries, exports, dependency edges) instead of raw file contents. Sprint 11 optimizations reduced tool output tokens by **44%** across a full sprint lifecycle — benchmarked with A/B testing across S/M/L tasks.

@@ -1,19 +1,21 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "Code Context MCP",
-  description: "Living documentation for the code-context MCP server",
-  ignoreDeadLinks: [/^http:\/\/localhost/],
+  title: "vlm-code-context-mcp",
+  description: "AI-powered virtual IT department — codebase intelligence, 7-agent scrum team, sprint management, and React dashboard",
+  ignoreDeadLinks: [/^http:\/\/localhost/, /ux-user-journey-map/],
   appearance: "dark",
   head: [
     ["link", { rel: "preconnect", href: "https://cdn.jsdelivr.net" }],
   ],
   themeConfig: {
-    siteTitle: "CC MCP",
+    siteTitle: "vlm-code-context-mcp",
     nav: [
       { text: "Home", link: "/" },
       { text: "Guide", link: "/guide/" },
-      { text: "Tools", link: "/tools/" },
+      { text: "Code Tools", link: "/tools/" },
+      { text: "Scrum Tools", link: "/scrum/" },
+      { text: "Dashboard", link: "/dashboard" },
     ],
     sidebar: [
       {
@@ -24,7 +26,7 @@ export default defineConfig({
         ],
       },
       {
-        text: "MCP Tools",
+        text: "Code Intelligence Tools",
         items: [
           { text: "Overview", link: "/tools/" },
           { text: "index_directory", link: "/tools/index-directory" },
@@ -37,13 +39,30 @@ export default defineConfig({
           { text: "query / execute", link: "/tools/query-execute" },
         ],
       },
+      {
+        text: "Scrum Tools",
+        items: [
+          { text: "Overview", link: "/scrum/" },
+          { text: "Sprint Lifecycle", link: "/scrum/sprints" },
+          { text: "Tickets & Epics", link: "/scrum/tickets" },
+          { text: "Milestones & Discovery", link: "/scrum/milestones" },
+          { text: "Retro & Analytics", link: "/scrum/retro" },
+          { text: "Agents & Team", link: "/scrum/agents" },
+        ],
+      },
+      {
+        text: "Dashboard",
+        items: [
+          { text: "Overview & Setup", link: "/dashboard" },
+        ],
+      },
     ],
     socialLinks: [
-      { icon: "github", link: "https://github.com/VelimirMueller" },
+      { icon: "github", link: "https://github.com/VelimirMueller/mcp-server" },
     ],
     footer: {
-      message: "Built by Velimir Muller.",
-      copyright: "Code Context MCP Server",
+      message: "MIT Licensed — Built by Velimir Mueller",
+      copyright: "vlm-code-context-mcp v1.0.0",
     },
   },
 });

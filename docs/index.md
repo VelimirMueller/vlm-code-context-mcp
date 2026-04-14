@@ -1,27 +1,30 @@
 ---
 layout: home
 hero:
-  name: Code Context MCP
-  text: Codebase intelligence for AI agents
-  tagline: Index files and directories, track changes, and browse your codebase with a portfolio-styled dashboard — all via the Model Context Protocol
+  name: vlm-code-context-mcp
+  text: AI Virtual IT Department
+  tagline: 93 MCP tools, 7-agent scrum team, React dashboard, and codebase intelligence — one npm install away
   actions:
     - theme: brand
       text: Get Started
       link: /guide/
     - theme: alt
-      text: MCP Tools
+      text: Code Tools
       link: /tools/
+    - theme: alt
+      text: Scrum Tools
+      link: /scrum/
 features:
-  - title: 9 MCP Tools
-    details: A complete toolkit — index directories, find symbols, search files, set descriptions, query the database, and more.
-  - title: Directory-Aware Indexing
-    details: Tracks metadata at both file and directory level, with line counts, sizes, summaries, and dependency graphs.
-  - title: Change Tracking
-    details: Append-only log of file changes with before/after snapshots, inline diffs, and summary deltas.
-  - title: Portfolio-Styled Dashboard
-    details: A single-page explorer UI with a folder tree sidebar, file detail panel, change history, and dependency graph visualization.
-  - title: Context-Efficient
-    details: Returns structured metadata instead of raw file contents, saving ~2.7x context tokens for AI agents.
-  - title: Live Reindexing
-    details: File watcher with SSE-powered live updates — the dashboard and database stay current as you edit code.
+  - title: 93 MCP Tools
+    details: 11 code intelligence tools (index, search, symbols, file context, changes) + 82 scrum tools (sprints, tickets, epics, milestones, retros, agents, analytics).
+  - title: 7-Agent Scrum Team
+    details: FE Engineer, BE Engineer, Developer, DevOps, QA, Team Lead, Product Owner — each with defined roles, sprint assignments, and mood tracking.
+  - title: Sprint Management
+    details: Full lifecycle — planning, implementation, done, rest. Velocity tracking, QA gates, burndown, retro findings, blocker management.
+  - title: React Dashboard
+    details: Kanban board, Gantt charts, code explorer, team health, benchmark comparison — all live-updating via SSE.
+  - title: Context Engineering
+    details: Compact modes and adaptive outputs reduce tool output tokens by 44% without losing information. Benchmarked with A/B testing.
+  - title: One-Command Setup
+    details: "npx code-context-mcp setup . — indexes your codebase, seeds agents, configures MCP client. Under 60 seconds."
 ---
