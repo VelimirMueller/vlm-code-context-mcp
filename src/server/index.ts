@@ -32,12 +32,18 @@ server.tool(
   "index_directory",
   "Scan a directory, parse all files, extract metadata/exports and build a dependency graph. Use freshness_check=true to skip re-indexing if the index is recent (<5 min), returning only a summary (~20 tokens).",
   {
-    path: z.string().describe("Absolute path to the directory to index"),
+    path: z.string().max(10000).describe("Absolute path to the directory to index"),
     freshness_check: z.boolean().optional().describe("If true, skip re-indexing when fresh (<5 min). Returns summary only."),
   },
   async ({ path: dirPath, freshness_check }) => {
     try {
       const rootDir = path.resolve(dirPath);
+
+      // Security: reject paths outside home directory or sensitive system paths
+      const homeDir = process.env.HOME || process.env.USERPROFILE || "/";
+      if (!rootDir.startsWith(homeDir) && !rootDir.startsWith("/tmp")) {
+        return { content: [{ type: "text", text: `Security: cannot index "${rootDir}" — path must be within home directory.` }], isError: true };
+      }
 
       // Freshness check: skip full re-index if data is recent
       if (freshness_check) {
@@ -128,7 +134,7 @@ server.tool(
 server.tool(
   "find_symbol",
   "Find which file(s) export a given function, component, type, or constant",
-  { name: z.string().describe("Symbol name to search for (supports % wildcards)") },
+  { name: z.string().max(10000).describe("Symbol name to search for (supports % wildcards)") },
   async ({ name }) => {
     const rows = db.prepare(`
       SELECT e.name, e.kind, f.path, f.summary
@@ -151,7 +157,7 @@ server.tool(
   "get_file_context",
   "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents). Use include_changes=false to skip change history and save tokens.",
   {
-    path: z.string().describe("Absolute file path"),
+    path: z.string().max(10000).describe("Absolute file path"),
     include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: false). Set to true when debugging or investigating changes."),
     change_limit: z.number().optional().describe("Max number of recent changes to include (default: 3)"),
   },
@@ -242,8 +248,8 @@ server.tool(
   "set_description",
   "Set a manual description for a file (persists across re-indexes)",
   {
-    path: z.string().describe("Absolute file path"),
-    description: z.string().describe("Description of what the file does"),
+    path: z.string().max(10000).describe("Absolute file path"),
+    description: z.string().max(10000).describe("Description of what the file does"),
   },
   async ({ path: filePath, description }) => {
     const result = db.prepare(`UPDATE files SET description = ? WHERE path = ?`).run(description, filePath);
@@ -259,8 +265,8 @@ server.tool(
   "set_directory_description",
   "Set a manual description for a directory (persists across re-indexes)",
   {
-    path: z.string().describe("Absolute directory path"),
-    description: z.string().describe("Description of what the directory contains"),
+    path: z.string().max(10000).describe("Absolute directory path"),
+    description: z.string().max(10000).describe("Description of what the directory contains"),
   },
   async ({ path: dirPath, description }) => {
     const result = db.prepare(`UPDATE directories SET description = ? WHERE path = ?`).run(description, dirPath);
@@ -277,7 +283,7 @@ server.tool(
   "Set a reason/explanation for a recorded file change",
   {
     id: z.number().describe("Change ID"),
-    reason: z.string().describe("Why this change was made"),
+    reason: z.string().max(10000).describe("Why this change was made"),
   },
   async ({ id, reason }) => {
     const result = db.prepare(`UPDATE changes SET reason = ? WHERE id = ?`).run(reason, id);
@@ -293,7 +299,7 @@ server.tool(
   "get_changes",
   "Get recent file changes grouped by file path, showing what changed (size, lines, exports, summary diffs)",
   {
-    file_path: z.string().optional().describe("Filter to a specific file path (supports % wildcards)"),
+    file_path: z.string().max(10000).optional().describe("Filter to a specific file path (supports % wildcards)"),
     limit: z.number().optional().describe("Max changes to return (default 50)"),
   },
   async ({ file_path, limit }) => {
@@ -370,7 +376,7 @@ server.tool(
 server.tool(
   "search_files",
   "Search indexed files by path or summary (supports % wildcards)",
-  { query: z.string().describe("Search term (matched against path and summary, use % for wildcards)") },
+  { query: z.string().max(10000).describe("Search term (matched against path and summary, use % for wildcards)") },
   async ({ query }) => {
     const pattern = query.includes("%") ? query : `%${query}%`;
     const rows = db.prepare(`
@@ -397,18 +403,24 @@ server.tool(
 // ─── Tool: query (escape hatch) ──────────────────────────────────────────────
 server.tool(
   "query",
-  "Run a read-only SELECT query against the context database",
-  { sql: z.string().describe("A SELECT SQL statement") },
+  "Run a read-only SELECT query against the context database. Only single SELECT statements allowed — no writes, no semicolons, no subqueries with writes.",
+  { sql: z.string().max(5000).describe("A single SELECT SQL statement") },
   async ({ sql }) => {
-    const trimmed = sql.trim().toLowerCase();
-    if (!trimmed.startsWith("select")) {
+    const trimmed = sql.trim();
+    // Must start with SELECT (case-insensitive)
+    if (!/^select\b/i.test(trimmed)) {
       return { content: [{ type: "text", text: "Only SELECT statements allowed. Use execute() for writes." }], isError: true };
     }
-    if (/\b(drop|alter|delete|insert|update|create)\b/i.test(sql)) {
-      return { content: [{ type: "text", text: "Dangerous SQL detected in query. Only pure SELECT allowed." }], isError: true };
+    // Block multiple statements (semicolons followed by non-whitespace)
+    if (/;\s*\S/i.test(trimmed)) {
+      return { content: [{ type: "text", text: "Multiple statements not allowed. Send one SELECT at a time." }], isError: true };
+    }
+    // Block write keywords anywhere in the statement (including subqueries)
+    if (/\b(drop|alter|delete|insert|update|create|attach|detach|pragma|reindex|vacuum)\b/i.test(trimmed)) {
+      return { content: [{ type: "text", text: "Write operations not allowed in query tool. Use execute() for writes." }], isError: true };
     }
     try {
-      const rows = db.prepare(sql).all();
+      const rows = db.prepare(trimmed.replace(/;\s*$/, "")).all();
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text", text: `SQL Error: ${err.message}` }], isError: true };
@@ -419,21 +431,27 @@ server.tool(
 // ─── Tool: execute (escape hatch) ────────────────────────────────────────────
 server.tool(
   "execute",
-  "Run an INSERT, UPDATE, or DELETE against the context database",
+  "Run an INSERT, UPDATE, or DELETE against the context database. No DDL (DROP/ALTER/CREATE) or dangerous operations.",
   {
-    sql: z.string().describe("A write SQL statement (INSERT, UPDATE, DELETE only — no DROP or ALTER)"),
+    sql: z.string().max(5000).describe("A single write SQL statement (INSERT, UPDATE, DELETE only)"),
     params: z.array(z.any()).optional().describe("Optional positional parameters"),
   },
   async ({ sql, params = [] }) => {
-    const trimmed = sql.trim().toLowerCase();
-    if (trimmed.startsWith("select")) {
-      return { content: [{ type: "text", text: "Use query() for SELECT." }], isError: true };
+    const trimmed = sql.trim();
+    // Must start with INSERT, UPDATE, or DELETE
+    if (!/^(insert|update|delete)\b/i.test(trimmed)) {
+      return { content: [{ type: "text", text: "Only INSERT, UPDATE, DELETE allowed. Use query() for SELECT." }], isError: true };
     }
-    if (/\b(drop\s+table|alter\s+table|drop\s+index)\b/i.test(sql)) {
-      return { content: [{ type: "text", text: "DROP TABLE, ALTER TABLE, and DROP INDEX are not allowed." }], isError: true };
+    // Block multiple statements
+    if (/;\s*\S/i.test(trimmed)) {
+      return { content: [{ type: "text", text: "Multiple statements not allowed. Send one statement at a time." }], isError: true };
+    }
+    // Block DDL and dangerous operations
+    if (/\b(drop|alter|create|attach|detach|pragma|reindex|vacuum)\b/i.test(trimmed)) {
+      return { content: [{ type: "text", text: "DDL operations (DROP, ALTER, CREATE) are not allowed." }], isError: true };
     }
     try {
-      const result = db.prepare(sql).run(...params);
+      const result = db.prepare(trimmed.replace(/;\s*$/, "")).run(...params);
       return {
         content: [{ type: "text", text: `Rows affected: ${result.changes}, last id: ${result.lastInsertRowid}` }],
       };

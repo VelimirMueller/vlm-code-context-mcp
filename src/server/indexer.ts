@@ -287,6 +287,10 @@ function resolveImportPath(importSource: string, fromFile: string, rootDir: stri
     ? path.resolve(rootDir, importSource.slice(1))
     : path.resolve(path.dirname(fromFile), importSource);
 
+  // Security: reject paths that escape rootDir
+  const normalizedRoot = path.resolve(rootDir) + path.sep;
+  if (!base.startsWith(normalizedRoot) && base !== path.resolve(rootDir)) return null;
+
   const stripped = base.replace(/\.(m|c)?js$/, "");
   const tryExts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
@@ -299,6 +303,8 @@ function resolveImportPath(importSource: string, fromFile: string, rootDir: stri
   ];
 
   for (const c of candidates) {
+    // Double-check each candidate stays within rootDir
+    if (!c.startsWith(normalizedRoot)) continue;
     if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
   }
   return null;

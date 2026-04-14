@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getSprintById, getSprintByIdSafe, getActiveSprint, getActiveSprintId, getLatestSprintId, getTicketsBySprintId, getTicketWithSprint, getTicketPoints, getOpenBlockerCount, getRetroFindingCount, getValidRoles, getCompletedSprintCount, logEvent } from "./queries.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -9,7 +10,7 @@ function resolveDashboardPort(db: Database.Database): string {
   try {
     const row = db.prepare("SELECT content FROM skills WHERE name = '_dashboard_port'").get() as { content: string } | undefined;
     if (row?.content) return row.content;
-  } catch {}
+  } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   return DASHBOARD_PORT;
 }
 
@@ -43,7 +44,7 @@ function notifyDashboard(db: Database.Database, event?: DashboardEvent): void {
     } else {
       fetch(`http://localhost:${port}/api/notify`, { method: "POST" }).catch(() => {});
     }
-  } catch {}
+  } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 }
 
 /** Canonical phase transition map: current → next allowed phase (simplified 4-phase). */
@@ -132,7 +133,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "get_agent",
     "Get full details of a scrum agent by role",
-    { role: z.string().describe("Agent role (e.g. 'backend-developer')") },
+    { role: z.string().max(10000).describe("Agent role (e.g. 'backend-developer')") },
     async ({ role }) => {
       const agent = db.prepare(`SELECT * FROM agents WHERE role = ?`).get(role) as any;
       if (!agent) return { content: [{ type: "text" as const, text: `Agent "${role}" not found. Use list_agents to see available roles.` }] };
@@ -232,7 +233,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       sprint_id: z.number().optional().describe("Filter by sprint"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
-      assigned_to: z.string().optional(),
+      assigned_to: z.string().max(10000).optional(),
       compact: z.boolean().optional().describe("Return minimal fields (id, title, status) to save tokens"),
     },
     async ({ sprint_id, status, assigned_to, compact }) => {
@@ -299,7 +300,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   server.tool(
     "search_scrum",
     "Full-text search across tickets, retro findings, blockers, and bugs",
-    { query: z.string().describe("Search term") },
+    { query: z.string().max(10000).describe("Search term") },
     async ({ query }) => {
       const pattern = `%${query}%`;
       const results: string[] = [`# Search: "${query}"`, ""];
@@ -322,10 +323,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "create_sprint",
     "Create a new sprint",
     {
-      name: z.string().describe("Sprint name (e.g. 'sprint-2026-04-07')"),
-      goal: z.string().optional().describe("Sprint goal"),
-      start_date: z.string().optional().describe("Start date (ISO 8601)"),
-      end_date: z.string().optional().describe("End date (ISO 8601)"),
+      name: z.string().max(10000).describe("Sprint name (e.g. 'sprint-2026-04-07')"),
+      goal: z.string().max(10000).optional().describe("Sprint goal"),
+      start_date: z.string().max(10000).optional().describe("Start date (ISO 8601)"),
+      end_date: z.string().max(10000).optional().describe("End date (ISO 8601)"),
       milestone_id: z.number().optional().describe("Milestone ID to associate with"),
     },
     async ({ name, goal, start_date, end_date, milestone_id }) => {
@@ -345,7 +346,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       sprint_id: z.number().describe("Sprint ID"),
       status: z.enum(["preparation", "kickoff", "planning", "implementation", "qa", "refactoring", "retro", "review", "closed", "rest", "done"]).optional(),
-      goal: z.string().optional(),
+      goal: z.string().max(10000).optional(),
       velocity_committed: z.number().optional(),
       velocity_completed: z.number().optional(),
       milestone_id: z.number().optional().describe("Milestone ID to associate with"),
@@ -385,7 +386,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (status && status !== oldStatus) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, oldStatus, status);
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
       }
 
       // M12-015: Auto-generate retro analysis when sprint is done or closed
@@ -434,7 +435,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
           `).run(sprint_id, sprint_id);
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
       }
 
       notifyDashboard(db);
@@ -530,13 +531,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Create a new ticket in a sprint",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      title: z.string().describe("Ticket title"),
-      ticket_ref: z.string().optional().describe("Reference ID (e.g. T-021)"),
-      description: z.string().optional(),
+      title: z.string().max(10000).describe("Ticket title"),
+      ticket_ref: z.string().max(10000).optional().describe("Reference ID (e.g. T-021)"),
+      description: z.string().max(10000).optional(),
       priority: z.enum(["P0", "P1", "P2", "P3"]).optional().default("P2"),
-      assigned_to: z.string().optional(),
+      assigned_to: z.string().max(10000).optional(),
       story_points: z.number().optional(),
-      milestone: z.string().optional(),
+      milestone: z.string().max(10000).optional(),
       milestone_id: z.number().optional().describe("Milestone ID to link to"),
       epic_id: z.number().optional().describe("Epic ID to link to"),
     },
@@ -563,10 +564,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       ticket_id: z.number().describe("Ticket ID"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
-      assigned_to: z.string().optional(),
+      assigned_to: z.string().max(10000).optional(),
       qa_verified: z.boolean().optional(),
-      verified_by: z.string().optional(),
-      notes: z.string().optional(),
+      verified_by: z.string().max(10000).optional(),
+      notes: z.string().max(10000).optional(),
       milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
       epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
     },
@@ -626,12 +627,12 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (status && status !== oldStatus) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(ticket_id, oldStatus, status);
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
       }
       if (qa_verified !== undefined) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', 'qa_verified', ?, ?, 'mcp')`).run(ticket_id, ticket.qa_verified ? 'true' : 'false', qa_verified ? 'true' : 'false');
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
       }
 
       notifyDashboard(db);
@@ -649,9 +650,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       sprint_id: z.number().describe("Sprint ID"),
       category: z.enum(["went_well", "went_wrong", "try_next"]),
-      finding: z.string().describe("The finding text"),
-      role: z.string().optional().describe("Role that reported this"),
-      action_owner: z.string().optional().describe("Who owns the action"),
+      finding: z.string().max(10000).describe("The finding text"),
+      role: z.string().max(10000).optional().describe("Role that reported this"),
+      action_owner: z.string().max(10000).optional().describe("Who owns the action"),
     },
     async ({ sprint_id, category, finding, role, action_owner }) => {
       db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role, action_owner) VALUES (?,?,?,?,?)`).run(sprint_id, category, finding, role || null, action_owner || null);
@@ -665,10 +666,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Report a blocker on a sprint",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      description: z.string().describe("What is blocked and why"),
+      description: z.string().max(10000).describe("What is blocked and why"),
       ticket_id: z.number().optional().describe("Related ticket ID"),
-      reported_by: z.string().optional(),
-      escalated_to: z.string().optional(),
+      reported_by: z.string().max(10000).optional(),
+      escalated_to: z.string().max(10000).optional(),
     },
     async ({ sprint_id, description, ticket_id, reported_by, escalated_to }) => {
       db.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to) VALUES (?,?,?,?,?)`).run(sprint_id, ticket_id || null, description, reported_by || null, escalated_to || null);
@@ -694,11 +695,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       sprint_id: z.number().describe("Sprint ID"),
       severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-      description: z.string(),
+      description: z.string().max(10000),
       ticket_id: z.number().optional().describe("Related ticket ID"),
-      steps_to_reproduce: z.string().optional(),
-      expected: z.string().optional(),
-      actual: z.string().optional(),
+      steps_to_reproduce: z.string().max(10000).optional(),
+      expected: z.string().max(10000).optional(),
+      actual: z.string().max(10000).optional(),
     },
     async ({ sprint_id, severity, description, ticket_id, steps_to_reproduce, expected, actual }) => {
       db.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual) VALUES (?,?,?,?,?,?,?)`).run(sprint_id, ticket_id || null, severity, description, steps_to_reproduce || null, expected || null, actual || null);
@@ -711,7 +712,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           db.prepare(`UPDATE sprints SET status = 'implementation', updated_at = datetime('now') WHERE id = ? AND status = 'qa'`).run(sprint_id);
           try {
             db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', 'qa', 'implementation', 'mcp')`).run(sprint_id);
-          } catch {}
+          } catch (e: any) { console.error("[silent]", e?.message ?? e); }
           regressionNote = " Sprint regressed to implementation due to CRITICAL bug.";
         }
       }
@@ -807,9 +808,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "create_milestone",
     "Create a new milestone for the product roadmap",
     {
-      name: z.string().describe("Milestone name (must be unique)"),
-      description: z.string().optional().describe("Milestone description"),
-      target_date: z.string().optional().describe("Target date (ISO 8601)"),
+      name: z.string().max(10000).describe("Milestone name (must be unique)"),
+      description: z.string().max(10000).optional().describe("Milestone description"),
+      target_date: z.string().max(10000).optional().describe("Target date (ISO 8601)"),
       status: z.enum(["planned", "active", "completed"]).optional().default("planned"),
     },
     async ({ name, description, target_date, status }) => {
@@ -829,9 +830,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       milestone_id: z.number().describe("Milestone ID"),
       status: z.enum(["planned", "active", "completed"]).optional(),
-      description: z.string().optional(),
+      description: z.string().max(10000).optional(),
       progress: z.number().min(0).max(100).optional().describe("Progress percentage 0-100"),
-      target_date: z.string().optional(),
+      target_date: z.string().max(10000).optional(),
     },
     async ({ milestone_id, status, description, progress, target_date }) => {
       const sets: string[] = []; const vals: any[] = [];
@@ -872,7 +873,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "update_vision",
     "Create or update the PRODUCT_VISION skill content",
     {
-      content: z.string().describe("Product vision content (markdown)"),
+      content: z.string().max(10000).describe("Product vision content (markdown)"),
     },
     async ({ content }) => {
       try {
@@ -907,8 +908,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "plan_sprint",
     "Create a new sprint and assign tickets to it in one operation",
     {
-      name: z.string().describe("Sprint name (e.g. 'sprint-2026-04-07')"),
-      goal: z.string().optional().describe("Sprint goal"),
+      name: z.string().max(10000).describe("Sprint name (e.g. 'sprint-2026-04-07')"),
+      goal: z.string().max(10000).optional().describe("Sprint goal"),
       ticket_ids: z.array(z.number()).describe("Array of ticket IDs to assign to this sprint"),
       velocity_committed: z.number().optional().describe("Committed velocity in story points"),
     },
@@ -1009,18 +1010,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "start_sprint",
     "Create a sprint with tickets in one call. Creates the sprint, creates tickets from provided list, assigns agents, links to milestone/epic, and returns the full sprint playbook for what to do next.",
     {
-      name: z.string().describe("Sprint name (e.g. 'Sprint 58 — Feature X')"),
-      goal: z.string().describe("Sprint goal — one sentence, measurable"),
+      name: z.string().max(10000).describe("Sprint name (e.g. 'Sprint 58 — Feature X')"),
+      goal: z.string().max(10000).describe("Sprint goal — one sentence, measurable"),
       milestone_id: z.number().optional().describe("Milestone ID to link to"),
       epic_id: z.number().optional().describe("Epic ID to link tickets to"),
       velocity: z.number().optional().describe("Committed velocity in story points"),
-      start_date: z.string().optional().describe("Start date (ISO)"),
-      end_date: z.string().optional().describe("End date (ISO)"),
+      start_date: z.string().max(10000).optional().describe("Start date (ISO)"),
+      end_date: z.string().max(10000).optional().describe("End date (ISO)"),
       tickets: z.array(z.object({
-        title: z.string(),
-        description: z.string().optional(),
+        title: z.string().max(10000),
+        description: z.string().max(10000).optional(),
         priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
-        assigned_to: z.string().optional(),
+        assigned_to: z.string().max(10000).optional(),
         story_points: z.number().optional(),
       })).describe("Tickets to create and assign to this sprint"),
     },
@@ -1060,7 +1061,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         // Log event
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'created', 'status', NULL, 'planning', 'mcp')`).run(sprintId);
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
@@ -1096,7 +1097,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "dump_database",
     "Export the entire database to JSON for backup/restore",
     {
-      tables: z.array(z.string()).optional().describe("Specific tables to export (default: all)"),
+      tables: z.array(z.string().max(10000)).optional().describe("Specific tables to export (default: all)"),
     },
     async ({ tables }) => {
       try {
@@ -1133,7 +1134,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "restore_database",
     "Restore database from a JSON dump. Wraps in transaction for safety.",
     {
-      dump_json: z.string().describe("The full JSON dump string from dump_database"),
+      dump_json: z.string().max(10000).describe("The full JSON dump string from dump_database"),
     },
     async ({ dump_json }) => {
       try {
@@ -1195,7 +1196,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "export_to_file",
     "Export database to a JSON file on disk",
     {
-      output_path: z.string().optional().describe("File path (default: ./code-context-dump.json)"),
+      output_path: z.string().max(10000).optional().describe("File path (default: ./code-context-dump.json)"),
     },
     async ({ output_path }) => {
       try {
@@ -1209,7 +1210,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         const dump: Record<string, any[]> = {};
         for (const table of allTables) {
-          try { dump[table] = db.prepare(`SELECT * FROM ${table}`).all(); } catch {}
+          try { dump[table] = db.prepare(`SELECT * FROM ${table}`).all(); } catch (e: any) { console.error("[silent]", e?.message ?? e); }
         }
 
         const output = {
@@ -1237,7 +1238,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "import_from_file",
     "Restore database from a JSON dump file on disk",
     {
-      input_path: z.string().describe("Path to the JSON dump file"),
+      input_path: z.string().max(10000).describe("Path to the JSON dump file"),
     },
     async ({ input_path }) => {
       try {
@@ -1668,7 +1669,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "run_onboarding",
     "Run the full project onboarding sequence — checks and fixes all missing setup steps",
     {
-      project_path: z.string().optional().describe("Project root path (default: cwd)"),
+      project_path: z.string().max(10000).optional().describe("Project root path (default: cwd)"),
     },
     async ({ project_path }) => {
       const steps: string[] = [];
@@ -1749,7 +1750,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "generate_vision_animation",
     "Generate project vision animation data (JSON) and provide the Remotion render command",
     {
-      output_path: z.string().optional().describe("Output path for JSON data (default: ./vision-data.json)"),
+      output_path: z.string().max(10000).optional().describe("Output path for JSON data (default: ./vision-data.json)"),
     },
     async ({ output_path }) => {
       try {
@@ -1817,10 +1818,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "create_epic",
     "Create a new epic to group related tickets",
     {
-      name: z.string().describe("Epic name"),
-      description: z.string().optional().describe("Epic description"),
+      name: z.string().max(10000).describe("Epic name"),
+      description: z.string().max(10000).optional().describe("Epic description"),
       milestone_id: z.number().optional().describe("Milestone ID to associate with"),
-      color: z.string().default("#3b82f6").describe("Hex color for the epic (default #3b82f6)"),
+      color: z.string().max(10000).default("#3b82f6").describe("Hex color for the epic (default #3b82f6)"),
       priority: z.number().min(0).max(4).default(0).describe("Priority 0-4 (default 0)"),
     },
     async ({ name, description, milestone_id, color, priority }) => {
@@ -1843,10 +1844,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Update an existing epic's fields",
     {
       epic_id: z.number().describe("Epic ID"),
-      name: z.string().optional().describe("New name"),
-      description: z.string().optional().describe("New description"),
-      status: z.string().optional().describe("New status"),
-      color: z.string().optional().describe("New hex color"),
+      name: z.string().max(10000).optional().describe("New name"),
+      description: z.string().max(10000).optional().describe("New description"),
+      status: z.string().max(10000).optional().describe("New status"),
+      color: z.string().max(10000).optional().describe("New hex color"),
       priority: z.number().min(0).max(4).optional().describe("New priority 0-4"),
     },
     async ({ epic_id, name, description, status, color, priority }) => {
@@ -1878,7 +1879,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "list_epics",
     "List epics with optional status and milestone filters, including ticket progress counts. Use compact=true for minimal output (id, name, status) to save tokens.",
     {
-      status: z.string().optional().describe("Filter by status"),
+      status: z.string().max(10000).optional().describe("Filter by status"),
       milestone_id: z.number().optional().describe("Filter by milestone ID"),
       compact: z.boolean().optional().describe("Return minimal fields (id, name, status) to save tokens"),
     },
@@ -1942,11 +1943,11 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "log_decision",
     "Log an architectural or process decision with rationale and alternatives considered",
     {
-      title: z.string().describe("Decision title"),
-      rationale: z.string().optional().describe("Why this decision was made"),
-      alternatives: z.string().optional().describe("Alternatives considered"),
-      outcome: z.string().optional().describe("Expected or actual outcome"),
-      category: z.string().optional().default("technical").describe("Category (e.g. technical, process, product)"),
+      title: z.string().max(10000).describe("Decision title"),
+      rationale: z.string().max(10000).optional().describe("Why this decision was made"),
+      alternatives: z.string().max(10000).optional().describe("Alternatives considered"),
+      outcome: z.string().max(10000).optional().describe("Expected or actual outcome"),
+      category: z.string().max(10000).optional().default("technical").describe("Category (e.g. technical, process, product)"),
     },
     async ({ title, rationale, alternatives, outcome, category }) => {
       try {
@@ -1963,7 +1964,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "list_decisions",
     "List logged decisions with optional category filter",
     {
-      category: z.string().optional().describe("Filter by category"),
+      category: z.string().max(10000).optional().describe("Filter by category"),
       limit: z.number().optional().default(20).describe("Max results (default 20)"),
     },
     async ({ category, limit }) => {
@@ -2075,7 +2076,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "update_sprint_config",
     "Create or update the SPRINT_PROCESS skill — stores sprint process configuration in the database",
     {
-      content: z.string().describe("Sprint process configuration content (markdown)"),
+      content: z.string().max(10000).describe("Sprint process configuration content (markdown)"),
     },
     async ({ content }) => {
       try {
@@ -2099,7 +2100,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Capture a daily burndown snapshot for a sprint — records remaining, completed, added, and removed points",
     {
       sprint_id: z.number().describe("Sprint ID"),
-      date: z.string().optional().describe("Date (ISO 8601, defaults to today)"),
+      date: z.string().max(10000).optional().describe("Date (ISO 8601, defaults to today)"),
     },
     async ({ sprint_id, date }) => {
       try {
@@ -2239,8 +2240,8 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Add a tag to a ticket (creates tag if it doesn't exist)",
     {
       ticket_id: z.number().describe("Ticket ID"),
-      tag_name: z.string().describe("Tag name (e.g. 'tech-debt', 'security')"),
-      color: z.string().optional().describe("Hex color for new tags (default #6b7280)"),
+      tag_name: z.string().max(10000).describe("Tag name (e.g. 'tech-debt', 'security')"),
+      color: z.string().max(10000).optional().describe("Hex color for new tags (default #6b7280)"),
     },
     async ({ ticket_id, tag_name, color }) => {
       try {
@@ -2260,7 +2261,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Remove a tag from a ticket",
     {
       ticket_id: z.number().describe("Ticket ID"),
-      tag_name: z.string().describe("Tag name"),
+      tag_name: z.string().max(10000).describe("Tag name"),
     },
     async ({ ticket_id, tag_name }) => {
       try {
@@ -2356,7 +2357,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       sprint_id: z.number().describe("Sprint ID"),
       mood: z.number().min(1).max(5).describe("Mood 1-5 (1=burned out, 5=energized)"),
       workload_points: z.number().optional().describe("Story points assigned this sprint"),
-      notes: z.string().optional().describe("Notes about mood/workload"),
+      notes: z.string().max(10000).optional().describe("Notes about mood/workload"),
     },
     async ({ agent_id, sprint_id, mood, workload_points, notes }) => {
       try {
@@ -2432,8 +2433,8 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       output_tokens: z.number().describe("Output tokens consumed"),
       tool_calls: z.number().optional().describe("Number of tool calls made"),
       duration_sec: z.number().optional().describe("Duration in seconds"),
-      label: z.string().optional().describe("Label for this measurement (e.g. 'S-MCP', 'L-Vanilla')"),
-      session_id: z.string().optional().describe("Session identifier"),
+      label: z.string().max(10000).optional().describe("Label for this measurement (e.g. 'S-MCP', 'L-Vanilla')"),
+      session_id: z.string().max(10000).optional().describe("Session identifier"),
     },
     async ({ sprint_id, ticket_id, input_tokens, output_tokens, tool_calls, duration_sec, label, session_id }) => {
       try {
@@ -2509,10 +2510,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       entity_type: z.enum(["ticket", "sprint", "epic", "milestone", "agent", "blocker", "bug"]),
       entity_id: z.number(),
       action: z.enum(["created", "updated", "deleted", "status_changed"]),
-      field_name: z.string().optional(),
-      old_value: z.string().optional(),
-      new_value: z.string().optional(),
-      actor: z.string().optional(),
+      field_name: z.string().max(10000).optional(),
+      old_value: z.string().max(10000).optional(),
+      new_value: z.string().max(10000).optional(),
+      actor: z.string().max(10000).optional(),
     },
     async ({ entity_type, entity_id, action, field_name, old_value, new_value, actor }) => {
       try {
@@ -2534,7 +2535,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Get velocity trend data across sprints — committed vs completed, completion rate, bugs. Use compact=true for summary only.",
     {
       last_n_sprints: z.number().optional().describe("Number of recent sprints (default 10)"),
-      status: z.string().optional().describe("Filter by sprint status (e.g. 'closed')"),
+      status: z.string().max(10000).optional().describe("Filter by sprint status (e.g. 'closed')"),
       compact: z.boolean().optional().describe("Compact mode: avg completion + trend direction only (~30 tokens). Default false."),
     },
     async ({ last_n_sprints, status, compact }) => {
@@ -2573,7 +2574,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "list_recent_events",
     "List recent events from the audit trail — use this to detect dashboard-initiated changes (e.g. user moved a ticket on the kanban board)",
     {
-      entity_type: z.string().optional().describe("Filter by entity type (ticket, sprint, epic, milestone)"),
+      entity_type: z.string().max(10000).optional().describe("Filter by entity type (ticket, sprint, epic, milestone)"),
       limit: z.number().optional().describe("Max results (default 20)"),
     },
     async ({ entity_type, limit }) => {
@@ -2603,11 +2604,11 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Log a finding from a discovery sprint",
     {
       sprint_id: z.number().describe("Discovery sprint ID"),
-      finding: z.string().describe("The discovery finding text"),
-      resolution_plan: z.string().optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
+      finding: z.string().max(10000).describe("The discovery finding text"),
+      resolution_plan: z.string().max(10000).optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
       category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Finding category (default: general)"),
       priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("Priority (default: P1)"),
-      created_by: z.string().optional().describe("Agent role that created this finding"),
+      created_by: z.string().max(10000).optional().describe("Agent role that created this finding"),
     },
     async ({ sprint_id, finding, resolution_plan, category, priority, created_by }) => {
       try {
@@ -2672,8 +2673,8 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       discovery_id: z.number().describe("Discovery ID"),
       status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("New status"),
       priority: z.enum(["P0", "P1", "P2", "P3"]).optional().describe("New priority"),
-      drop_reason: z.string().optional().describe("Why this discovery was dropped"),
-      resolution_plan: z.string().optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
+      drop_reason: z.string().max(10000).optional().describe("Why this discovery was dropped"),
+      resolution_plan: z.string().max(10000).optional().describe("Plan for how to resolve this discovery — steps, approach, and acceptance criteria"),
     },
     async ({ discovery_id, status, priority, drop_reason, resolution_plan }) => {
       try {
@@ -2735,18 +2736,18 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "request_user_input",
     "Request user input via the dashboard wizard modal. Writes a question to the bridge action queue. If the dashboard is running, the question appears as a wizard step; if not, returns a fallback flag so the caller can ask in the terminal instead.",
     {
-      step: z.string().describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone', 'epics', 'tickets', 'sprint_launch', 'retro')"),
-      title: z.string().describe("Question card title"),
-      description: z.string().describe("Context — why this step matters"),
+      step: z.string().max(10000).describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone', 'epics', 'tickets', 'sprint_launch', 'retro')"),
+      title: z.string().max(10000).describe("Question card title"),
+      description: z.string().max(10000).describe("Context — why this step matters"),
       fields: z.array(z.object({
-        name: z.string().describe("Field key"),
-        label: z.string().describe("Display label"),
+        name: z.string().max(10000).describe("Field key"),
+        label: z.string().max(10000).describe("Display label"),
         type: z.enum(["text", "textarea", "select", "number"]).describe("Input type"),
-        placeholder: z.string().optional().describe("Placeholder text"),
-        options: z.array(z.string()).optional().describe("Options for select fields"),
+        placeholder: z.string().max(10000).optional().describe("Placeholder text"),
+        options: z.array(z.string().max(10000)).optional().describe("Options for select fields"),
         required: z.boolean().optional().describe("Whether field is required (default true)"),
       })).describe("Form fields to display"),
-      hints: z.array(z.string()).optional().describe("Hint bullets shown below the question"),
+      hints: z.array(z.string().max(10000)).optional().describe("Hint bullets shown below the question"),
     },
     async ({ step, title, description, fields, hints }) => {
       try {
@@ -2842,13 +2843,13 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "send_step_progress",
     "Send real-time step progress updates to the wizard modal. Shows which step Claude is executing and current progress.",
     {
-      step: z.string().describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone')"),
-      title: z.string().describe("Step title (e.g. 'Creating milestone')"),
-      description: z.string().optional().describe("What is happening in this step"),
+      step: z.string().max(10000).describe("Wizard step name (e.g. 'vision', 'discovery', 'milestone')"),
+      title: z.string().max(10000).describe("Step title (e.g. 'Creating milestone')"),
+      description: z.string().max(10000).optional().describe("What is happening in this step"),
       current: z.number().describe("Current step number (1-indexed)"),
       total: z.number().describe("Total number of steps"),
       status: z.enum(["pending", "in_progress", "completed", "error"]).describe("Step status"),
-      error: z.string().optional().describe("Error message if status is 'error'"),
+      error: z.string().max(10000).optional().describe("Error message if status is 'error'"),
     },
     async ({ step, title, description, current, total, status, error }) => {
       try {
@@ -2880,9 +2881,9 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "send_claude_output",
     "Stream Claude's real-time text output to the dashboard wizard UI. Each call appends a line to the live output panel. Use this to show what Claude is doing during ceremonies.",
     {
-      text: z.string().describe("The text content to display in the output stream"),
+      text: z.string().max(10000).describe("The text content to display in the output stream"),
       line_type: z.enum(["text", "tool_call", "tool_result", "thinking", "error", "step", "system"]).optional().default("text").describe("Type of output line (default: text)"),
-      step: z.string().optional().describe("Optional step name to associate this output with"),
+      step: z.string().max(10000).optional().describe("Optional step name to associate this output with"),
     },
     async ({ text, line_type, step }) => {
       try {
@@ -2893,7 +2894,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: text.slice(0, 5000), lineType: line_type || "text", step: step || undefined }),
           }).catch(() => {});
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
         return { content: [{ type: "text" as const, text: `Output streamed: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2905,10 +2906,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "send_claude_step",
     "Notify the dashboard wizard about a step transition during a ceremony. Shows step status in the output stream panel.",
     {
-      name: z.string().describe("Step identifier (e.g. 'create_milestone', 'assign_tickets')"),
+      name: z.string().max(10000).describe("Step identifier (e.g. 'create_milestone', 'assign_tickets')"),
       status: z.enum(["pending", "in_progress", "completed", "error"]).describe("New step status"),
-      title: z.string().optional().describe("Human-readable step title"),
-      description: z.string().optional().describe("What is happening in this step"),
+      title: z.string().max(10000).optional().describe("Human-readable step title"),
+      description: z.string().max(10000).optional().describe("What is happening in this step"),
     },
     async ({ name, status, title, description }) => {
       try {
@@ -2919,7 +2920,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, status, title: title || undefined, description: description || undefined }),
           }).catch(() => {});
-        } catch {}
+        } catch (e: any) { console.error("[silent]", e?.message ?? e); }
         return { content: [{ type: "text" as const, text: `Step '${name}' status: ${status}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };

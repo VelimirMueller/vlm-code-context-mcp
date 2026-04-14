@@ -82,7 +82,7 @@ if (seeded.agents + seeded.skills > 0) {
   console.log(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
 }
 // Rebuild marketing stats on startup so cached values are fresh
-try { rebuildMarketingStats(); } catch {}
+try { rebuildMarketingStats(); } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
 // SSE clients
 const sseClients = new Set<http.ServerResponse>();
@@ -310,7 +310,7 @@ function apiGetSprintProcess(): { phases: any[] } {
       const phases = parseSprintPhasesMarkdown(row.content);
       if (phases.length > 0) return { phases };
     }
-  } catch {}
+  } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   return { phases: DEFAULT_SPRINT_PHASES };
 }
 
@@ -360,7 +360,7 @@ function apiAgentsHealth() {
         const retroNegative = (writeDb.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE role = ? AND category = 'went_wrong'`).get(a.role) as any)?.c || 0;
         mood += Math.min(retroPositive * 2, 10); // positive retros boost mood
         mood -= Math.min(retroNegative * 3, 15); // negative retros decrease mood more
-      } catch {}
+      } catch (e: any) { console.error("[silent]", e?.message ?? e); }
       mood = Math.max(0, Math.min(100, mood));
       const emoji = mood >= 80 ? '😊' : mood >= 60 ? '🙂' : mood >= 40 ? '😐' : mood >= 20 ? '😟' : '😫';
       const mood_label = mood >= 80 ? 'thriving' : mood >= 60 ? 'good' : mood >= 40 ? 'neutral' : mood >= 20 ? 'stressed' : 'burnout';
@@ -1084,7 +1084,7 @@ function apiAdvanceSprint(sprintId: number) {
   // Event trail
   try {
     writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'dashboard')").run(sprintId, sprint.status, nextPhase);
-  } catch {}
+  } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
   const automations: string[] = [];
 
@@ -1096,7 +1096,7 @@ function apiAdvanceSprint(sprintId: number) {
       const summary = `Auto-analysis: ${doneCount}/${tickets.length} tickets done (${pct}%). Velocity: ${velocityCompleted || 0}pt of ${sprint.velocity_committed || velocityCommitted || 0}pt committed.`;
       writeDb.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')").run(sprintId, summary);
       automations.push('retro_generated');
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
     // Archive discoveries: planned → implemented if ticket DONE
     try {
@@ -1106,7 +1106,7 @@ function apiAdvanceSprint(sprintId: number) {
           AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
       `).run(sprintId, sprintId);
       if (r.changes > 0) automations.push(`${r.changes}_discoveries_implemented`);
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
     // Drop discoveries whose tickets weren't completed
     try {
@@ -1115,7 +1115,7 @@ function apiAdvanceSprint(sprintId: number) {
         WHERE discovery_sprint_id = ? AND status = 'planned'
           AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
       `).run(sprintId, sprintId);
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   }
 
   // ── done → rest: complete epics + update milestone progress ──
@@ -1134,7 +1134,7 @@ function apiAdvanceSprint(sprintId: number) {
           automations.push(`epic_${epic_id}_completed`);
         }
       }
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
     // Update milestone progress
     if (sprint.milestone_id) {
@@ -1161,7 +1161,7 @@ function apiAdvanceSprint(sprintId: number) {
           automations.push(`milestone_progress_${progress}%`);
           if (msStatus === 'completed') automations.push('milestone_completed');
         }
-      } catch {}
+      } catch (e: any) { console.error("[silent]", e?.message ?? e); }
     }
   }
 
@@ -1300,7 +1300,7 @@ function apiSprintUpdate(id: number, body: any) {
         WHERE discovery_sprint_id = ? AND status = 'planned'
           AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
       `).run(id, id);
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   }
 
   const result: any = { id, updated: true };
@@ -1386,7 +1386,7 @@ function apiUpdateTicket(id: number, body: any) {
         UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
         WHERE status = 'planned' AND implementation_ticket_id = ?
       `).run(id);
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   }
 
   return { id, updated: true };
@@ -1474,7 +1474,7 @@ function apiDump() {
       } else {
         dump[table] = writeDb.prepare(`SELECT * FROM ${table}`).all();
       }
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
   }
   return { version: PKG_VERSION, exported_at: new Date().toISOString(), tables: dump };
 }
@@ -1537,7 +1537,7 @@ function apiProjectStatus() {
       if (parsed.tool_count) toolCount = parsed.tool_count;
       if (parsed.version) version = parsed.version;
     }
-  } catch {}
+  } catch (e: any) { console.error("[silent]", e?.message ?? e); }
 
   return {
     initialized: fileCount > 0,
@@ -2046,12 +2046,12 @@ function startServer(port: number, maxRetries = 10): void {
     // Write actual port to DB so MCP tools can find the dashboard
     try {
       writeDb.prepare("INSERT OR REPLACE INTO skills (name, content, owner_role) VALUES ('_dashboard_port', ?, 'system')").run(String(port));
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
     // Write port to .env.local so Vite dev proxy auto-configures on next start
     try {
       const envLocalPath = path.join(__dirname, "app", ".env.local");
       fs.writeFileSync(envLocalPath, `VITE_DASHBOARD_PORT=${port}\n`);
-    } catch {}
+    } catch (e: any) { console.error("[silent]", e?.message ?? e); }
     console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
 
     // Auto-detect watch directory from indexed files, or use CLI arg

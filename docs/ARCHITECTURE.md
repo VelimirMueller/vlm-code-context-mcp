@@ -1,102 +1,76 @@
 # Architecture
 
-## Overview
-
-vlm-code-context-mcp is an MCP server that pre-indexes TypeScript/JavaScript codebases into SQLite, plus a React dashboard for visualization and sprint management.
-
-## System Components
-
-### MCP Server (src/server/)
-
-- TypeScript parser indexes files, exports, imports, dependencies
-- SQLite database stores all metadata
-- MCP tools expose read/write operations to AI agents
-
-### Scrum System (src/scrum/)
-
-- 20+ database tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones, decisions, epics, sprint_metrics, ticket_dependencies, tags, ticket_tags, agent_mood_history, event_log, discoveries
-- 71 MCP tools for full sprint lifecycle management (including bridge wizard)
-- All data lives in SQLite (context.db) — no file-based storage
-
-### Dashboard (src/dashboard/)
-
-- **App**: Vite + React 18 + TypeScript + Tailwind CSS (src/dashboard/app/)
-- **Server**: Node.js HTTP server serving APIs + static files (src/dashboard/dashboard.ts)
-- **State**: Zustand stores (file, sprint, agent, planning, UI)
-- **Animation**: Framer Motion for transitions + micro-interactions
-
-## Component Architecture (Atomic Design)
+## Module Dependency Graph
 
 ```
-atoms/       → AnimatedNumber, Badge, Button, Dot, Skeleton, Stat, Toast
-molecules/   → AgentCard, BentoCard, FileItem, FolderItem, HeroText,
-               MarkdownRenderer, SearchBar, SprintCard, StatGroup, SubTabBar,
-               TabBar, TicketCard
-organisms/   → BentoGrid, DependencyGraph, FileTree, GanttChart, KanbanBoard,
-               LandingAnimation, MilestoneList, SprintDetail, SprintList,
-               SprintPlanner, TeamGrid, Topbar, VisionEditor
-templates/   → (via index.ts: ExplorerLayout, SprintLayout, PlanningLayout)
-pages/       → CodeExplorer, Sprint, ProjectManagement
+┌─────────────────────────────────────────────┐
+│                 server/                      │
+│   index.ts (MCP entry point)                │
+│   indexer.ts (codebase scanner)             │
+│   schema.ts (files/exports/deps DDL)        │
+│   setup.ts (CLI bootstrapper)               │
+│                     │                        │
+│                     │ imports                 │
+│                     ▼                        │
+│                 scrum/                        │
+│   tools.ts → tools/ (domain modules)        │
+│   schema.ts (scrum DDL + migrations)        │
+│   defaults.ts (agent/skill factory)         │
+│   queries.ts (data access layer)            │
+│                                              │
+│              ┌──────┘  (no reverse import)   │
+│              │                               │
+│              ▼                               │
+│           dashboard/                         │
+│   dashboard.ts → handlers/ (HTTP handlers)  │
+│   dashboard.html (landing page)             │
+│   app/ (React SPA)                          │
+│       stores/ (Zustand)                     │
+│       pages/ (route-level components)       │
+│       components/ (atoms/molecules/orgs)    │
+└─────────────────────────────────────────────┘
 ```
 
-## State Management
+## Module Rules
 
-5 Zustand stores:
+1. **server/** is the MCP entry point — imports from scrum/ for tool registration
+2. **scrum/** is self-contained business logic — never imports from server/ or dashboard/
+3. **dashboard/** is the UI layer — imports from server/ (indexer) and scrum/ (schema, defaults) for setup only
+4. **scrum/ → dashboard/** communication is via HTTP POST (fire-and-forget), not direct imports
 
-- **fileStore** — files, directories, selected file detail, graph, stats
-- **sprintStore** — sprints, tickets, retro findings
-- **agentStore** — agent health and mood
-- **planningStore** — milestones, vision, gantt, backlog (read + write)
-- **uiStore** — page navigation, tabs, sidebar, search, folder expand state
+## Key Files
 
-## API Endpoints
+| File | Lines | Role |
+|------|-------|------|
+| `scrum/tools.ts` | ~3,100 | 82 scrum MCP tools (being split into tools/ modules) |
+| `scrum/queries.ts` | ~130 | Data access layer — reusable query functions |
+| `scrum/schema.ts` | ~530 | DDL + migrations for 25 scrum tables |
+| `dashboard/dashboard.ts` | ~2,100 | HTTP server + API (being split into handlers/) |
+| `server/index.ts` | ~460 | 11 code intelligence MCP tools |
+| `server/indexer.ts` | ~750 | File parser, export extractor, dep graph builder |
 
-### Code Context (read-only)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /api/files` | GET | All indexed files with export/import counts |
-| `GET /api/file/:id` | GET | Full file context: exports, imports, importedBy |
-| `GET /api/file/:id/changes` | GET | Per-file change history with diffs |
-| `GET /api/directories` | GET | All directory metadata |
-| `GET /api/stats` | GET | Aggregate counts, language breakdown, extensions |
-| `GET /api/graph` | GET | Dependency graph nodes and edges |
-| `GET /api/changes` | GET | Recent changes across all files (with `?limit=`) |
-| `GET /api/events` | SSE | Server-Sent Events stream for live reload |
-
-### Skills & Agents
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /api/skills` | GET | All skills with name, content, owner_role |
-| `GET /api/skill/:name` | GET | Single skill by name |
-| `GET /api/agents` | GET | Agent health + computed mood scores |
-
-### Scrum (Sprint 8 additions)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /api/sprints` | GET | All sprints with ticket/done/qa/retro/blocker counts |
-| `GET /api/sprint/:id` | GET | Single sprint detail |
-| `GET /api/sprint/:id/tickets` | GET | Tickets for a sprint |
-| `GET /api/sprint/:id/retro` | GET | Retro findings for a sprint |
-| `GET /api/milestones` | GET | All milestones with ticket counts |
-| `POST /api/milestones` | POST | Create a new milestone |
-| `PUT /api/milestone/:id` | PUT | Update milestone status/progress/description |
-| `GET /api/backlog` | GET | Unassigned and carried-over tickets |
-| `POST /api/sprints/plan` | POST | Create sprint and assign tickets in one call |
-| `PUT /api/vision` | PUT | Update PRODUCT_VISION skill content |
-
-## Build Pipeline
+## Data Flow
 
 ```
-npm run build
-  → tsc (compiles MCP server to dist/)
-  → vite build (compiles React app to dist/dashboard/)
-
-npm run dashboard:dev
-  → vite dev server on :5173, proxies /api/* to :3333
-
-npm run dashboard
-  → tsx src/dashboard/dashboard.ts (full server on :3333)
+AI Client → MCP Protocol → server/index.ts → SQLite (context.db)
+                                                    ↑
+Dashboard (React) ← SSE ← dashboard.ts ← WAL watcher ─┘
 ```
+
+All state lives in `context.db`. No in-memory state is shared between server and dashboard — they communicate via SQLite WAL monitoring.
+
+## Refactoring Status
+
+### Server (scrum/)
+- `queries.ts` extracted as data access layer (Sprint 14)
+- `tools/` directory created with domain module structure
+- Tools being incrementally migrated: sprint, ticket, epic, discovery, analytics, bridge
+
+### Dashboard
+- `handlers/` directory created for HTTP handler extraction
+- Planned modules: code, sprint, planning, team, bridge
+
+### Frontend (dashboard/app/)
+- Identified 10 components exceeding 450 lines for splitting
+- sprintStore needs decomposition into 3 focused stores
+- Inline styles → design token migration planned
