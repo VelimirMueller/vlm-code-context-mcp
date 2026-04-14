@@ -152,7 +152,7 @@ server.tool(
   "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents). Use include_changes=false to skip change history and save tokens.",
   {
     path: z.string().describe("Absolute file path"),
-    include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: true). Set to false to save tokens."),
+    include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: false). Set to true when debugging or investigating changes."),
     change_limit: z.number().optional().describe("Max number of recent changes to include (default: 3)"),
   },
   async ({ path: filePath, include_changes, change_limit }) => {
@@ -195,8 +195,8 @@ server.tool(
       dependents.length > 0 ? `## Imported by (${dependents.length})\n${dependents.map(d => `- ${d.path} [${d.symbols}]`).join("\n")}` : "",
     ];
 
-    // Only include change history if requested (default: true for backward compat)
-    const shouldIncludeChanges = include_changes !== false;
+    // Only include change history if explicitly requested (default: false to save tokens)
+    const shouldIncludeChanges = include_changes === true;
     if (shouldIncludeChanges) {
       const maxChanges = change_limit ?? 3;
       const changes = db.prepare(`

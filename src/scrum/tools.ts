@@ -635,7 +635,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       }
 
       notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
+
+      // Return compact state inline — eliminates need for follow-up get_ticket call
+      const updated = db.prepare(`SELECT id, ticket_ref, title, status, assigned_to, story_points, qa_verified FROM tickets WHERE id = ?`).get(ticket_id) as any;
+      const stateStr = updated ? ` [${updated.status} | ${updated.assigned_to || "unassigned"} | ${updated.story_points || 0}pt | qa:${updated.qa_verified ? "yes" : "no"}]` : "";
+      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}${stateStr}` }] };
     }
   );
 
@@ -735,18 +739,31 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "export_sprint_report",
-    "Generate a complete markdown sprint report",
-    { sprint_id: z.number().describe("Sprint ID") },
-    async ({ sprint_id }) => {
+    "Generate a sprint report. Use compact=true for summary stats only (~80 tokens vs ~400).",
+    {
+      sprint_id: z.number().describe("Sprint ID"),
+      compact: z.boolean().optional().describe("Compact mode: summary stats only, skip empty sections. Default false."),
+    },
+    async ({ sprint_id, compact }) => {
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id=?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} not found.` }] };
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id=? ORDER BY priority, status`).all(sprint_id) as any[];
-      const retro = db.prepare(`SELECT * FROM retro_findings WHERE sprint_id=? ORDER BY category`).all(sprint_id) as any[];
-      const bugs = db.prepare(`SELECT * FROM bugs WHERE sprint_id=?`).all(sprint_id) as any[];
-      const blockers = db.prepare(`SELECT * FROM blockers WHERE sprint_id=?`).all(sprint_id) as any[];
 
       const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
       const donePts = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+      const doneCount = tickets.filter((t: any) => t.status === 'DONE').length;
+      const qaCount = tickets.filter((t: any) => t.qa_verified).length;
+
+      if (compact) {
+        const bugs = (db.prepare(`SELECT COUNT(*) as c FROM bugs WHERE sprint_id=?`).get(sprint_id) as any).c;
+        const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id=?`).get(sprint_id) as any).c;
+        const blockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id=?`).get(sprint_id) as any).c;
+        return { content: [{ type: "text" as const, text: `${sprint.name} [${sprint.status}]: ${donePts}/${totalPts}pt, ${doneCount}/${tickets.length} tickets, ${qaCount} QA'd${bugs ? `, ${bugs} bugs` : ""}${blockerCount ? `, ${blockerCount} blockers` : ""}${retroCount ? `, ${retroCount} retro findings` : ""} | goal: ${sprint.goal || "—"}` }] };
+      }
+
+      const retro = db.prepare(`SELECT * FROM retro_findings WHERE sprint_id=? ORDER BY category`).all(sprint_id) as any[];
+      const bugs = db.prepare(`SELECT * FROM bugs WHERE sprint_id=?`).all(sprint_id) as any[];
+      const blockers = db.prepare(`SELECT * FROM blockers WHERE sprint_id=?`).all(sprint_id) as any[];
 
       const lines = [
         `# Sprint Report: ${sprint.name}`,
@@ -757,21 +774,18 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         '| Ref | Title | Priority | Status | Assignee | Points | QA |',
         '|-----|-------|----------|--------|----------|--------|----|',
         ...tickets.map((t: any) => `| ${t.ticket_ref || '#' + t.id} | ${t.title} | ${t.priority} | ${t.status} | ${t.assigned_to || '—'} | ${t.story_points || 0} | ${t.qa_verified ? 'Yes' : 'No'} |`),
-        '',
       ];
 
       if (bugs.length) {
-        lines.push(`## Bugs (${bugs.length})`);
+        lines.push('', `## Bugs (${bugs.length})`);
         bugs.forEach((b: any) => lines.push(`- [${b.status}] ${b.severity}: ${b.description}`));
-        lines.push('');
       }
       if (blockers.length) {
-        lines.push(`## Blockers (${blockers.length})`);
+        lines.push('', `## Blockers (${blockers.length})`);
         blockers.forEach((b: any) => lines.push(`- [${b.status}] ${b.description}`));
-        lines.push('');
       }
       if (retro.length) {
-        lines.push(`## Retrospective (${retro.length} findings)`);
+        lines.push('', `## Retrospective (${retro.length} findings)`);
         ['went_well', 'went_wrong', 'try_next'].forEach(cat => {
           const items = retro.filter((f: any) => f.category === cat);
           if (items.length) {
@@ -920,8 +934,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Get the current sprint playbook: phase, ticket summary, gate status, blockers, and directive next actions. Follow the actions listed — do not ask for confirmation.",
     {
       sprint_id: z.number().optional().describe("Sprint ID (default: latest active sprint)"),
+      compact: z.boolean().optional().describe("Compact mode: phase + progress + next action only (~50 tokens vs ~250). Default false."),
     },
-    async ({ sprint_id }) => {
+    async ({ sprint_id, compact }) => {
       let sprint: any;
       if (sprint_id) {
         sprint = db.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprint_id);
@@ -931,28 +946,35 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (!sprint) return { content: [{ type: "text" as const, text: "No active sprint found." }] };
 
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint.id) as any[];
-      const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
       const blockerCount = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprint.id) as any).c;
 
-      const byStatus: Record<string, number> = {};
-      for (const t of tickets) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
-
       const doneCount = tickets.filter(t => t.status === "DONE").length;
-      const qaVerified = tickets.filter(t => t.qa_verified).length;
       const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
       const donePts = tickets.filter(t => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
 
-      // Gate check for next phase (uses shared function)
       const effectivePhase = resolvePhase(sprint.status);
       const nextPhase = PHASE_TRANSITIONS[effectivePhase] || "done";
+
+      // Compact mode: phase + progress + next action only
+      if (compact) {
+        const gates = checkSprintGates(db, sprint, nextPhase);
+        const gateStatus = gates.warnings.length === 0 ? "gates pass" : `${gates.warnings.length} warnings`;
+        const action = sprint.status === "implementation" ? "update_ticket as work progresses" : sprint.status === "done" ? "add_retro_finding then advance_sprint" : "advance_sprint";
+        return { content: [{ type: "text" as const, text: `${sprint.name} | ${sprint.status}→${nextPhase} | ${donePts}/${totalPts}pt ${doneCount}/${tickets.length} done | ${gateStatus}${blockerCount > 0 ? ` | ${blockerCount} blockers` : ""} | next: ${action}` }] };
+      }
+
+      const qaVerified = tickets.filter(t => t.qa_verified).length;
+      const retroCount = (db.prepare(`SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?`).get(sprint.id) as any).c;
       const gates = checkSprintGates(db, sprint, nextPhase);
+
+      const byStatus: Record<string, number> = {};
+      for (const t of tickets) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
 
       const ACTIONS: Record<string, string[]> = {
         planning: ["Assign tickets, set velocity", "Call advance_sprint to start implementation"],
         implementation: ["Work on tickets — update status via update_ticket", "Mark tickets IN_PROGRESS when starting, DONE when complete", "Call advance_sprint once all tickets are DONE"],
         done: ["Review results, add retro findings via add_retro_finding", "Call advance_sprint to move to rest"],
         rest: ["Sprint complete", "Call start_sprint to begin next sprint"],
-        // Legacy phase actions for backward compat
         preparation: ["Review backlog", "Call advance_sprint to proceed"],
         kickoff: ["Define sprint goal", "Call advance_sprint to proceed"],
         qa: ["QA verifies tickets", "Call advance_sprint to proceed"],
@@ -1337,7 +1359,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "get_sprint_instructions",
-    "Get sprint process instructions — lifecycle, ticket workflow, retro rules, role responsibilities, and close checklist. Call with no args for full guide, or pass a section name.",
+    "Get sprint process instructions. Auto-adapts to team experience: full guide for first 2 sprints, condensed for experienced teams. Pass a section name for targeted retrieval.",
     { section: z.enum(["lifecycle", "tickets", "retro", "roles", "checklist", "pitfalls"]).optional().describe("Specific section to retrieve") },
     async ({ section }) => {
       if (section) {
@@ -1345,6 +1367,19 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         if (!text) return { content: [{ type: "text" as const, text: `Unknown section. Available: ${Object.keys(INSTRUCTION_SECTIONS).join(", ")}` }], isError: true };
         return { content: [{ type: "text" as const, text }] };
       }
+
+      // Adaptive: check how many sprints have been completed
+      const sprintCount = (db.prepare("SELECT COUNT(*) as c FROM sprints WHERE status IN ('rest', 'done', 'closed') AND deleted_at IS NULL").get() as any).c;
+
+      if (sprintCount >= 10) {
+        // Veteran team: pitfalls only
+        return { content: [{ type: "text" as const, text: `# Sprint Instructions (veteran mode — ${sprintCount} sprints completed)\n\n${INSTRUCTION_SECTIONS.pitfalls}\n\nFor full guide, call with section="lifecycle" etc.` }] };
+      } else if (sprintCount >= 3) {
+        // Experienced team: checklist + pitfalls
+        return { content: [{ type: "text" as const, text: `# Sprint Instructions (experienced — ${sprintCount} sprints completed)\n\n${INSTRUCTION_SECTIONS.checklist}\n\n---\n\n${INSTRUCTION_SECTIONS.pitfalls}\n\nFor full guide, call with section="lifecycle" etc.` }] };
+      }
+
+      // New team: full guide
       const full = `# Sprint Process Instructions\n\n${Object.values(INSTRUCTION_SECTIONS).join("\n\n---\n\n")}`;
       return { content: [{ type: "text" as const, text: full }] };
     }
@@ -1560,18 +1595,21 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           const tickets = db.prepare(`SELECT status, COUNT(*) as c FROM tickets WHERE sprint_id = ? GROUP BY status`).all(sid) as any[];
           sections.push(`Tickets: ${tickets.map((t: any) => `${t.status}: ${t.c}`).join(", ")}`);
 
-          // Burndown
+          // Burndown — compact: first/last + trend only
           const burndown = db.prepare(`SELECT date, completed_points, remaining_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sid) as any[];
           if (burndown.length > 0) {
-            sections.push(`\n## Burndown (${burndown.length} snapshots)`);
-            burndown.forEach((b: any) => sections.push(`- ${b.date}: ${b.completed_points}pts done, ${b.remaining_points}pts remaining`));
+            const first = burndown[0], last = burndown[burndown.length - 1];
+            const trend = last.remaining_points <= first.remaining_points ? "on track" : "falling behind";
+            sections.push(`\n## Burndown: ${last.completed_points}pts done, ${last.remaining_points} remaining, ${trend} (${burndown.length} snapshots)`);
           }
 
-          // Mood trends (last 5 sprints)
-          const moods = db.prepare(`SELECT agent_id, sprint_id, mood FROM agent_mood_history ORDER BY sprint_id DESC LIMIT 35`).all() as any[];
-          if (moods.length > 0) {
-            const avgMood = Math.round(moods.reduce((s: number, m: any) => s + m.mood, 0) / moods.length * 10) / 10;
-            sections.push(`\n## Mood: avg ${avgMood}/5 (${moods.length} readings)`);
+          // Mood — aggregate in JS, only surface at-risk agents
+          const moodAvg = db.prepare(`SELECT AVG(mood) as avg_mood, COUNT(*) as readings FROM agent_mood_history`).get() as any;
+          if (moodAvg?.readings > 0) {
+            const avg = Math.round(moodAvg.avg_mood * 10) / 10;
+            const atRisk = db.prepare(`SELECT a.role, h.mood FROM agent_mood_history h JOIN agents a ON h.agent_id = a.id WHERE h.mood <= 2 ORDER BY h.sprint_id DESC LIMIT 5`).all() as any[];
+            const riskNote = atRisk.length > 0 ? ` | at-risk: ${atRisk.map((r: any) => `${r.role}(${r.mood})`).join(", ")}` : "";
+            sections.push(`\n## Mood: avg ${avg}/5 (${moodAvg.readings} readings)${riskNote}`);
           }
 
           // Retro patterns
@@ -2080,16 +2118,24 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "get_burndown",
-    "Get burndown data for a sprint — daily snapshots of remaining vs completed points",
+    "Get burndown data for a sprint — daily snapshots of remaining vs completed points. Use compact=true for trend summary only.",
     {
       sprint_id: z.number().describe("Sprint ID"),
+      compact: z.boolean().optional().describe("Compact mode: first/last snapshot + trend only (~30 tokens). Default false."),
     },
-    async ({ sprint_id }) => {
+    async ({ sprint_id, compact }) => {
       try {
         const sprint = db.prepare(`SELECT name, velocity_committed FROM sprints WHERE id = ?`).get(sprint_id) as any;
         if (!sprint) return { content: [{ type: "text" as const, text: "Sprint not found" }], isError: true };
         const rows = db.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprint_id) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: `No burndown data for ${sprint.name}. Use snapshot_sprint_metrics to capture data points.` }] };
+
+        if (compact) {
+          const first = rows[0], last = rows[rows.length - 1];
+          const trend = last.remaining_points <= first.remaining_points ? "on track" : "falling behind";
+          return { content: [{ type: "text" as const, text: `Burndown ${sprint.name}: ${last.completed_points}/${sprint.velocity_committed}pts done, ${last.remaining_points} remaining, ${trend} (${rows.length} snapshots)` }] };
+        }
+
         const lines = rows.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
         return { content: [{ type: "text" as const, text: `# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
@@ -2485,12 +2531,13 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "get_velocity_trends",
-    "Get velocity trend data across sprints — committed vs completed, completion rate, bugs",
+    "Get velocity trend data across sprints — committed vs completed, completion rate, bugs. Use compact=true for summary only.",
     {
       last_n_sprints: z.number().optional().describe("Number of recent sprints (default 10)"),
       status: z.string().optional().describe("Filter by sprint status (e.g. 'closed')"),
+      compact: z.boolean().optional().describe("Compact mode: avg completion + trend direction only (~30 tokens). Default false."),
     },
-    async ({ last_n_sprints, status }) => {
+    async ({ last_n_sprints, status, compact }) => {
       try {
         let sql = `SELECT * FROM velocity_trends`;
         const params: any[] = [];
@@ -2499,8 +2546,18 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         params.push(last_n_sprints || 10);
         const rows = db.prepare(sql).all(...params) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: "No velocity data available." }] };
-        const lines = rows.map((r: any) => `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts (${r.completion_rate}%), ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`);
         const avgRate = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.completion_rate, 0) / rows.length) : 0;
+
+        if (compact) {
+          const recent3 = rows.slice(0, 3);
+          const trend = recent3.length >= 2
+            ? (recent3[0].completion_rate >= recent3[recent3.length - 1].completion_rate ? "improving" : "declining")
+            : "stable";
+          const avgPts = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + (r.completed || 0), 0) / rows.length) : 0;
+          return { content: [{ type: "text" as const, text: `Velocity: ${avgPts}pt avg, ${avgRate}% completion, trend: ${trend} (${rows.length} sprints)` }] };
+        }
+
+        const lines = rows.map((r: any) => `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts (${r.completion_rate}%), ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`);
         return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion: ${avgRate}%\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -2573,13 +2630,14 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "list_discoveries",
-    "List discovery findings with optional filters",
+    "List discovery findings with optional filters. Use compact=true for one-line summaries.",
     {
       sprint_id: z.number().optional().describe("Filter by discovery sprint"),
       status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("Filter by status"),
       category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Filter by category"),
+      compact: z.boolean().optional().describe("Compact mode: one line per discovery. Default false."),
     },
-    async ({ sprint_id, status, category }) => {
+    async ({ sprint_id, status, category, compact }) => {
       try {
         let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id LEFT JOIN tickets t ON d.implementation_ticket_id = t.id WHERE 1=1`;
         const params: any[] = [];
@@ -2589,6 +2647,12 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
         const rows = db.prepare(sql).all(...params) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: "No discoveries found." }] };
+
+        if (compact) {
+          const lines = rows.map((d: any) => `#${d.id} [${d.status}] ${d.priority} ${d.finding.substring(0, 80)}${d.finding.length > 80 ? "…" : ""}`);
+          return { content: [{ type: "text" as const, text: `Discoveries (${rows.length}):\n${lines.join("\n")}` }] };
+        }
+
         const text = rows.map((d: any) => {
           const ticket = d.ticket_title ? ` → T-${d.implementation_ticket_id}: ${d.ticket_title}` : "";
           const drop = d.drop_reason ? ` (${d.drop_reason})` : "";
