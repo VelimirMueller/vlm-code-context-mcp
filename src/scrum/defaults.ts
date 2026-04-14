@@ -211,13 +211,15 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
 /**
  * Reset agents table to factory defaults. Truncates and re-seeds.
  */
-export function resetAgents(db: Database.Database): number {
-  // Pre-build check: ensure build is up-to-date
-  const { execSync } = require("child_process");
-  try {
-    execSync("npm run build", { stdio: "inherit" });
-  } catch (err) {
-    throw new Error("Build failed. Cannot reset agents with build errors.");
+export function resetAgents(db: Database.Database, { skipBuild = false }: { skipBuild?: boolean } = {}): number {
+  if (!skipBuild) {
+    // Pre-build check: ensure build is up-to-date (skipped in tests)
+    const { execSync } = require("child_process");
+    try {
+      execSync("npm run build", { stdio: "inherit" });
+    } catch {
+      throw new Error("Build failed. Cannot reset agents with build errors.");
+    }
   }
 
   db.prepare("DELETE FROM agents").run();
@@ -238,13 +240,14 @@ export function resetAgents(db: Database.Database): number {
 /**
  * Reset skills table to factory defaults. Truncates and re-seeds.
  */
-export function resetSkills(db: Database.Database): number {
-  // Pre-build check: ensure build is up-to-date
-  const { execSync } = require("child_process");
-  try {
-    execSync("npm run build", { stdio: "inherit" });
-  } catch (err) {
-    throw new Error("Build failed. Cannot reset skills with build errors.");
+export function resetSkills(db: Database.Database, { skipBuild = false }: { skipBuild?: boolean } = {}): number {
+  if (!skipBuild) {
+    const { execSync } = require("child_process");
+    try {
+      execSync("npm run build", { stdio: "inherit" });
+    } catch (err) {
+      throw new Error("Build failed. Cannot reset skills with build errors.");
+    }
   }
 
   db.prepare("DELETE FROM skills").run();

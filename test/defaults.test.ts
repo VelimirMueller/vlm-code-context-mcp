@@ -72,7 +72,7 @@ describe("resetAgents", () => {
     db.prepare("INSERT INTO agents (role, name) VALUES (?, ?)").run("custom-2", "Custom 2");
     expect((db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c).toBe(2);
 
-    const count = resetAgents(db);
+    const count = resetAgents(db, { skipBuild: true });
     expect(count).toBe(AGENT_DEFAULTS.length);
     expect((db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c).toBe(AGENT_DEFAULTS.length);
 
@@ -89,7 +89,7 @@ describe("resetAgents", () => {
 describe("resetSkills", () => {
   it("truncates and re-seeds skills", () => {
     db.prepare("INSERT INTO skills (name, content) VALUES (?, ?)").run("OLD_SKILL", "old");
-    const count = resetSkills(db);
+    const count = resetSkills(db, { skipBuild: true });
     expect(count).toBe(SKILL_DEFAULTS.length);
 
     const old = db.prepare("SELECT * FROM skills WHERE name = 'OLD_SKILL'").get();
