@@ -475,22 +475,19 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       // Gates are advisory — always proceed, but include warnings in response
       const warningText = gates.warnings.length > 0 ? `\nWarnings:\n${gates.warnings.map(w => `- ${w}`).join("\n")}` : "";
 
-      // Advance the sprint
-      const sets = ["status=?", "updated_at=datetime('now')"];
-      const vals: any[] = [nextPhase];
-      if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
-      vals.push(sprint_id);
-      db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
-
-      // Event trail
-      try {
-        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
-      } catch {}
-
-      // Auto retro analysis when reaching done or closed
+      // Advance sprint + archive discoveries atomically — partial failure rolls back cleanly
       let retroNote = "";
-      if (nextPhase === "done" || nextPhase === "closed") {
-        try {
+      db.transaction(() => {
+        const sets = ["status=?", "updated_at=datetime('now')"];
+        const vals: any[] = [nextPhase];
+        if (velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(velocity_completed); }
+        vals.push(sprint_id);
+        db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, sprint.status, nextPhase);
+
+        // Auto retro analysis when reaching done or closed
+        if (nextPhase === "done" || nextPhase === "closed") {
           const totalTickets = tickets.length;
           const doneTickets = tickets.filter((t: any) => t.status === "DONE").length;
           const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
@@ -498,26 +495,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           const summary = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). Velocity: ${pts}pt completed of ${sprint.velocity_committed || 0}pt committed.`;
           db.prepare(`INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')`).run(sprint_id, summary);
           retroNote = "\nAuto retro analysis generated.";
-        } catch {}
 
-        // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
-        try {
+          // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
           db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
           `).run(sprint_id, sprint_id);
-        } catch {}
 
-        // Auto-drop discoveries that were planned but ticket was not completed
-        try {
+          // Auto-drop discoveries that were planned but ticket was not completed
           db.prepare(`
             UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
           `).run(sprint_id, sprint_id);
-        } catch {}
-      }
+        }
+      })();
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
@@ -617,17 +610,17 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
-      db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+      // Update ticket + auto-promote discoveries atomically
+      db.transaction(() => {
+        db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
 
-      // ─── Auto-promote linked discoveries when ticket moves to DONE ─
-      if (status === 'DONE') {
-        try {
+        if (status === 'DONE') {
           db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE status = 'planned' AND implementation_ticket_id = ?
           `).run(ticket_id);
-        } catch {}
-      }
+        }
+      })();
 
       // ─── Event trail ────────────────────────────────────────────
       if (status && status !== oldStatus) {
@@ -1018,27 +1011,29 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           return { content: [{ type: "text" as const, text: `Invalid agent roles: ${invalidAssignments.join(", ")}. Valid roles: ${[...validRoles].join(", ")}. Use \`list_agents\` to see available agents.` }], isError: true };
         }
 
-        // Create the sprint
-        const sprintResult = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date, milestone_id) VALUES (?, ?, 'planning', ?, ?, ?, ?)`).run(
-          name, goal, velocity || 0, start_date || null, end_date || null, milestone_id || null
-        );
-        const sprintId = Number(sprintResult.lastInsertRowid);
-
-        // Create tickets
-        const ticketStmt = db.prepare(`INSERT INTO tickets (title, description, priority, assigned_to, story_points, sprint_id, epic_id, milestone_id, ticket_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        const maxRef = (db.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any)?.m ?? 0;
+        // Create sprint + tickets atomically — partial failure rolls back cleanly
         const createdTickets: string[] = [];
-
-        for (let i = 0; i < tickets.length; i++) {
-          const t = tickets[i];
-          const ref = `T-${maxRef + i + 1}`;
-          ticketStmt.run(
-            t.title, t.description || null, t.priority || "P1",
-            t.assigned_to || null, t.story_points || 0,
-            sprintId, epic_id || null, milestone_id || null, ref
+        const sprintId = db.transaction(() => {
+          const sprintResult = db.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date, milestone_id) VALUES (?, ?, 'planning', ?, ?, ?, ?)`).run(
+            name, goal, velocity || 0, start_date || null, end_date || null, milestone_id || null
           );
-          createdTickets.push(`${ref}: ${t.title} (${t.story_points || 0}pt → ${t.assigned_to || "unassigned"})`);
-        }
+          const sid = Number(sprintResult.lastInsertRowid);
+
+          const ticketStmt = db.prepare(`INSERT INTO tickets (title, description, priority, assigned_to, story_points, sprint_id, epic_id, milestone_id, ticket_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          const maxRef = (db.prepare(`SELECT MAX(id) as m FROM tickets`).get() as any)?.m ?? 0;
+
+          for (let i = 0; i < tickets.length; i++) {
+            const t = tickets[i];
+            const ref = `T-${maxRef + i + 1}`;
+            ticketStmt.run(
+              t.title, t.description || null, t.priority || "P1",
+              t.assigned_to || null, t.story_points || 0,
+              sid, epic_id || null, milestone_id || null, ref
+            );
+            createdTickets.push(`${ref}: ${t.title} (${t.story_points || 0}pt → ${t.assigned_to || "unassigned"})`);
+          }
+          return sid;
+        })();
 
         // Log event
         try {

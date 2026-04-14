@@ -45,7 +45,7 @@ AI coding tools burn through context windows reading raw source files, then lose
 npm install vlm-code-context-mcp
 ```
 
-Installs the MCP server, React dashboard, and all 76 tools. No API keys, no cloud accounts.
+Installs the MCP server, React dashboard, and all 93 tools. No API keys, no cloud accounts.
 
 ### 2. Initialize your project
 
@@ -71,7 +71,7 @@ This creates `context.db`, indexes your codebase (files, exports, dependencies),
 
 ### 3. Restart your AI client
 
-Restart Claude Code (or any MCP client). This loads the 76 tools. Verify:
+Restart Claude Code (or any MCP client). This loads the 93 tools. Verify:
 
 > "Call `get_project_status`"
 

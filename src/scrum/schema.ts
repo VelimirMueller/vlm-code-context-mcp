@@ -80,7 +80,7 @@ export function initScrumSchema(db: Database.Database): void {
       linked_ticket_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
-      FOREIGN KEY (linked_ticket_id) REFERENCES tickets(id)
+      FOREIGN KEY (linked_ticket_id) REFERENCES tickets(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS blockers (
@@ -248,6 +248,8 @@ export function initScrumSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_mood_history_sprint ON agent_mood_history(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_event_log_entity ON event_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_sprints_status_deleted ON sprints(status, deleted_at);
 
     CREATE TABLE IF NOT EXISTS token_usage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -436,8 +438,13 @@ export function runMigrations(db: Database.Database): void {
       UPDATE agents SET department = 'quality' WHERE role IN ('qa', 'security-specialist', 'scrum-master');
       UPDATE agents SET department = 'business' WHERE role IN ('product-owner', 'team-lead', 'manager', 'marketing-lead', 'growth-strategist', 'ux-designer');
     ` },
+    { version: 19, name: 'add_ticket_composite_index', sql: `
+      CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);
+    ` },
   ];
 
+  // Wrap all migrations in a single transaction — partial failure rolls back cleanly
+  const migrate = db.transaction(() => {
   // Safe column additions that migrations depend on (must run before versioned migrations)
   const agentCols = db.pragma("table_info(agents)") as Array<{ name: string }>;
   if (!agentCols.some((c) => c.name === "department")) {
@@ -471,7 +478,8 @@ export function runMigrations(db: Database.Database): void {
     const colList = hasDeletedAt
       ? "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id, deleted_at"
       : "id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id";
-    const deletedAtCol = hasDeletedAt ? ",\n        deleted_at TEXT DEFAULT NULL" : "";
+    // Always include deleted_at in rebuilt table — migration 5 may have dropped it
+    const deletedAtCol = ",\n        deleted_at TEXT DEFAULT NULL";
     db.exec(`
       CREATE TABLE IF NOT EXISTS sprints_v3 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -512,4 +520,9 @@ export function runMigrations(db: Database.Database): void {
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);`);
   }
+
+  // Composite index on sprints — must run after sprints_v3 rebuild guarantees deleted_at exists
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sprints_status_deleted ON sprints(status, deleted_at);`);
+  });
+  migrate();
 }

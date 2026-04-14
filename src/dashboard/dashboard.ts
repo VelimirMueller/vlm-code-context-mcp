@@ -39,10 +39,10 @@ function validateSprintTransition(current: string, next: string) {
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 83;
+const TOOL_COUNT = 93;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
-const PORT = Number(process.argv[3] ?? 3333);
+const PORT = Number(process.argv[3] ?? process.env.DASHBOARD_PORT ?? 3333);
 const WATCH_DIR = process.argv[4] ?? null;
 
 const dbPath = path.resolve(DB_PATH);
@@ -111,7 +111,6 @@ const walPath = dbPath + "-wal";
   dbWatcher.on("change", () => {
     if (dbWalDebounce) clearTimeout(dbWalDebounce);
     dbWalDebounce = setTimeout(() => {
-      console.log("[sse] DB change detected, notifying clients");
       notifyClients();
     }, 100);
   });
@@ -120,7 +119,6 @@ const walPath = dbPath + "-wal";
     if (p.endsWith("-wal")) {
       if (dbWalDebounce) clearTimeout(dbWalDebounce);
       dbWalDebounce = setTimeout(() => {
-        console.log("[sse] WAL file created, notifying clients");
         notifyClients();
       }, 100);
     }
@@ -146,7 +144,6 @@ function startWatcher(dir: string) {
     debounceTimer = setTimeout(() => {
       try {
         const stats = indexDirectory(writeDb, resolved);
-        console.log(`[watch] Re-indexed: ${stats.files} files, ${stats.exports} exports, ${stats.deps} deps`);
         notifyClients();
       } catch (err: any) {
         console.error(`[watch] Re-index error: ${err.message}`);
@@ -1457,7 +1454,6 @@ function rebuildMarketingStats() {
        ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`
     ).run(stats);
 
-    console.log(`[marketing] Rebuilt marketing stats: ${closedSprints} sprints, ${doneTickets} tickets, ${totalVelocity}pt`);
   } catch (err: any) {
     console.error(`[marketing] Failed to rebuild stats: ${err.message}`);
   }
@@ -1641,7 +1637,6 @@ const server = http.createServer(async (req, res) => {
     res.write(`data: ${connectPayload}\n\n`);
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
-    console.log(`[sse] Client connected (${sseClients.size} active)`);
     return;
   }
 
