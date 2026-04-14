@@ -280,49 +280,6 @@ Phases, durations, and gate criteria are fully customizable via the `update_spri
 
 ---
 
-## MCP vs Vanilla Benchmark
-
-We ran the same 3 tasks twice — once with MCP tools for context, once without (vanilla Grep/Read/Glob only). Same codebase, same goals, same model.
-
-
-![benchmark](https://github.com/user-attachments/assets/2e76e697-4a46-4c58-a168-4d8792500ad9)
-
-![bench2](https://github.com/user-attachments/assets/13f8c5dc-79fb-416c-96a0-ad79dbd6ab1e)
-
-![bench3](https://github.com/user-attachments/assets/a6bdec34-e4f3-4efc-8ba8-7e9b4e2b9938)
-
-### Results by task size
-
-| Task | Size | MCP Time | Vanilla Time | MCP Tokens | Vanilla Tokens | Time Saved | Tokens Saved |
-|---|---|---|---|---|---|---|---|
-| Add compact flag | 2pt | 12m | 22m | 48K | 84K | **45%** | **42%** |
-| Add MCP tool + tests | 3pt | 25m | 45m | 134K | 237K | **44%** | **43%** |
-| Dashboard page + SSE | 5pt | 35m | 52m | 385K | 620K | **33%** | **38%** |
-
-### Why MCP wins
-
-**Small tasks** — `search_files` and `get_file_context` pinpoint the exact file and its test in 2 lookups. Vanilla needs 5+ extra tool calls just to locate the right file and understand the parameter schema.
-
-**Medium tasks** — `index_directory` provides the full dependency graph upfront (exports, imports, summaries). Vanilla reads 4 files sequentially to understand registration patterns. 9 targeted context lookups replace ~15 exploratory reads.
-
-**Large tasks** — `load_phase_context` and `search_files` reveal the entire dashboard architecture (page patterns, store conventions, routing, SSE wiring, server endpoints) in ~14 lookups. Vanilla needs 12+ sequential Grep/Read calls just to discover how pages are wired across 7 integration points.
-
-### Aggregate benchmark stats
-
-Measured across 3 tasks (10pts total) on a 211-file, 32K-line codebase:
-
-| Metric | MCP | Vanilla | Improvement |
-|---|---|---|---|
-| Total tokens | 567K | 941K | **40% fewer** |
-| Total tool calls | 106 | 156 | **32% fewer** |
-| Total time | 72 min | 119 min | **40% faster** |
-| Avg tokens/task | 189K | 314K | **1.7x less** |
-| Avg tool calls/task | 35 | 52 | **1.5x fewer** |
-
-The savings come from replacing exploratory Grep/Read loops with targeted `search_files` and `get_file_context` queries that return structured metadata. The larger the task, the more exploration overhead MCP eliminates.
-
----
-
 ## Technical Details
 
 ### Architecture
