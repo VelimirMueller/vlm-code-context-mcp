@@ -3,7 +3,8 @@
     "project": "vlm-code-context-mcp",
     "sprint": "Sprint 8 — MCP vs Vanilla Benchmark",
     "created_at": "2026-04-13T00:00:00Z",
-    "updated_at": "2026-04-13T10:30:00Z"
+    "updated_at": "2026-04-13T14:18:00Z",
+    "measurement_note": "Token counts are session-level estimates. Use log_token_usage MCP tool for precise per-task measurements in future benchmarks."
   },
   "tasks": [
     {

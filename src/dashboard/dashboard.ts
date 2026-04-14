@@ -336,7 +336,7 @@ function apiPutSprintProcess(body: { phases: SprintPhase[] }): { ok: boolean } {
 function apiAgentsHealth() {
   try {
     const agents = writeDb.prepare(`
-      SELECT a.role, a.name, a.description, a.model,
+      SELECT a.role, a.name, a.description, a.model, a.department,
         (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'DONE' AND deleted_at IS NULL) as done_tickets,
         (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status IN ('TODO','IN_PROGRESS') AND deleted_at IS NULL) as active_tickets,
         (SELECT COUNT(*) FROM tickets WHERE assigned_to = a.role AND status = 'BLOCKED' AND deleted_at IS NULL) as blocked_tickets,
@@ -1751,6 +1751,10 @@ const server = http.createServer(async (req, res) => {
         }
       }
       else if (url.pathname === "/api/velocity") data = apiVelocity();
+      else if (url.pathname === "/api/token-usage") {
+        try { data = writeDb.prepare(`SELECT * FROM token_usage ORDER BY created_at DESC LIMIT 100`).all(); }
+        catch { data = []; }
+      }
       else if (url.pathname === "/api/backlog") data = apiBacklog();
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
