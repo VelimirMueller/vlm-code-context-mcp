@@ -775,36 +775,6 @@ function apiHealth() {
   };
 }
 
-// ─── Bridge API helpers ────────────────────────────────────────────────────
-
-function apiBridgeActions(status: string) {
-  return writeDb.prepare("SELECT * FROM pending_actions WHERE status = ? ORDER BY created_at DESC LIMIT 50").all(status);
-}
-
-// Ceremony actions (run_kickoff, run_retro, run_review) remain in this allow list so the
-// dashboard UI can queue them. However, the terminal bridge hook (src/bridge/hook.ts) filters
-// them out — ceremonies are UI-only and never forwarded to the CLI.
-const ALLOWED_BRIDGE_ACTIONS = ['advance_sprint', 'assign_ticket', 'update_ticket', 'create_ticket', 'run_retro', 'run_review', 'run_kickoff', 'plan_sprint', 'custom', 'request_input'];
-
-function apiCreateBridgeAction(body: any) {
-  if (!ALLOWED_BRIDGE_ACTIONS.includes(body.action)) {
-    throw Object.assign(new Error(`unknown action. Allowed: ${ALLOWED_BRIDGE_ACTIONS.join(', ')}`), { status: 400 });
-  }
-  const result = writeDb.prepare(
-    `INSERT INTO pending_actions (action, entity_type, entity_id, payload, source) VALUES (?, ?, ?, ?, ?)`
-  ).run(body.action, body.entity_type ?? null, body.entity_id ?? null, body.payload ? JSON.stringify(body.payload) : null, body.source ?? "dashboard");
-  return { ok: true, id: result.lastInsertRowid };
-}
-
-function apiBridgeStatus() {
-  return {
-    pending: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'pending'").get() as any).c,
-    claimed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'claimed'").get() as any).c,
-    completed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'completed'").get() as any).c,
-    failed: (writeDb.prepare("SELECT COUNT(*) as c FROM pending_actions WHERE status = 'failed'").get() as any).c,
-  };
-}
-
 // ─── Sprint process & gates ────────────────────────────────────────────────
 
 function apiSprintProcessMarkdown() {
@@ -1932,31 +1902,6 @@ const server = http.createServer(async (req, res) => {
         data = apiFileContext(id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
-      // ── Bridge API (pending_actions) ──────────────────────────────────
-      else if (url.pathname === "/api/bridge/actions" && req.method === "GET") {
-        const status = url.searchParams.get("status") ?? "pending";
-        data = apiBridgeActions(status);
-      }
-      else if (url.pathname === "/api/bridge/actions" && req.method === "POST") {
-        const body = await readBody(req);
-        if (!body.action) { res.writeHead(400); res.end('{"error":"action is required"}'); return; }
-        data = apiCreateBridgeAction(body);
-        const eventType = body.action === "request_input" ? "input_requested" : "bridge_action";
-        notifyClients({ type: eventType, entityType: "pending_action", entityId: Number(data.id), change: { action: body.action, payload: body.payload } });
-      }
-      else if (url.pathname.match(/^\/api\/bridge\/actions\/\d+\/respond$/) && req.method === "PATCH") {
-        const actionId = Number(url.pathname.split("/")[4]);
-        const body = await readBody(req);
-        if (!body.result) { res.writeHead(400); res.end('{"error":"result is required"}'); return; }
-        const existing = writeDb.prepare("SELECT * FROM pending_actions WHERE id = ?").get(actionId) as any;
-        if (!existing) { res.writeHead(404); res.end('{"error":"action not found"}'); return; }
-        writeDb.prepare("UPDATE pending_actions SET status = 'completed', result = ?, completed_at = datetime('now') WHERE id = ?").run(
-          typeof body.result === "string" ? body.result : JSON.stringify(body.result), actionId
-        );
-        data = { ok: true, id: actionId };
-        notifyClients({ type: "response_ready", entityType: "pending_action", entityId: actionId, change: { result: body.result } });
-      }
-      else if (url.pathname === "/api/bridge/status") data = apiBridgeStatus();
       else if (url.pathname === "/api/sprint-process/markdown") data = apiSprintProcessMarkdown();
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/gates$/)) {
         const sid = Number(url.pathname.split("/")[3]);

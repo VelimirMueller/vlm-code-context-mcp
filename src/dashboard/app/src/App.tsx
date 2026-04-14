@@ -7,7 +7,6 @@ import { useFileStore } from '@/stores/fileStore';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { usePlanningStore } from '@/stores/planningStore';
-import { useBridgeStore } from '@/stores/bridgeStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
@@ -21,14 +20,12 @@ const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m 
 const Benchmark = lazy(() => import('@/pages/Benchmark').then(m => ({ default: m.Benchmark })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
-import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary';
 import { LandingAnimation } from '@/components/organisms/LandingAnimation';
 import { DashboardTour } from '@/components/organisms/DashboardTour';
 import { TopNav } from '@/components/molecules/TopNav';
 import { QuickActionsBar } from '@/components/molecules/QuickActionsBar';
 import { Breadcrumb } from '@/components/molecules/Breadcrumb';
-import { WizardModal } from '@/components/molecules/WizardModal';
 
 // Legacy page name mapping (old -> new PageType)
 const pageMapping: Record<string, PageType> = {
@@ -117,17 +114,6 @@ export function App() {
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
   const fetchComparison = useComparisonStore((s) => s.fetchComparison);
-  const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
-  const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
-  const handleInputRequested = useBridgeStore((s) => s.handleInputRequested);
-  const handleStepProgress = useBridgeStore((s) => s.handleStepProgress);
-  const handleClaudeOutput = useBridgeStore((s) => s.handleClaudeOutput);
-  const handleClaudeStep = useBridgeStore((s) => s.handleClaudeStep);
-  const wizardSteps = useBridgeStore((s) => s.wizardSteps);
-  const wizardOpen = useBridgeStore((s) => s.wizardOpen);
-  const dismissWizard = useBridgeStore((s) => s.dismissWizard);
-  const completeWizard = useBridgeStore((s) => s.completeWizard);
-
   const { connectionState } = useEventSource({
     onEvent: (event) => {
       // Refresh all data stores on any server event
@@ -135,8 +121,6 @@ export function App() {
       fetchSprints();
       fetchAgents();
       fetchMilestones();
-      fetchBridgeStatus();
-      fetchBridgeActions();
       fetchAllRetro();
       fetchActivities();
       fetchComparison();
@@ -147,26 +131,6 @@ export function App() {
         fetchBurndown(selectedSprintId);
         fetchBlockers(selectedSprintId);
         fetchBugs(selectedSprintId);
-      }
-      // Auto-open wizard modal on input_requested events
-      if (event.type === 'input_requested' && event.entityId) {
-        fetchBridgeActions('pending').then(() => {
-          const actions = useBridgeStore.getState().actions;
-          const action = actions.find(a => a.id === Number(event.entityId) && a.action === 'request_input');
-          if (action) handleInputRequested(action);
-        });
-      }
-      // Handle step progress updates
-      if (event.type === 'step_progress' && event.stepProgress) {
-        handleStepProgress(event.stepProgress);
-      }
-      // Handle Claude output streaming
-      if (event.type === 'claude_output' && event.claudeOutput) {
-        handleClaudeOutput(event.claudeOutput);
-      }
-      // Handle Claude step transitions
-      if (event.type === 'claude_step' && event.claudeStep) {
-        handleClaudeStep(event.claudeStep);
       }
     },
   });
@@ -231,7 +195,6 @@ export function App() {
             }} />
             {connectionState !== 'connected' && connectionState}
           </span>
-          <BridgeStatusBadge />
         </div>
       </header>
 
@@ -272,13 +235,6 @@ export function App() {
           </motion.div>
         </AnimatePresence>
       </main>
-      {wizardOpen && wizardSteps.length > 0 && (
-        <WizardModal
-          steps={wizardSteps}
-          onComplete={completeWizard}
-          onDismiss={dismissWizard}
-        />
-      )}
       <ToastContainer />
     </div>
   );
