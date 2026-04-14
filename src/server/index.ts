@@ -70,8 +70,9 @@ server.tool(
       if (topDirs.length > 0) {
         sections.push("## Directories\n");
         for (const dir of topDirs) {
-          const desc = dir.description ?? "No description";
-          sections.push(`### ${dir.name}/\n${desc}\n`);
+          const desc = dir.description ?? "";
+          const langInfo = dir.language_breakdown ? `. ${dir.language_breakdown}` : "";
+          sections.push(`### ${dir.name}/\n${desc}${dir.file_count ? ` ${dir.file_count} files, ${(dir.total_lines || 0).toLocaleString()} lines.` : ""}${langInfo}\n`);
 
           // Files in this directory (direct children only)
           const dirFiles = db.prepare(`
@@ -80,13 +81,10 @@ server.tool(
             ORDER BY path
           `).all(dir.path + "/%", dir.path + "/%/%") as { path: string; summary: string; description: string | null; language: string; line_count: number }[];
 
-          if (dirFiles.length > 0) {
-            for (const f of dirFiles) {
-              const fname = path.basename(f.path);
-              const desc = f.description ?? f.summary ?? "No description";
-              sections.push(`- **${fname}** — ${desc}`);
-            }
-            sections.push("");
+          for (const f of dirFiles) {
+            const fname = path.basename(f.path);
+            const desc = f.description ?? f.summary ?? "";
+            sections.push(`- **${fname}** — ${desc}`);
           }
 
           // Sub-directories (one level deeper)
@@ -95,13 +93,10 @@ server.tool(
             FROM directories WHERE parent_path = ? ORDER BY name
           `).all(dir.path) as { path: string; name: string; description: string | null; file_count: number }[];
 
-          if (subDirs.length > 0) {
-            for (const sub of subDirs) {
-              const subDesc = sub.description ?? "No description";
-              sections.push(`- **${sub.name}/** (${sub.file_count} files) — ${subDesc}`);
-            }
-            sections.push("");
+          for (const sub of subDirs) {
+            sections.push(`- **${sub.name}/** (${sub.file_count} files) — ${sub.description ?? ""}`);
           }
+          sections.push("");
         }
       }
 
@@ -191,21 +186,13 @@ server.tool(
 
     const sections = [
       `# ${file.path}`,
-      `Language: ${file.language} | Extension: ${file.extension} | Size: ${formatSize(file.size_bytes)} | Lines: ${file.line_count}`,
-      `Created: ${file.created_at} | Modified: ${file.modified_at} | Indexed: ${file.indexed_at}`,
-      `Summary: ${file.summary}`,
-      file.description ? `Description: ${file.description}` : "",
-      "",
-      `## Exports (${exports.length})`,
-      ...exports.map(e => `  - ${e.name} (${e.kind})`),
-      "",
-      file.external_imports ? `## External packages\n  ${file.external_imports}` : "",
-      "",
-      `## Imports from (${deps.length})`,
-      ...deps.map(d => `  - ${d.path} [${d.symbols}]\n    ${d.summary}`),
-      "",
-      `## Imported by (${dependents.length})`,
-      ...dependents.map(d => `  - ${d.path} [${d.symbols}]\n    ${d.summary}`),
+      `${file.language} | ${formatSize(file.size_bytes)} | ${file.line_count} lines | modified ${file.modified_at}`,
+      file.summary,
+      file.description && file.description !== file.summary ? file.description : "",
+      exports.length > 0 ? `## Exports (${exports.length})\n${exports.map(e => `- ${e.name} (${e.kind})`).join("\n")}` : "",
+      file.external_imports ? `## External packages\n${file.external_imports}` : "",
+      deps.length > 0 ? `## Imports from (${deps.length})\n${deps.map(d => `- ${d.path} [${d.symbols}]`).join("\n")}` : "",
+      dependents.length > 0 ? `## Imported by (${dependents.length})\n${dependents.map(d => `- ${d.path} [${d.symbols}]`).join("\n")}` : "",
     ];
 
     // Only include change history if requested (default: true for backward compat)

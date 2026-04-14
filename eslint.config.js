@@ -81,7 +81,7 @@ export default tseslint.config(
       'no-useless-assignment': 'warn',
       'no-control-regex': 'warn',
       'prefer-const': 'warn',
-      'no-console': 'off',
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
       'preserve-caught-error': 'off',
     },
   },
