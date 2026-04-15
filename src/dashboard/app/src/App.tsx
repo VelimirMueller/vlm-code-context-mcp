@@ -9,7 +9,6 @@ import { useAgentStore } from '@/stores/agentStore';
 import { usePlanningStore } from '@/stores/planningStore';
 import { useBridgeStore } from '@/stores/bridgeStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
-import { useVelocityStore } from '@/stores/velocityStore';
 import { useEventSource } from '@/hooks/useEventSource';
 import { useHashRouter } from '@/hooks/useHashRouter';
 import { useKeyboard } from '@/hooks/useKeyboard';
@@ -20,7 +19,6 @@ const Team = lazy(() => import('@/pages/Team').then(m => ({ default: m.Team })))
 const Retro = lazy(() => import('@/pages/Retro').then(m => ({ default: m.Retro })));
 const ProjectManagement = lazy(() => import('@/pages/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
 const Benchmark = lazy(() => import('@/pages/Benchmark').then(m => ({ default: m.Benchmark })));
-const Velocity = lazy(() => import('@/pages/Velocity').then(m => ({ default: m.Velocity })));
 import { pageVariants, pageTransition, reducedMotion } from '@/lib/motion';
 import { ToastContainer } from '@/components/atoms/ToastContainer';
 import { BridgeStatusBadge } from '@/components/atoms/BridgeStatusBadge';
@@ -119,7 +117,6 @@ export function App() {
   const fetchBugs = useSprintStore((s) => s.fetchBugs);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
   const fetchComparison = useComparisonStore((s) => s.fetchComparison);
-  const fetchVelocity = useVelocityStore((s) => s.fetchVelocity);
   const fetchBridgeStatus = useBridgeStore((s) => s.fetchStatus);
   const fetchBridgeActions = useBridgeStore((s) => s.fetchActions);
   const handleInputRequested = useBridgeStore((s) => s.handleInputRequested);
@@ -143,7 +140,6 @@ export function App() {
       fetchAllRetro();
       fetchActivities();
       fetchComparison();
-      fetchVelocity();
       // Re-fetch sprint-specific data for the currently selected sprint
       if (selectedSprintId) {
         fetchTickets(selectedSprintId);
@@ -272,7 +268,6 @@ export function App() {
               {normalizedPage === 'team' && <ErrorBoundary><Team /></ErrorBoundary>}
               {normalizedPage === 'retro' && <ErrorBoundary><Retro /></ErrorBoundary>}
               {normalizedPage === 'benchmark' && <ErrorBoundary><Benchmark /></ErrorBoundary>}
-              {normalizedPage === 'velocity' && <ErrorBoundary><Velocity /></ErrorBoundary>}
             </Suspense>
           </motion.div>
         </AnimatePresence>
