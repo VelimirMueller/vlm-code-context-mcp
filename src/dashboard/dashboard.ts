@@ -1739,8 +1739,10 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/activity") data = apiActivity();
       else if (url.pathname === "/api/comparison") {
         const compPath = path.join(path.dirname(dbPath), "comparison.json");
+        const bundledPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../comparison.json");
         try {
-          data = JSON.parse(fs.readFileSync(compPath, "utf-8"));
+          const filePath = fs.existsSync(compPath) ? compPath : bundledPath;
+          data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
         } catch {
           data = { meta: null, tasks: [] };
         }

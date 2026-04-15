@@ -12,6 +12,7 @@
     "dist",
     ".claude/commands",
     "scripts",
+    "comparison.json",
     "README.md",
     "LICENSE"
   ],
