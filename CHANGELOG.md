@@ -5,7 +5,43 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-04-14
+## [1.0.0] - 2026-04-15
+
+### Added
+- **9-agent team** — Architect and Security Specialist added to factory defaults (was 7)
+- **Data access layer** — `src/scrum/queries.ts` with 14 reusable query functions replacing 200+ duplicate SQL patterns
+- **Domain module structure** — `src/scrum/tools/` and `src/dashboard/handlers/` directories for incremental extraction
+- **Domain API clients** — `lib/api/sprints.ts`, `lib/api/planning.ts`, `lib/api/team.ts` with typed wrappers
+- **ProcessFlow utils** — extracted types, step configs, and status detection into `processFlowUtils.ts`
+- **Token efficiency benchmark** — A/B test simulating S/M/L development tasks, 44% reduction verified and persisted to comparison.json
+- **Compact modes** on `get_sprint_playbook`, `get_burndown`, `export_sprint_report`, `list_discoveries` (35-87% savings per call)
+- **Adaptive sprint instructions** — veteran mode (10+ sprints) returns pitfalls only, saving ~70% tokens
+- **`update_ticket` inline state** — returns compact ticket state in confirmation, eliminating follow-up `get_ticket` calls
+- **VitePress docs** — 6 scrum tool pages, dashboard page, updated hero (93 tools, 9 agents), GitHub Pages deploy workflow
+- **CI pipeline** — Node 18/20/22 matrix with lint, typecheck, tests, and docs build validation
+- **GitHub Pages deploy** — `.github/workflows/docs.yml` auto-deploys on docs/ changes
+
+### Changed
+- `get_file_context` default flipped: `include_changes` now defaults to `false` (was `true`) — saves ~200 tokens per call
+- Sprint process: `add_retro_finding` now validates sprint_id exists before inserting
+
+### Fixed
+- `defaults.test.ts` timeout — `resetAgents`/`resetSkills` accept `skipBuild` option, tests run in 260ms (was 10s+)
+- Sprints table rebuild (`sprints_v3` migration) now always includes `deleted_at` column
+- `retro_findings.linked_ticket_id` FK uses `ON DELETE SET NULL` on fresh installs
+
+### Removed
+- **Bridge system** — removed `src/bridge/`, 8 bridge tools from `tools.ts`, bridge API routes from dashboard, bridge UI from App.tsx (~400 lines of dead code)
+- **Velocity tab** — removed from dashboard navigation (data available via scrum tools)
+- Stale files: `_restore.cjs`, `.tgz` artifacts
+
+### Security
+- **Path traversal protection** — boundary validation in `resolveImportPath()` and `index_directory` (rejects paths outside home directory)
+- **SQL injection hardening** — `query` tool blocks multi-statement execution, write keywords, ATTACH/PRAGMA; `execute` tool requires INSERT/UPDATE/DELETE prefix
+- **Input validation** — all 109 `z.string()` inputs capped at `.max(10000)` to prevent DoS
+- **26 empty catch blocks** replaced with `console.error` logging across `tools.ts` and `dashboard.ts`
+
+## [1.0.0-rc] - 2026-04-14
 
 ### Added
 - Composite database indexes on `tickets(sprint_id, deleted_at)` and `sprints(status, deleted_at)` for faster soft-delete queries
@@ -176,6 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIT license
 
 [1.0.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.3.1...v1.0.0
+[1.0.0-rc]: https://github.com/VelimirMueller/mcp-server/compare/v0.3.1...v1.0.0-rc
 [0.3.1]: https://github.com/VelimirMueller/mcp-server/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/VelimirMueller/mcp-server/compare/v0.1.0...v0.2.0
