@@ -12,7 +12,7 @@ const legacyPageMapping: Record<string, PageType> = {
 };
 
 // All valid page types
-const validPages: PageType[] = ['dashboard', 'code', 'planning', 'team', 'retro', 'benchmark', 'velocity'];
+const validPages: PageType[] = ['dashboard', 'code', 'planning', 'team', 'retro', 'benchmark'];
 
 // Default tabs per page
 const defaultTabs: Record<string, string> = {
@@ -22,7 +22,6 @@ const defaultTabs: Record<string, string> = {
   team: 'grid',
   retro: 'insights',
   benchmark: 'overview',
-  velocity: 'trends',
 };
 
 interface ParsedHash {

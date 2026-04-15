@@ -5,6 +5,14 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-04-15
+
+### Removed
+- **Velocity tab** — removed `Velocity` page, `velocityStore`, `/api/velocity` endpoint, and navigation entry. Sprint velocity data (committed/completed points, badges) remains available on sprint cards and Gantt chart.
+
+### Fixed
+- `comparison.json` now ships in npm package and dashboard falls back to bundled copy when not found next to database — fixes empty Benchmark page on npm installs
+
 ## [1.0.0] - 2026-04-14
 
 ### Added
