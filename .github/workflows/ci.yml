@@ -37,8 +37,8 @@ jobs:
       - name: Validate agent count
         run: |
           AGENT_COUNT=$(grep -A 100 "export const AGENT_DEFAULTS" src/scrum/defaults.ts | grep -E "^\s+role:" | wc -l)
-          if [ "$AGENT_COUNT" -ne 7 ]; then
-            echo "Error: Expected 7 agents, found $AGENT_COUNT"
+          if [ "$AGENT_COUNT" -ne 9 ]; then
+            echo "Error: Expected 9 agents, found $AGENT_COUNT"
             exit 1
           fi
           echo "Agent count validation passed: $AGENT_COUNT agents"
