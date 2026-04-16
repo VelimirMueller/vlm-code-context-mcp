@@ -65,10 +65,10 @@ describe("Agentless Sprint — Sprint 79", () => {
     addSoftDeleteColumns(db);
   });
 
-  it("default agents seeded = 7 (fe-engineer, be-engineer, developer, qa, devops, team-lead, product-owner)", () => {
-    expect(AGENT_DEFAULTS.length).toBe(7);
+  it("default agents seeded = 9 (fe-engineer, be-engineer, developer, qa, devops, security, architect, team-lead, product-owner)", () => {
+    expect(AGENT_DEFAULTS.length).toBe(9);
     const roles = AGENT_DEFAULTS.map((a) => a.role).sort();
-    expect(roles).toEqual(["be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "team-lead"]);
+    expect(roles).toEqual(["architect", "be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "security", "team-lead"]);
   });
 
   it("create sprint with no agents works", () => {
@@ -122,12 +122,12 @@ describe("Agentless Sprint — Sprint 79", () => {
     expect(updated.status).toBe("implementation");
   });
 
-  it("seedDefaults seeds exactly 7 agents", () => {
+  it("seedDefaults seeds exactly 9 agents", () => {
     seedDefaults(db);
     const count = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
-    expect(count).toBe(7);
+    expect(count).toBe(9);
 
     const roles = (db.prepare("SELECT role FROM agents ORDER BY role").all() as any[]).map((r) => r.role);
-    expect(roles).toEqual(["be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "team-lead"]);
+    expect(roles).toEqual(["architect", "be-engineer", "developer", "devops", "fe-engineer", "product-owner", "qa", "security", "team-lead"]);
   });
 });

@@ -1725,6 +1725,28 @@ const server = http.createServer(async (req, res) => {
           data = { meta: null, tasks: [] };
         }
       }
+      else if (url.pathname === "/api/benchmark") {
+        const projDir = path.dirname(dbPath);
+        const benchPath = path.join(projDir, "benchmark-results.json");
+        const bundledBench = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../benchmark-results.json");
+        try {
+          const filePath = fs.existsSync(benchPath) ? benchPath : bundledBench;
+          data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        } catch {
+          data = null;
+        }
+      }
+      else if (url.pathname === "/api/benchmark-stochastic") {
+        const projDir = path.dirname(dbPath);
+        const stochPath = path.join(projDir, "benchmark-stochastic-results.json");
+        const bundledStoch = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../benchmark-stochastic-results.json");
+        try {
+          const filePath = fs.existsSync(stochPath) ? stochPath : bundledStoch;
+          data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        } catch {
+          data = null;
+        }
+      }
       else if (url.pathname === "/api/token-usage") {
         try { data = writeDb.prepare(`SELECT * FROM token_usage ORDER BY created_at DESC LIMIT 100`).all(); }
         catch { data = []; }
