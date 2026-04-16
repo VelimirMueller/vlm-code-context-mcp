@@ -5,7 +5,14 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.1] - 2026-04-16
+## [1.1.2] - 2026-04-16
+
+### Added
+- **Security Engineer** and **Architect** agent roles — 7→9 default agents. Existing 7-agent databases auto-migrate on startup.
+- Benchmark JSON files (`benchmark-results.json`, `benchmark-stochastic-results.json`) now included in npm package
+
+### Changed
+- Setup no longer auto-creates "M1 — Getting Started" milestone — milestones are created via `/kickoff` or MCP tools for a clean starting state
 
 ### Fixed
 - **Flaky CI benchmark test** — "larger tasks save more" assertion compared group totals (4 small vs 3 large tasks) instead of per-task averages, causing failures on CI where indexer output differs slightly across Node versions
