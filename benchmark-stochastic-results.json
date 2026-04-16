@@ -1,0 +1,67 @@
+{
+  "config": {
+    "trials": 200,
+    "seed": 42,
+    "poissonLambda": 1.5,
+    "bootstrapResamples": 2000,
+    "fixtureFiles": 11,
+    "tsFiles": 5
+  },
+  "results": {
+    "mcpWins": 181,
+    "vanillaWins": 19,
+    "ties": 0,
+    "mcpWinRate": 90.5
+  },
+  "tokens": {
+    "mcpMean": 294,
+    "vanillaMean": 585,
+    "savingsMean": 33.8,
+    "savingsPct": 49.7,
+    "ci95": {
+      "lower": 17.9,
+      "upper": 44.9
+    }
+  },
+  "calls": {
+    "mcpMean": 3,
+    "vanillaMean": 5
+  },
+  "statistics": {
+    "wilcoxon": {
+      "W": 471,
+      "z": 11.688,
+      "p": 0,
+      "n": 200
+    },
+    "effectSize": 0.953,
+    "effectLabel": "large",
+    "significant": true
+  },
+  "byTemplate": {
+    "multi-file": {
+      "count": 48,
+      "mcpMean": 501,
+      "vanillaMean": 904,
+      "savingsPct": 44.6
+    },
+    "dep-tracing": {
+      "count": 48,
+      "mcpMean": 116,
+      "vanillaMean": 494,
+      "savingsPct": 76.5
+    },
+    "single-file": {
+      "count": 55,
+      "mcpMean": 185,
+      "vanillaMean": 287,
+      "savingsPct": 35.5
+    },
+    "project-scan": {
+      "count": 49,
+      "mcpMean": 389,
+      "vanillaMean": 695,
+      "savingsPct": 44
+    }
+  }
+}
