@@ -21,18 +21,33 @@ Three commands. Zero API keys. One `context.db` file.
 
 ---
 
-## Why
+## Benchmark
 
-AI coding tools burn through context windows reading raw source files, then lose everything when the session ends. Every new conversation starts from scratch.
+Tested across 10 real development tasks (retrieval, debugging, refactoring, implementation), then validated with 200 randomized trials and a Wilcoxon signed-rank test.
 
-| | Without | With |
-|---|---|---|
-| **Tokens per task** | ~314K | ~189K **(40% less)** |
-| **Tool calls** | 52 avg | 35 avg **(32% less)** |
-| **Session memory** | None | Full SQLite persistence |
-| **Process** | Ad hoc | Sprint ceremonies + QA gates |
+| | MCP | Vanilla | Saved |
+|---|---|---|---|
+| **Tokens** | 4,806 | 8,726 | **44.9%** |
+| **Tool calls** | 49 | 68 | **27.9%** |
+| **Stochastic win rate** | — | — | **90.5%** (p < 0.001) |
+
+MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more.
 
 ![benchmark](https://github.com/user-attachments/assets/e553c734-ebc0-4e9e-8efb-5f79ab010d3e)
+
+<details>
+<summary>Reproduce it yourself</summary>
+
+```bash
+# Deterministic — 10 tasks, 6 categories
+npm test -- test/benchmark.test.ts
+
+# Stochastic — 200 randomized trials, Wilcoxon test, bootstrap CI
+npm test -- test/benchmark-stochastic.test.ts
+```
+
+Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+</details>
 
 ---
 
