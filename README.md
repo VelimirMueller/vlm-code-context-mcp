@@ -33,7 +33,8 @@ Tested across 10 real development tasks (retrieval, debugging, refactoring, impl
 
 MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more.
 
-![benchmark](https://github.com/user-attachments/assets/e553c734-ebc0-4e9e-8efb-5f79ab010d3e)
+<img width="1051" height="467" alt="benchmark" src="https://github.com/user-attachments/assets/3afb5150-c8b3-46f5-9d0b-5340397d0bfb" />
+
 
 <details>
 <summary>Reproduce it yourself</summary>
