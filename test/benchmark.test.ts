@@ -1652,20 +1652,16 @@ describe("MCP vs Vanilla benchmark — 10 tasks", () => {
 
   // ── Scaling: larger tasks should benefit more from MCP ────────────────────
 
-  it("larger tasks (5pt+) save more tokens than small tasks (1-2pt)", () => {
-    const small = allTasks
-      .filter((t) => t.mcp.points <= 2)
-      .reduce(
-        (s, t) => s + (t.vanilla.totalTokens - t.mcp.totalTokens),
-        0,
-      );
-    const large = allTasks
-      .filter((t) => t.mcp.points >= 5)
-      .reduce(
-        (s, t) => s + (t.vanilla.totalTokens - t.mcp.totalTokens),
-        0,
-      );
-    expect(large).toBeGreaterThan(small);
+  it("larger tasks (5pt+) save more tokens per task than small tasks (1-2pt)", () => {
+    const smallTasks = allTasks.filter((t) => t.mcp.points <= 2);
+    const largeTasks = allTasks.filter((t) => t.mcp.points >= 5);
+    const smallAvg =
+      smallTasks.reduce((s, t) => s + (t.vanilla.totalTokens - t.mcp.totalTokens), 0) /
+      smallTasks.length;
+    const largeAvg =
+      largeTasks.reduce((s, t) => s + (t.vanilla.totalTokens - t.mcp.totalTokens), 0) /
+      largeTasks.length;
+    expect(largeAvg).toBeGreaterThan(smallAvg);
   });
 
   // ── Methodology validation ────────────────────────────────────────────────
