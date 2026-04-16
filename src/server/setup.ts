@@ -120,19 +120,7 @@ console.log("");
     console.log("  PRODUCT_VISION skill already exists, skipping.");
   }
 
-  const milestoneCount = (db.prepare(`SELECT COUNT(*) as cnt FROM milestones`).get() as { cnt: number }).cnt;
-  if (milestoneCount === 0) {
-    db.prepare(
-      `INSERT INTO milestones (name, description, status) VALUES (?, ?, ?)`
-    ).run(
-      "M1 — Getting Started",
-      "Initial project setup: indexing, schema, first sprint, and onboarding.",
-      "active"
-    );
-    console.log("  Created first milestone: M1 — Getting Started (status: active).");
-  } else {
-    console.log(`  ${milestoneCount} milestone(s) already exist, skipping.`);
-  }
+  // Milestones are created via /kickoff or MCP tools — not auto-seeded during setup.
 
   if (!USE_DEFAULTS) {
     console.log("\n  Tip: Run with --defaults to suppress this output on re-runs.");

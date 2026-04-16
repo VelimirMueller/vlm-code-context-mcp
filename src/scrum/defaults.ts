@@ -65,6 +65,24 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     department: "quality",
   },
   {
+    role: "security",
+    name: "Security Engineer",
+    description: "Reviews code for vulnerabilities, enforces security best practices, and manages threat modeling",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+    department: "quality",
+  },
+  {
+    role: "architect",
+    name: "Architect",
+    description: "Designs system architecture, makes technology decisions, and ensures structural integrity",
+    model: "claude-sonnet-4-6",
+    tools: null,
+    system_prompt: "",
+    department: "development",
+  },
+  {
     role: "team-lead",
     name: "Team Lead",
     description: "Coordinates the team, reviews code, and ensures quality",
@@ -122,7 +140,7 @@ export const SKILL_DEFAULTS: SkillDefault[] = [
   },
   {
     name: "SPRINT_ROLES",
-    content: JSON.stringify(["fe-engineer", "be-engineer", "developer", "devops", "qa", "team-lead", "product-owner"], null, 2),
+    content: JSON.stringify(["fe-engineer", "be-engineer", "developer", "devops", "qa", "security", "architect", "team-lead", "product-owner"], null, 2),
     owner_role: null,
   },
   {
@@ -155,6 +173,8 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
   const OLD_4_AGENT_COUNT = 4;
   const OLD_6_AGENT_COUNT = 6;
 
+  const OLD_7_AGENT_COUNT = 7;
+
   const isOld15 = agentRows === OLD_15_AGENT_COUNT &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'architect'").get() != null;
   // Old 4-agent set had a 'developer' role; new 6-agent set uses 'fe-engineer'/'be-engineer'
@@ -165,8 +185,11 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
   const isOld6 = agentRows === OLD_6_AGENT_COUNT &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'fe-engineer'").get() != null &&
     db.prepare("SELECT 1 FROM agents WHERE role = 'developer'").get() == null;
+  // Old 7-agent set is missing security and architect roles
+  const isOld7 = agentRows === OLD_7_AGENT_COUNT &&
+    db.prepare("SELECT 1 FROM agents WHERE role = 'security'").get() == null;
 
-  if (agentRows === 0 || isOld15 || isOld4 || isOld6) {
+  if (agentRows === 0 || isOld15 || isOld4 || isOld6 || isOld7) {
     if (agentRows > 0) db.prepare("DELETE FROM agents").run();
     const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt, department) VALUES (?, ?, ?, ?, ?, ?, ?)`);
     for (const a of AGENT_DEFAULTS) {
@@ -226,10 +249,10 @@ export function resetAgents(db: Database.Database): number {
     stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
   }
 
-  // Validation: ensure agent count is exactly 7
+  // Validation: ensure agent count is exactly 9
   const count = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number }).c;
-  if (count !== 7) {
-    throw new Error(`Agent validation failed: expected 7 agents, got ${count}`);
+  if (count !== 9) {
+    throw new Error(`Agent validation failed: expected 9 agents, got ${count}`);
   }
 
   return AGENT_DEFAULTS.length;

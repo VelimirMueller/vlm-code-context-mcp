@@ -5,7 +5,7 @@
     "tsFileCount": 5,
     "exportCount": 19,
     "depCount": 3,
-    "generatedAt": "2026-04-16T08:03:58.228Z",
+    "generatedAt": "2026-04-16T08:27:11.585Z",
     "methodology": "Simulated agent workflows — MCP tool calls vs raw file reads. Self-contained tasks, no cross-task state. Deterministic (no AI API calls).",
     "tokenEstimation": "Conservative whitespace+symbol splitting. NOT Claude tokenizer counts. Real API usage may differ."
   },

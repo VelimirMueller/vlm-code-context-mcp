@@ -172,17 +172,19 @@ No agent holds the full project in its context window. They query what they need
 
 ## The Agent Team
 
-7 configurable agents, each with a role, model, and mood score.
+9 configurable agents, each with a role, model, and mood score.
 
-| Role | Model | Focus |
-|---|---|---|
-| Product Owner | Opus 4.6 | Vision, priorities, stakeholder alignment |
-| Scrum Master | Sonnet 4.6 | Sprint facilitation, process improvement |
-| Lead Developer | Opus 4.6 | Architecture, complex implementations |
-| Backend Developer | Sonnet 4.6 | APIs, database, server logic |
-| Frontend Developer | Sonnet 4.6 | Dashboard components, UI/UX |
-| QA Engineer | Sonnet 4.6 | Testing, verification, quality gates |
-| DevOps | Haiku 4.5 | CI/CD, builds, deployment |
+| Role | Focus |
+|---|---|
+| Product Owner | Vision, priorities, stakeholder alignment |
+| Team Lead | Coordination, code review, quality |
+| Architect | System design, technology decisions, structural integrity |
+| Backend Developer | APIs, database, server logic |
+| Frontend Developer | Dashboard components, UI/UX |
+| Developer | Full-stack features across frontend and backend |
+| QA Engineer | Testing, verification, quality gates |
+| Security Engineer | Vulnerability review, threat modeling, security best practices |
+| DevOps | CI/CD, builds, deployment |
 
 Add, remove, or swap models through MCP tools or with a single click in the dashboard.
 
@@ -229,7 +231,7 @@ Phases, durations, and gates are fully customizable via `update_sprint_config`.
 | MCP tools | 76 (32 read + 44 write) |
 | Database tables | 30 (25 scrum + 5 code) |
 | React components | 62 |
-| Agent roles | 7 (configurable) |
+| Agent roles | 9 (configurable) |
 | Sprint phases | 4 with gate checks |
 | Slash commands | 6 |
 
