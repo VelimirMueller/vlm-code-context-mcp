@@ -1,0 +1,236 @@
+{
+  "meta": {
+    "fixture": "test/fixtures/sample-project",
+    "fileCount": 10,
+    "tsFileCount": 5,
+    "exportCount": 19,
+    "depCount": 3,
+    "generatedAt": "2026-04-16T10:43:56.982Z",
+    "methodology": "Simulated agent workflows — MCP tool calls vs raw file reads. Self-contained tasks, no cross-task state. Deterministic (no AI API calls).",
+    "tokenEstimation": "Conservative whitespace+symbol splitting. NOT Claude tokenizer counts. Real API usage may differ."
+  },
+  "tasks": [
+    {
+      "id": "T01",
+      "label": "Single-file lookup",
+      "category": "retrieval",
+      "points": 1,
+      "mcp": {
+        "tokens": 161,
+        "calls": 2,
+        "files": 1
+      },
+      "vanilla": {
+        "tokens": 467,
+        "calls": 2,
+        "files": 1
+      },
+      "tokenSavingsPct": 65.5,
+      "callSavingsPct": 0
+    },
+    {
+      "id": "T02",
+      "label": "Symbol search",
+      "category": "retrieval",
+      "points": 1,
+      "mcp": {
+        "tokens": 31,
+        "calls": 1,
+        "files": 0
+      },
+      "vanilla": {
+        "tokens": 360,
+        "calls": 2,
+        "files": 1
+      },
+      "tokenSavingsPct": 91.4,
+      "callSavingsPct": 50
+    },
+    {
+      "id": "T03",
+      "label": "Dependency tracing",
+      "category": "analysis",
+      "points": 2,
+      "mcp": {
+        "tokens": 114,
+        "calls": 1,
+        "files": 1
+      },
+      "vanilla": {
+        "tokens": 564,
+        "calls": 4,
+        "files": 3
+      },
+      "tokenSavingsPct": 79.8,
+      "callSavingsPct": 75
+    },
+    {
+      "id": "T04",
+      "label": "Codebase reconnaissance",
+      "category": "exploration",
+      "points": 2,
+      "mcp": {
+        "tokens": 170,
+        "calls": 1,
+        "files": 0
+      },
+      "vanilla": {
+        "tokens": 286,
+        "calls": 5,
+        "files": 4
+      },
+      "tokenSavingsPct": 40.6,
+      "callSavingsPct": 80
+    },
+    {
+      "id": "T05",
+      "label": "Add utility function",
+      "category": "implementation",
+      "points": 2,
+      "mcp": {
+        "tokens": 304,
+        "calls": 4,
+        "files": 2
+      },
+      "vanilla": {
+        "tokens": 561,
+        "calls": 5,
+        "files": 2
+      },
+      "tokenSavingsPct": 45.8,
+      "callSavingsPct": 20
+    },
+    {
+      "id": "T06",
+      "label": "Bug hunt — type mismatch",
+      "category": "debugging",
+      "points": 3,
+      "mcp": {
+        "tokens": 400,
+        "calls": 4,
+        "files": 3
+      },
+      "vanilla": {
+        "tokens": 1071,
+        "calls": 5,
+        "files": 4
+      },
+      "tokenSavingsPct": 62.7,
+      "callSavingsPct": 20
+    },
+    {
+      "id": "T07",
+      "label": "Add API endpoint",
+      "category": "implementation",
+      "points": 3,
+      "mcp": {
+        "tokens": 694,
+        "calls": 6,
+        "files": 3
+      },
+      "vanilla": {
+        "tokens": 1001,
+        "calls": 9,
+        "files": 5
+      },
+      "tokenSavingsPct": 30.7,
+      "callSavingsPct": 33.3
+    },
+    {
+      "id": "T08",
+      "label": "Cross-file refactor",
+      "category": "refactoring",
+      "points": 5,
+      "mcp": {
+        "tokens": 1158,
+        "calls": 11,
+        "files": 4
+      },
+      "vanilla": {
+        "tokens": 1531,
+        "calls": 12,
+        "files": 9
+      },
+      "tokenSavingsPct": 24.4,
+      "callSavingsPct": 8.3
+    },
+    {
+      "id": "T09",
+      "label": "New feature with tests",
+      "category": "implementation",
+      "points": 5,
+      "mcp": {
+        "tokens": 863,
+        "calls": 8,
+        "files": 4
+      },
+      "vanilla": {
+        "tokens": 1254,
+        "calls": 11,
+        "files": 9
+      },
+      "tokenSavingsPct": 31.2,
+      "callSavingsPct": 27.3
+    },
+    {
+      "id": "T10",
+      "label": "Full codebase audit",
+      "category": "analysis",
+      "points": 8,
+      "mcp": {
+        "tokens": 911,
+        "calls": 11,
+        "files": 9
+      },
+      "vanilla": {
+        "tokens": 1631,
+        "calls": 13,
+        "files": 10
+      },
+      "tokenSavingsPct": 44.1,
+      "callSavingsPct": 15.4
+    }
+  ],
+  "summary": {
+    "totalMcpTokens": 4806,
+    "totalVanillaTokens": 8726,
+    "totalSavingsPct": 44.9,
+    "totalMcpCalls": 49,
+    "totalVanillaCalls": 68,
+    "callSavingsPct": 27.9,
+    "totalPoints": 32,
+    "taskCount": 10,
+    "categories": {
+      "retrieval": {
+        "mcpTokens": 192,
+        "vanillaTokens": 827,
+        "savingsPct": 76.8
+      },
+      "analysis": {
+        "mcpTokens": 1025,
+        "vanillaTokens": 2195,
+        "savingsPct": 53.3
+      },
+      "exploration": {
+        "mcpTokens": 170,
+        "vanillaTokens": 286,
+        "savingsPct": 40.6
+      },
+      "implementation": {
+        "mcpTokens": 1861,
+        "vanillaTokens": 2816,
+        "savingsPct": 33.9
+      },
+      "debugging": {
+        "mcpTokens": 400,
+        "vanillaTokens": 1071,
+        "savingsPct": 62.7
+      },
+      "refactoring": {
+        "mcpTokens": 1158,
+        "vanillaTokens": 1531,
+        "savingsPct": 24.4
+      }
+    }
+  }
+}

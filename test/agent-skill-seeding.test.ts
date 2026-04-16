@@ -9,12 +9,14 @@ import {
 } from "../src/scrum/defaults.js";
 
 const EXPECTED_AGENT_ROLES = [
+  "architect",
   "be-engineer",
   "developer",
   "devops",
   "fe-engineer",
   "product-owner",
   "qa",
+  "security",
   "team-lead",
 ] as const;
 
@@ -29,13 +31,13 @@ describe("Agent & Skill Seeding (T-45)", () => {
   });
 
   describe("Agent creation", () => {
-    it("creates exactly 7 agents", () => {
+    it("creates exactly 9 agents", () => {
       seedDefaults(db);
       const result = db.prepare("SELECT COUNT(*) as c FROM agents").get() as { c: number };
-      expect(result.c).toBe(7);
+      expect(result.c).toBe(9);
     });
 
-    it("assigns correct roles to all 7 agents", () => {
+    it("assigns correct roles to all 9 agents", () => {
       seedDefaults(db);
       const rows = db
         .prepare("SELECT role FROM agents ORDER BY role")
@@ -47,7 +49,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
     it("each agent has required fields populated", () => {
       seedDefaults(db);
       const agents = db.prepare("SELECT * FROM agents").all() as any[];
-      expect(agents).toHaveLength(7);
+      expect(agents).toHaveLength(9);
 
       for (const agent of agents) {
         expect(agent.role).toBeTruthy();
@@ -169,7 +171,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
 
   describe("Config validation", () => {
     it("AGENT_DEFAULTS constant matches expected roles", () => {
-      expect(AGENT_DEFAULTS).toHaveLength(7);
+      expect(AGENT_DEFAULTS).toHaveLength(9);
       const roles = AGENT_DEFAULTS.map((a) => a.role).sort();
       expect(roles).toEqual([...EXPECTED_AGENT_ROLES].sort());
     });
@@ -200,7 +202,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
   describe("Idempotency", () => {
     it("seedDefaults is idempotent — second call does nothing", () => {
       const first = seedDefaults(db);
-      expect(first.agents).toBe(7);
+      expect(first.agents).toBe(9);
 
       const second = seedDefaults(db);
       expect(second.agents).toBe(0);

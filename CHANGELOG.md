@@ -5,6 +5,36 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-04-16
+
+### Fixed
+- Package description still referenced "7-agent scrum team" — now ships with 9 agents (Security Engineer + Architect added in 1.1.2)
+
+## [1.1.2] - 2026-04-16
+
+### Added
+- **Security Engineer** and **Architect** agent roles — 7→9 default agents. Existing 7-agent databases auto-migrate on startup.
+- Benchmark JSON files (`benchmark-results.json`, `benchmark-stochastic-results.json`) now included in npm package
+
+### Changed
+- Setup no longer auto-creates "M1 — Getting Started" milestone — milestones are created via `/kickoff` or MCP tools for a clean starting state
+
+### Fixed
+- **Flaky CI benchmark test** — "larger tasks save more" assertion compared group totals (4 small vs 3 large tasks) instead of per-task averages, causing failures on CI where indexer output differs slightly across Node versions
+
+## [1.1.0] - 2026-04-16
+
+### Added
+- **10-task deterministic benchmark** (`test/benchmark.test.ts`) — MCP vs vanilla comparison across 6 categories (retrieval, analysis, exploration, implementation, debugging, refactoring), 32 story points total. Replaces the old 3-task hand-estimated comparison. Outputs `benchmark-results.json` for dashboard consumption.
+- **200-trial stochastic benchmark** (`test/benchmark-stochastic.test.ts`) — random file role assignment, Poisson exploration noise (λ=1.5), Wilcoxon signed-rank test, bootstrap 95% CI, seeded PRNG for reproducibility. Result: 90.5% MCP win rate, p < 0.001, effect size r=0.953.
+- **Benchmark guide** (`BENCHMARK-GUIDE.md`) — methodology, task descriptions, how to add tasks, honest reporting guidelines
+- `/api/benchmark` and `/api/benchmark-stochastic` dashboard endpoints serving new benchmark data
+- `benchmarkStore` (Zustand) for fetching deterministic + stochastic results
+
+### Changed
+- **Benchmark dashboard page** rewritten — now shows 10-task card grid, category breakdown, statistical proof panel with Wilcoxon results, hypothesis testing, and per-template savings
+- **README benchmark section** updated with reproducible numbers (44.9% token savings, 27.9% fewer calls, p < 0.001) and `npm test` commands to verify
+
 ## [1.0.2] - 2026-04-15
 
 ### Removed
