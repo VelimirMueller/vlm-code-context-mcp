@@ -8,6 +8,8 @@
 
 [![npm](https://img.shields.io/npm/v/vlm-code-context-mcp)](https://www.npmjs.com/package/vlm-code-context-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/vlm-code-context-mcp.svg)](https://www.npmjs.com/package/vlm-code-context-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/vlm-code-context-mcp.svg)](https://www.npmjs.com/package/vlm-code-context-mcp)
 
 ```bash
 npm install vlm-code-context-mcp
