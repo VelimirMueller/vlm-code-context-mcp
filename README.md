@@ -67,7 +67,7 @@ npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 ```
 
-Creates `context.db`, indexes your codebase, seeds a 9-agent team, installs the bundled frontend skills into `.claude/skills/`, and writes `.mcp.json`.
+Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, and writes `.mcp.json`.
 
 **3 · Restart your AI client**
 
@@ -130,19 +130,23 @@ Type these directly in Claude Code.
 | `/retro` | Data-backed retrospectives with burndown + velocity analysis |
 | `/sprint-connect` | Bridge the dashboard UI to your Claude session |
 
+> `/kickoff` auto-loads the frontend skill playbook into the session when a sprint has `fe-engineer` work — pull any skill's full guidance with `get_skill`.
+
 ---
 
-## Bundled Frontend Skills
+## Frontend Skills (server-provided)
 
-`setup` also installs a curated library of **22 frontend skills** into your project's `.claude/skills/` — a living snapshot of state-of-the-art practices and recommended workflows for building scalable React 19 / Vue 3 frontends. Claude Code discovers them automatically, giving your agent opinionated, audit-aware guidance for scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, and more.
+The server ships a curated library of **22 frontend skills** — state-of-the-art practices for building scalable React 19 / Vue 3 frontends (scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, and more) — plus an editable **house-style primer**.
+
+Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. When you run `/kickoff` and a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and an index of available skills; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
 
 | | |
 |---|---|
-| Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored snapshot |
-| Install | `code-context-mcp setup` → `.claude/skills/<skill>/SKILL.md` (non-destructive; your edits are never overwritten) |
-| Update | `npm run sync:skills`, or the daily `sync-skills` workflow that opens a PR when new skills land upstream |
-
-The library grows over time — backend and infrastructure domains follow frontend. Run `npm run sync:skills` whenever you want to pull the latest.
+| Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored under `vendor/skills/` (build input) |
+| Storage | seeded into the project DB `skills` table (`owner_role: fe-engineer`); **edit them to make them yours** — re-seeds never overwrite your edits |
+| Trigger | automatic on `fe-engineer` tickets during `/kickoff` |
+| Load | index + primer up front; full body via `get_skill({ name })` |
+| Update | `npm run sync:skills` (re-vendors + recompiles), or the daily `sync-skills` workflow |
 
 ---
 
@@ -187,7 +191,7 @@ No agent holds the full project in its context window. They query what they need
 
 ## The Agent Team
 
-9 configurable agents, each with a role, model, and mood score.
+9 configurable agents, each with a role, model, and mood score. Dev roles and QA default to the strongest model (`claude-opus-4-8`); the rest use `claude-sonnet-4-6`.
 
 | Role | Focus |
 |---|---|
@@ -201,7 +205,7 @@ No agent holds the full project in its context window. They query what they need
 | Security Engineer | Vulnerability review, threat modeling, security best practices |
 | DevOps | CI/CD, builds, deployment |
 
-Add, remove, or swap models through MCP tools or with a single click in the dashboard.
+Add, remove, or swap models through MCP tools or with a single click in the dashboard — and the choice **routes execution**: during `/kickoff` and `/sprint`, each ticket is implemented by a subagent spawned at its assigned agent's model tier (`opus`/`sonnet`/`haiku`).
 
 ---
 

@@ -134,12 +134,18 @@ describe("Agent & Skill Seeding (T-45)", () => {
   });
 
   describe("Skills presence", () => {
-    it("creates exactly 5 skills from defaults", () => {
+    it("creates exactly 5 structural skills from defaults", () => {
       seedDefaults(db);
       const result = db
-        .prepare("SELECT COUNT(*) as c FROM skills")
+        .prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'")
         .get() as { c: number };
       expect(result.c).toBe(5);
+    });
+
+    it("also seeds frontend skills", () => {
+      seedDefaults(db);
+      const fe = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name LIKE 'fe:%'").get() as { c: number };
+      expect(fe.c).toBeGreaterThan(0);
     });
 
     it("has SPRINT_PROCESS_JSON skill", () => {

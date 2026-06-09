@@ -100,3 +100,7 @@ npm run dashboard:dev
 npm run dashboard
   → tsx src/dashboard/dashboard.ts (full server on :3333)
 ```
+
+### Frontend skills
+
+Frontend skills are vendored from `claude_development_skills` into `vendor/skills/` (build input), compiled by `scripts/compile-skills.mjs` into a generated defaults module, and seeded into the project DB `skills` table (`owner_role='fe-engineer'`) by `seedDefaults`. They are served — not copied: during `/kickoff`, `load_phase_context` detects `fe-engineer` tickets and injects a Frontend Playbook (editable house-style primer + skill index), and the agent fetches full skill bodies on demand via `get_skill`.
