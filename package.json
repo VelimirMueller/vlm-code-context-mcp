@@ -11,7 +11,6 @@
   "files": [
     "dist",
     ".claude/commands",
-    "skills",
     "scripts",
     "comparison.json",
     "benchmark-results.json",
@@ -20,7 +19,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && cp src/dashboard/dashboard.html dist/dashboard/ && cd src/dashboard/app && npx vite build",
+    "build": "node scripts/compile-skills.mjs && tsc && cp src/dashboard/dashboard.html dist/dashboard/ && cd src/dashboard/app && npx vite build",
     "start": "node dist/server/index.js",
     "dev": "tsx src/dashboard/dashboard.ts",
     "dashboard": "tsx src/dashboard/dashboard.ts",
@@ -36,7 +35,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
-    "sync:skills": "node scripts/sync-skills.mjs",
+    "compile:skills": "node scripts/compile-skills.mjs",
+    "sync:skills": "node scripts/sync-skills.mjs && node scripts/compile-skills.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "npm run build",
     "prepare": "husky",
