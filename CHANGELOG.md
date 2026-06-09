@@ -5,6 +5,24 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-09
+
+### Added
+- **Server-provided frontend skills** — the frontend skill set is now served by the MCP server straight into a live `/kickoff` session instead of being copied into each project. When a sprint has `fe-engineer` work, `load_phase_context` injects a house-style primer plus an index of available skills; the agent pulls any skill's full body on demand via the new **`get_skill`** tool. No restart, no slash-skill registration.
+- **`get_skill({ name })`** — read tool returning one skill's full content from the DB (e.g. `fe:set-up-auth`, or a companion/shared ref like `fe:set-up-auth/auth-patterns.md` / `fe:_shared/<file>`).
+- **`seedFrontendSkills()`** — idempotently seeds the frontend skills + the editable `fe:_house-style` primer into the project DB `skills` table (`owner_role: 'fe-engineer'`); per-skill insert-if-absent, so your edits survive re-seeds.
+- **`npm run compile:skills`** (`scripts/compile-skills.mjs`) — compiles the vendored `vendor/skills/frontend/**` into `src/scrum/frontend-skill-defaults.generated.ts`, shipped compiled in the package.
+
+### Changed
+- Frontend skills now live in the server DB (single source of truth, editable per project) rather than as files in your repo. Vendored source moved from `skills/` to `vendor/skills/` (build input only); `package.json` `files[]` no longer ships it.
+- `setup` no longer copies skills into `.claude/skills/`; the former step is removed (setup is now a 6-step flow). Skills are seeded into the DB by `seedDefaults`.
+
+### Removed
+- The `.claude/skills/<skill>/` file-copy install (added in 1.2.0) and the dead `src/server/skills-install.ts`.
+
+### Notes
+- Existing projects may still have `.claude/skills/<frontend-skill>/` files from 1.2.0 — these are harmless leftovers and can be deleted; the server no longer manages them.
+
 ## [1.2.1] - 2026-06-09
 
 ### Security

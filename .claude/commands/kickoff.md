@@ -319,6 +319,8 @@ load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> }
 
 This returns sprint progress, ticket detail, and open blockers. For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
+**Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` injects a Frontend Playbook (house-style primer + skill index). When you start a frontend ticket, pull the specific guidance with `get_skill({ name: "fe:<slug>" })` (and any companion/shared file it references, e.g. `fe:<slug>/<file>` or `fe:_shared/<file>`).
+
 For each ticket the user completes:
 
 1. `update_ticket({ ticket_id, status: "IN_PROGRESS" })`

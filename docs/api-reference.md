@@ -388,6 +388,18 @@ Get full ticket details with subtasks and linked bugs.
 
 ---
 
+### `get_skill`
+
+Fetch the full content of a single skill by name.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `name` | string | Skill name — e.g. `fe:set-up-auth`, the primer `fe:_house-style`, a companion `fe:set-up-auth/auth-patterns.md`, or a shared ref `fe:_shared/<file>` |
+
+Frontend skills are surfaced as an index by `load_phase_context` during `/kickoff` (when a sprint has `fe-engineer` work); call `get_skill` to pull the full guidance for a specific one on demand.
+
+---
+
 ## Epics & Milestones
 
 ### `create_epic`
