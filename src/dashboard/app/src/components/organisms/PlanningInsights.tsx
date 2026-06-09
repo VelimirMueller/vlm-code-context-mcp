@@ -5,6 +5,7 @@ import { usePlanningStore } from '@/stores/planningStore';
 import { BentoCard } from '@/components/molecules/BentoCard';
 import { AnimatedNumber } from '@/components/atoms/AnimatedNumber';
 import type { RetroFinding } from '@/types';
+import { get } from '@/lib/api';
 
 // ─── Mini progress bar ───────────────────────────────────────────────────────
 
@@ -81,9 +82,7 @@ export function PlanningInsights() {
     setRetroLoading(true);
     Promise.all(
       sprints.map((s) =>
-        fetch(`/api/sprint/${s.id}/retro`)
-          .then((r) => r.json())
-          .catch(() => [] as RetroFinding[])
+        get<RetroFinding[]>(`/api/sprint/${s.id}/retro`).catch(() => [] as RetroFinding[])
       )
     )
       .then((results) => {
