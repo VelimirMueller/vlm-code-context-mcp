@@ -18,6 +18,15 @@ describe("parseSkillSummary", () => {
   it("returns empty string when no frontmatter", () => {
     expect(parseSkillSummary("no frontmatter")).toBe("");
   });
+  it("strips surrounding quotes", () => {
+    expect(parseSkillSummary("---\ndescription: \"Hello 'world'\"\n---")).toBe("Hello 'world'");
+  });
+  it("handles CRLF frontmatter", () => {
+    expect(parseSkillSummary("---\r\nname: x\r\ndescription: Hi there.\r\n---\r\nbody")).toBe("Hi there.");
+  });
+  it("returns empty for a block-scalar description", () => {
+    expect(parseSkillSummary("---\ndescription: |\n  multi\n  line\n---")).toBe("");
+  });
 });
 
 describe("getSkillContent", () => {
@@ -25,7 +34,7 @@ describe("getSkillContent", () => {
     expect(getSkillContent(db, "fe:_house-style")).toContain("Frontend House Style");
   });
   it("returns content for a companion doc", () => {
-    expect(getSkillContent(db, "fe:set-up-auth/auth-patterns.md")).toBeTruthy();
+    expect(getSkillContent(db, "fe:set-up-auth/auth-patterns.md")).toContain("Auth Patterns");
   });
   it("returns null for a missing skill", () => {
     expect(getSkillContent(db, "fe:does-not-exist")).toBeNull();
