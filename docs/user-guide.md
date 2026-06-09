@@ -75,21 +75,26 @@ npx code-context-mcp setup .
 This creates:
 - `context.db` — SQLite database with indexed code
 - `.mcp.json` — MCP client configuration
-- `.claude/` directory (if using Claude Code)
+- `.claude/settings.json` — bridge hook (PreToolUse) so slash commands work
+- `.claude/commands/*.md` — slash command definitions (`/kickoff`, `/sprint`, `/ticket`, `/milestone`, `/retro`)
 
 **Expected output:**
 ```
 === Code Context MCP — Setup (my-project) ===
 
-[1/4] Initializing database...
-[2/4] Indexing target directory...
+[1/6] Initializing database...
+[2/6] Indexing target directory...
   Indexed 174 files, 328 exports, 59 dependencies.
-[3/4] Seeding factory defaults...
-  Seeded 7 agents, 5 skills
-[4/4] Configuring MCP client...
+[3/6] Seeding factory defaults...
+  Seeded 9 agents, 5 skills
+[4/6] Configuring MCP client...
   Wrote .mcp.json
+[5/6] Configuring bridge hook...
+  Bridge hook configured in .claude/settings.json
+[6/6] Installing Claude commands...
+  Commands installed to .claude/commands/
 
-=== Setup complete! ===
+=== Setup complete! (my-project) ===
 ```
 
 ### Step 2: Restart Your AI Client
@@ -105,9 +110,10 @@ Ask your AI assistant:
 You should see a response like:
 ```
 Files indexed: 174
-Agents: 7
+Agents: 9
 Sprints: 0
 Tickets: 0
+Skills: 5
 Project is set up and ready.
 ```
 
@@ -127,12 +133,12 @@ Navigate to `http://localhost:3333`
 
 | Tab | Description |
 |-----|-------------|
-| **Sprints** | View all sprints with status, velocity, and progress |
-| **Tickets** | Kanban board with all tickets organized by status |
-| **Team** | View agent roster, roles, and mood trends |
-| **Epics** | Track progress on epics and milestones |
+| **Dashboard** | Sprint overview and activity feed; includes a Kanban board sub-tab for tickets organized by status |
 | **Planning** | Interactive wizard for sprint planning |
-| **Retro** | View retrospective findings and patterns |
+| **Code** | Codebase explorer — indexed files, symbols, and dependencies |
+| **Team** | Agent roster, roles, model assignments, and mood trends |
+| **Retro** | Retrospective findings, patterns, and action follow-through |
+| **Benchmark** | Velocity trends, burndown charts, and team performance metrics |
 
 ### Real-Time Updates
 
@@ -574,7 +580,7 @@ npx code-context-dashboard export context.db > results.json
 ## Getting Help
 
 - **API Reference:** See `docs/api-reference.md` for complete tool documentation
-- **GitHub Issues:** https://github.com/VelimirMueller/mcp-server/issues
+- **GitHub Issues:** https://github.com/VelimirMueller/vlm-code-context-mcp/issues
 - **Examples:** Check `examples/` directory for sample projects
 
 ---

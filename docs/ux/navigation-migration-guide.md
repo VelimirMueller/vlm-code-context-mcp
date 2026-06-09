@@ -1,5 +1,20 @@
 # Navigation Flattening — Implementation Migration Guide
 
+> **WARNING: Historical migration plan (Sprint 15). Largely superseded — the actual implementation diverged significantly. Kept for history; NOT a guide to the current code.**
+>
+> Key divergences from this plan (verified against the codebase as of v1.3.0):
+>
+> - **TopNav, QuickActionsBar, and Breadcrumb are prop-driven, not store-driven.** `TopNav` receives `activeTab` and `onTabChange` as props; `QuickActionsBar` receives `actions`, `searchQuery`, `onSearchChange`, and `breadcrumbItems` as props; `Breadcrumb` receives an `items` prop. None of them call `useUIStore` internally.
+> - **TopNav has 6 tabs, not 5.** The `benchmark` tab was added (Dashboard, Planning, Code, Team, Retro, Benchmark). The spec's 5-tab `NAV_ITEMS` array is inaccurate.
+> - **`useLegacyRedirect` was never created as a separate hook.** The legacy URL redirect logic lives as an inline `useEffect` in `App.tsx`, using a `legacyUrlMap` constant. There is no `src/dashboard/app/src/hooks/useLegacyRedirect.ts` file.
+> - **`src/dashboard/app/src/features.ts` was never created.** Feature flags described in Phase 5 do not exist in the codebase.
+> - **`src/dashboard/app/src/lib/analytics.ts` was never created** in the dashboard app. The analytics patterns described in Phase 5 were not implemented.
+> - **`FeedbackWidget.tsx` was never created.** There is no feedback widget component.
+> - **`CodeExplorer.tsx` was never renamed to `Code.tsx`.** The file is still `src/dashboard/app/src/pages/CodeExplorer.tsx` and exports `CodeExplorer`, not `Code`.
+> - **Planning shipped as `ProjectManagement.tsx`, not `Planning.tsx`.** The planning page is `src/dashboard/app/src/pages/ProjectManagement.tsx` (exports `ProjectManagement`). `App.tsx` renders it as `{normalizedPage === 'planning' && <ProjectManagement />}`.
+> - **There are 6 active pages, not 5.** Dashboard, CodeExplorer (code tab), ProjectManagement (planning tab), Team, Retro, and Benchmark are all registered in `App.tsx`.
+> - **`uiStore` `breadcrumbTrail` is auto-computed by `setPage`.** The store has a `breadcrumbTrail: BreadcrumbItem[]` field updated when the page changes, not the simple `quickFilter`-based breadcrumb derivation shown in the spec's store snippet.
+
 **Created:** 2026-03-27
 **Sprint:** 15 (Navigation Flattening)
 **Author:** UX Designer Agent

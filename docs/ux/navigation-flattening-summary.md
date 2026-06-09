@@ -1,5 +1,12 @@
 # Navigation Flattening — Design Summary
 
+> **Historical spec — Sprint 15 design document.** This document describes the navigation design as specified in Sprint 15. The feature was subsequently implemented, but shipped with divergences from this spec:
+>
+> - **Tab count mismatch:** This spec shows 5 top-level tabs (Dashboard, Code, Planning, Team, Retro). The shipped `TopNav.tsx` registers **6 tabs** — a sixth "Benchmark" tab was added after this document was written and is not reflected here.
+> - **Quick Actions Bar not wired:** This spec describes a Quick Actions Bar with persistent buttons (My Tickets, Blockers, QA Pending, New Ticket) and count badges. In the shipped `App.tsx`, `quickActions` is initialised as an **empty array** — none of those buttons are connected. The `QuickActionsBar` component renders but receives no actions.
+>
+> Do not use this document as a reference for current behaviour. See `src/dashboard/app/src/components/molecules/TopNav.tsx` and `src/dashboard/app/src/App.tsx` for the authoritative current state.
+
 **Created:** 2026-03-27
 **Sprint:** 15 (Navigation Flattening)
 **Author:** UX Designer Agent
