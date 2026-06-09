@@ -392,7 +392,7 @@ export function SprintPlanningView() {
           })}
 
           {/* New ticket row */}
-          {editing?.id === null && editing ? (
+          {editing?.id === null && editing && (
             <div style={{
               display: 'grid',
               gridTemplateColumns: '32px 1fr 60px 90px 60px 60px 100px',

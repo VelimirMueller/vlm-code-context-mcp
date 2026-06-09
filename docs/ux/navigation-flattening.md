@@ -1,5 +1,32 @@
 # Navigation Flattening Design Specification
 
+> **HISTORICAL DESIGN SPEC — Sprint 15 (2026-03-27)**
+> This document is the original Sprint-15 UX design specification. The navigation
+> flattening was implemented, but with divergences from this spec. It is preserved
+> for historical reference and does **not** describe the current state of the codebase.
+>
+> **Known divergences from this spec:**
+>
+> - **6 tabs shipped, not 5.** A sixth tab — **Benchmark** — was added beyond the
+>   five proposed here (Dashboard, Code, Planning, Team, Retro). `TopNav.tsx` lists
+>   `benchmark` as a valid `NavItem` id and `App.tsx` renders `<Benchmark />` for it.
+>
+> - **`#planning/*` redirects were never implemented.** The `legacyUrlMap` in
+>   `App.tsx` only handles `#sprint*` and `#explorer*` entries. There are no entries
+>   for `#planning`, `#planning/vision`, `#planning/gantt`, or `#planning/insights`.
+>
+> - **Query-parameter redirects were never implemented.** The proposed mappings
+>   `#planning/vision → #planning?tab=vision` and `#planning/gantt →
+>   #planning?tab=timeline` (and the entire "Query Parameter Support" section) were
+>   not built. The `useHashRouter` hook parses only path segments (`#page/tab/id`);
+>   it does not read or write query strings. Query params are stripped before redirect
+>   lookup (`cleanHash = hash.split('?')[0]`) and then discarded.
+>
+> - **Actual `legacyUrlMap` (App.tsx):** `#sprint → #dashboard`, `#sprint/board →
+>   #dashboard/board`, `#sprint/team → #team`, `#sprint/insights → #retro`,
+>   `#explorer → #code`, `#explorer/files → #code/files`. The entries for
+>   `#planning*` listed in this doc do not exist in the implementation.
+
 **Created:** 2026-03-27
 **Sprint:** 15 (Navigation Flattening)
 **Author:** UX Designer Agent

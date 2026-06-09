@@ -79,6 +79,8 @@ Before working on each ticket, load its context from the DB:
 load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> })
 ```
 
+**Delegate by model.** The returned **Model routing** directive gives the ticket's tier. Implement each ticket by spawning a subagent via the **Task tool with that `model` tier** (`opus`/`sonnet`/`haiku`), passing the ticket's title, description, and acceptance criteria; then QA-gate and mark DONE.
+
 For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
 For each ticket:
