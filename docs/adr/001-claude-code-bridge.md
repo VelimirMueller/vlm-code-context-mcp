@@ -21,23 +21,25 @@ Dashboard UI                  SQLite (context.db)              Claude Code
      |                              |                              |
      |-- POST /api/bridge/actions ->|                              |
      |   (writes pending_actions)   |                              |
+     |   <bridge_action SSE --------|                              |
      |                              |                              |
-     |                              |<-- PreToolUse hook reads ----|
-     |                              |    pending actions            |
+     |                              |<-- PreToolUse hook fires ----|
+     |                              |    claims + completes rows   |
+     |                              |    (pending→claimed→done)    |
      |                              |                              |
      |                              |--- additionalContext -------->|
-     |                              |    (injected into Claude)     |
+     |                              |    (sanitized, injected)      |
      |                              |                              |
      |                              |<-- Claude executes MCP tool --|
-     |                              |    (writes to DB)             |
+     |                              |    (work effect in DB)        |
      |                              |                              |
      |<-- SSE notification ---------|                              |
      |    (WAL watcher fires)       |                              |
 ```
 
-1. **Dashboard -> SQLite**: User clicks action in UI, dashboard POSTs to `/api/bridge/actions`, row inserted into `pending_actions` table.
-2. **SQLite -> Claude**: PreToolUse hook (`src/bridge/hook.ts`) fires on every tool call, reads pending actions, injects them as `additionalContext`.
-3. **Claude -> SQLite**: Claude executes the requested action via MCP tools (standard path).
+1. **Dashboard -> SQLite**: User clicks action in UI, dashboard POSTs to `/api/bridge/actions`. The action is validated against a 10-entry `ALLOWED_BRIDGE_ACTIONS` allowlist (`advance_sprint`, `assign_ticket`, `update_ticket`, `create_ticket`, `run_retro`, `run_review`, `run_kickoff`, `plan_sprint`, `custom`, `request_input`), a row is inserted into `pending_actions`, and an immediate `bridge_action` SSE event (or `input_requested` for `request_input` actions) is pushed to all connected dashboard clients.
+2. **SQLite -> Claude**: PreToolUse hook (`src/bridge/hook.ts`) fires on every tool call. It reads pending rows, then **in-process** (before Claude acts) transitions them `pending → claimed → completed` directly via SQLite — the comment in the source reads "don't delegate SQL to Claude". The hook also sanitizes all string fields to strip control characters and prevent prompt-injection. The resulting action list is injected as `additionalContext`.
+3. **Claude executes work**: Claude receives the injected context and calls the appropriate MCP tool to carry out the requested operation (e.g. `advance_sprint`, `update_ticket`). The DB lifecycle for the `pending_actions` row is already closed by the hook; this step produces the actual work effect.
 4. **SQLite -> Dashboard**: WAL watcher fires SSE notification, dashboard refreshes (existing path).
 
 ### pending_actions Schema
