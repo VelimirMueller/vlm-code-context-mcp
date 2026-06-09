@@ -29,7 +29,10 @@ describe("seedDefaults", () => {
 
   it("populates empty skills table with defaults", () => {
     const result = seedDefaults(db);
-    expect(result.skills).toBe(SKILL_DEFAULTS.length);
+    // structural skills (5) + frontend skills (primer + compiled entries)
+    const structural = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number };
+    expect(structural.c).toBe(SKILL_DEFAULTS.length);
+    expect(result.skills).toBeGreaterThanOrEqual(SKILL_DEFAULTS.length);
   });
 
   it("does NOT overwrite agents if table already has data", () => {
@@ -40,12 +43,15 @@ describe("seedDefaults", () => {
     expect(rows.c).toBe(1); // only the custom one
   });
 
-  it("does NOT overwrite skills if table already has data", () => {
+  it("does NOT overwrite structural skills if table already has data", () => {
     db.prepare("INSERT INTO skills (name, content) VALUES (?, ?)").run("MY_SKILL", "content");
     const result = seedDefaults(db);
-    expect(result.skills).toBe(0);
-    const rows = db.prepare("SELECT COUNT(*) as c FROM skills").get() as { c: number };
-    expect(rows.c).toBe(1);
+    // Structural skills are not seeded when table is non-empty, but frontend skills are always seeded
+    const structural = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number };
+    expect(structural.c).toBe(1); // only MY_SKILL
+    const fe = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name LIKE 'fe:%'").get() as { c: number };
+    expect(fe.c).toBeGreaterThan(0); // frontend skills always seeded
+    expect(result.skills).toBe(fe.c); // returned count is just frontend seeds
   });
 
   it("is idempotent — second call seeds nothing", () => {
