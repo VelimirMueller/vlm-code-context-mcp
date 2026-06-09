@@ -13,6 +13,7 @@ beforeEach(() => {
     path.join(tmp, "set-up-auth", "SKILL.md"),
     "---\nname: set-up-auth\ndescription: Use when adding authentication.\n---\nBody.",
   );
+  fs.writeFileSync(path.join(tmp, "set-up-auth", "auth-patterns.md"), "patterns body");
   fs.mkdirSync(path.join(tmp, "_shared"), { recursive: true });
   fs.writeFileSync(path.join(tmp, "_shared", "react.md"), "shared conventions");
 });
@@ -32,6 +33,16 @@ describe("compileSkills", () => {
     const rows = compileSkills(tmp);
     expect(rows.find((r) => r.name === "fe:_shared/react.md")).toBeDefined();
   });
+
+  it("emits per-skill companion docs as fe:<skill>/<file>", () => {
+    const rows = compileSkills(tmp);
+    expect(rows.find((r) => r.name === "fe:set-up-auth/auth-patterns.md")).toBeDefined();
+    // SKILL.md still collapses to the bare skill name (not fe:set-up-auth/SKILL.md)
+    expect(rows.find((r) => r.name === "fe:set-up-auth")).toBeDefined();
+    expect(rows.find((r) => r.name === "fe:set-up-auth/SKILL.md")).toBeUndefined();
+  });
+
+  it("returns [] for a missing srcDir", () => expect(compileSkills(path.join(tmp, "nope"))).toEqual([]));
 
   it("renderModule produces a valid TS export", () => {
     const mod = renderModule(compileSkills(tmp));
