@@ -14,7 +14,7 @@ interface TeamManagementModalProps {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'claude-opus-4-6', label: 'Opus 4.6', description: 'Most capable', color: '#a78bfa' },
+  { value: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Most capable', color: '#a78bfa' },
   { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6', description: 'Balanced', color: '#3b82f6' },
   { value: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fast', color: '#10b981' },
 ] as const;

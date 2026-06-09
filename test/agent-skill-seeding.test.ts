@@ -55,10 +55,18 @@ describe("Agent & Skill Seeding (T-45)", () => {
         expect(agent.role).toBeTruthy();
         expect(agent.name).toBeTruthy();
         expect(agent.description).toBeTruthy();
-        expect(agent.model).toBe("claude-sonnet-4-6");
+        expect(["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
         expect(agent.tools).toBeNull();
         expect(agent.system_prompt).toBe("");
       }
+    });
+
+    it("assigns the strongest model (claude-opus-4-8) to dev and QA roles", () => {
+      seedDefaults(db);
+      const strong = db
+        .prepare("SELECT role FROM agents WHERE model = 'claude-opus-4-8' ORDER BY role")
+        .all() as { role: string }[];
+      expect(strong.map((r) => r.role)).toEqual(["be-engineer", "developer", "fe-engineer", "qa"]);
     });
 
     it("be-engineer has correct description", () => {
@@ -177,7 +185,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
     });
 
     it("all agent models are valid Claude models", () => {
-      const validModels = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"];
+      const validModels = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"];
       for (const agent of AGENT_DEFAULTS) {
         expect(validModels).toContain(agent.model);
       }
