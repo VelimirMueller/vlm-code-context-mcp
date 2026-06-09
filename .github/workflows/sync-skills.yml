@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "lts/*"
       - name: Re-vendor skills from upstream main + recompile defaults
         run: |
           node scripts/sync-skills.mjs
