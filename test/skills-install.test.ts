@@ -58,4 +58,19 @@ describe("copyDirNonDestructive", () => {
     expect(fs.existsSync(path.join(dest, ".source.json"))).toBe(false);
     expect(fs.existsSync(path.join(dest, "frontend/a/SKILL.md"))).toBe(true);
   });
+
+  it("flattenTopLevel drops the named domain dir and lifts its children", () => {
+    const src = temp("skills-src-");
+    const dest = temp("skills-dest-");
+    write(src, "frontend/set-up-routing/SKILL.md", "# routing");
+    write(src, "frontend/_shared/conventions.md", "# conv");
+
+    const count = copyDirNonDestructive(src, dest, { flattenTopLevel: ["frontend"] });
+
+    // Domain wrapper dropped; skill dir and _shared lifted to top so '../_shared/' still resolves.
+    expect(count).toBe(2);
+    expect(fs.existsSync(path.join(dest, "set-up-routing/SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "_shared/conventions.md"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "frontend"))).toBe(false);
+  });
 });
