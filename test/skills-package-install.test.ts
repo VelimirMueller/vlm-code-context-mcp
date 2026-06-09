@@ -4,9 +4,9 @@ import os from "os";
 import path from "path";
 import { copyDirNonDestructive } from "../src/server/skills-install.js";
 
-// The real vendored snapshot that ships in the npm package (package.json files[] includes "skills").
+// The real vendored snapshot that ships in the npm package.
 // These tests verify what a user GETS after `npm install` + `code-context-mcp setup`.
-const SKILLS_DIR = path.resolve(__dirname, "../skills");
+const SKILLS_DIR = path.resolve(__dirname, "../vendor/skills");
 
 /** Paths (relative to root) of every file named `name` anywhere under dir. */
 function collect(root: string, dir: string, name: string): string[] {
