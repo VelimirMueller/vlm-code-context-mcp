@@ -217,8 +217,15 @@ const pkgSkillsDir = path.resolve(__dirname, "../../skills");
 const targetSkillsDir = path.resolve(TARGET_DIR, ".claude/skills");
 try {
   if (fs.existsSync(pkgSkillsDir)) {
+    // Strip the domain wrapper dirs (frontend, backend, ...) so skills land at
+    // .claude/skills/<skill>/SKILL.md — the one-level layout Claude Code discovers.
+    const domains = fs
+      .readdirSync(pkgSkillsDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
     const copiedSkills = copyDirNonDestructive(pkgSkillsDir, targetSkillsDir, {
       exclude: [".source.json"],
+      flattenTopLevel: domains,
     });
     console.log(`  Installed ${copiedSkills} skill file(s) to ${targetSkillsDir}`);
   } else {
