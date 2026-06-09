@@ -12,10 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`get_skill({ name })`** — read tool returning one skill's full content from the DB (e.g. `fe:set-up-auth`, or a companion/shared ref like `fe:set-up-auth/auth-patterns.md` / `fe:_shared/<file>`).
 - **`seedFrontendSkills()`** — idempotently seeds the frontend skills + the editable `fe:_house-style` primer into the project DB `skills` table (`owner_role: 'fe-engineer'`); per-skill insert-if-absent, so your edits survive re-seeds.
 - **`npm run compile:skills`** (`scripts/compile-skills.mjs`) — compiles the vendored `vendor/skills/frontend/**` into `src/scrum/frontend-skill-defaults.generated.ts`, shipped compiled in the package.
+- **Per-agent model routing via subagent delegation** — each ticket's implementation is delegated to a subagent spawned (Task tool) at its assigned agent's model tier (`opus`/`sonnet`/`haiku`). `load_phase_context` (implementation) and `get_ticket` emit a **Model routing** directive, and the `/kickoff` and `/sprint` flows act on it. This is what makes a ticket's assigned-agent model actually take effect (the dashboard model field was previously advisory only).
 
 ### Changed
 - Frontend skills now live in the server DB (single source of truth, editable per project) rather than as files in your repo. Vendored source moved from `skills/` to `vendor/skills/` (build input only); `package.json` `files[]` no longer ships it.
 - `setup` no longer copies skills into `.claude/skills/`; the former step is removed (setup is now a 6-step flow). Skills are seeded into the DB by `seedDefaults`.
+- Agent model defaults updated to current IDs: `fe-engineer`, `be-engineer`, `developer`, and `qa` default to the strongest model (`claude-opus-4-8`); other roles use `claude-sonnet-4-6`. The dashboard model picker and `/api/agent` validation now offer `claude-opus-4-8`, replacing the outdated `claude-opus-4-6`.
+
+### Fixed
+- Dashboard `SprintPlanningView` had a malformed conditional (`cond ? (<jsx/>)` with no `:` branch) that failed the TypeScript parser and ESLint; completed it as a `cond && (<jsx/>)` render. `npm run lint` now reports 0 errors.
 
 ### Removed
 - The `.claude/skills/<skill>/` file-copy install (added in 1.2.0) and the dead `src/server/skills-install.ts`.

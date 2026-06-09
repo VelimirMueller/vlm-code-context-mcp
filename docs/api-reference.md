@@ -1,6 +1,6 @@
 # MCP Tools API Reference
 
-Complete reference for all 83 MCP tools provided by `vlm-code-context-mcp`.
+Key tool reference for `vlm-code-context-mcp`. The server exposes **94 MCP tools total** — 11 codebase-context tools (registered in `src/server/index.ts`) and 83 scrum/workflow tools (registered in `src/scrum/tools.ts`). This page documents the most commonly used tools; for the full list use the MCP tool inspector or browse the source directly.
 
 ## Table of Contents
 
@@ -196,7 +196,7 @@ Check project setup status and return what is configured vs missing.
 await get_project_status();
 // Returns:
 // "Files indexed: 195
-//  Agents: 7
+//  Agents: 9
 //  Sprints: 2
 //  Tickets: 19
 //  Skills: 5
@@ -212,11 +212,35 @@ List all sprints with status and ticket counts.
 **Parameters:**
 ```typescript
 {
-  status?: string  // Filter by status: planning|implementation|qa|done|rest|closed
+  status?: string  // Filter by status: preparation|kickoff|planning|implementation|qa|refactoring|retro|review|closed|rest|done
 }
 ```
 
 **Returns:** All sprints with goal, ticket counts, and completion status.
+
+---
+
+### `get_sprint_summary`
+
+Get a one-line summary per sprint — name, status, velocity, and ticket progress. Ultra-compact for quick overviews.
+
+**Parameters:**
+```typescript
+{
+  last_n?: number  // Number of recent sprints to return (default 5)
+}
+```
+
+**Returns:** One line per sprint: name, status, velocity completed/committed with %, and ticket counts.
+
+**Example:**
+```javascript
+await get_sprint_summary({ last_n: 3 });
+// Returns:
+// "sprint-21 [closed] 19/19pts (100%) 8/8 tickets
+//  sprint-20 [closed] 15/19pts (79%) 6/8 tickets
+//  sprint-19 [planning] 0/19pts (0%) 0/6 tickets"
+```
 
 ---
 
@@ -397,6 +421,34 @@ Fetch the full content of a single skill by name.
 | `name` | string | Skill name — e.g. `fe:set-up-auth`, the primer `fe:_house-style`, a companion `fe:set-up-auth/auth-patterns.md`, or a shared ref `fe:_shared/<file>` |
 
 Frontend skills are surfaced as an index by `load_phase_context` during `/kickoff` (when a sprint has `fe-engineer` work); call `get_skill` to pull the full guidance for a specific one on demand.
+
+---
+
+### `load_phase_context`
+
+Single-call phase context loader. Bundles all data needed for a specific workflow phase into one response, replacing 2–5 separate tool calls. Used internally by `/kickoff`, `/sprint`, and other slash commands.
+
+**Parameters:**
+```typescript
+{
+  phase: "discovery" | "epics" | "tickets" | "implementation" | "retro",
+  sprint_id?: number,  // Required for implementation and retro phases
+  ticket_id?: number   // For implementation phase — includes full ticket detail + model routing directive
+}
+```
+
+**Returns:** A combined markdown bundle:
+- `discovery` — active discoveries, recent decisions, discovery coverage counts
+- `epics` — active epics with ticket progress, agent roster
+- `tickets` — velocity trend (last 5 sprints), backlog, active epics
+- `implementation` — sprint progress, ticket list, open blockers, and (when fe-engineer tickets exist) the frontend skills index with a `Model routing` directive for the assigned agent
+- `retro` — sprint summary, burndown snapshots, mood averages, retro patterns, recent velocity
+
+**Example:**
+```javascript
+await load_phase_context({ phase: "implementation", sprint_id: 5, ticket_id: 42 });
+// Returns combined sprint progress + ticket detail + model routing directive
+```
 
 ---
 
@@ -694,6 +746,50 @@ Analyze retrospective findings across all sprints — category breakdown, recurr
 
 ---
 
+## Decisions
+
+### `log_decision`
+
+Log an architectural or process decision with rationale and alternatives considered.
+
+**Parameters:**
+```typescript
+{
+  title: string,          // Decision title
+  rationale?: string,     // Why this decision was made
+  alternatives?: string,  // Alternatives considered
+  outcome?: string,       // Expected or actual outcome
+  category?: string       // e.g. "technical", "process", "product" (default: "technical")
+}
+```
+
+**Example:**
+```javascript
+await log_decision({
+  title: "Use SQLite for local persistence",
+  rationale: "Zero-dependency, file-based, works offline",
+  alternatives: "PostgreSQL (too heavy for local tooling), JSON files (no query support)",
+  category: "technical"
+});
+// Returns: "Decision logged: #7 — Use SQLite for local persistence"
+```
+
+---
+
+### `list_decisions`
+
+List logged decisions with optional category filter.
+
+**Parameters:**
+```typescript
+{
+  category?: string,  // Filter by category
+  limit?: number      // Max results (default 20)
+}
+```
+
+---
+
 ## Dependencies
 
 ### `add_dependency`
@@ -865,14 +961,6 @@ Create or update the PRODUCT_VISION skill content.
 
 ---
 
-### `list_skills`
-
-List all available skills with usage counts.
-
-**Parameters:** None
-
----
-
 ## Database Management
 
 ### `dump_database`
@@ -929,4 +1017,9 @@ Restore database from a JSON dump file on disk.
 
 ## Full Reference
 
-For complete tool listings with all 83 tools, use the MCP tool inspector or call `list_agents` to see team capabilities.
+The server registers **94 tools** in total (11 codebase-context + 83 scrum). This page covers the key tools; the authoritative source for the full set is the source code:
+
+- Codebase tools: `src/server/index.ts` (11 tools: `index_directory`, `search_files`, `get_file_context`, `find_symbol`, `get_changes`, `query`, `execute`, `set_description`, `set_directory_description`, `set_change_reason`, `health`)
+- Scrum/workflow tools: `src/scrum/tools.ts` (83 tools)
+
+You can also use the MCP tool inspector or call `list_agents` to see the 9 configured team agents and their model assignments.

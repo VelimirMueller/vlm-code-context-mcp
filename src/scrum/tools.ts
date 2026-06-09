@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
+import { formatModelRouting } from "./agent-model.js";
 import { buildFrontendPlaybook, getSkillContent } from "./frontend-playbook.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
@@ -284,6 +285,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (t.acceptance_criteria) { sections.push("## Acceptance Criteria"); try { JSON.parse(t.acceptance_criteria).forEach((c: string) => sections.push(`- ${c}`)); } catch { sections.push(t.acceptance_criteria); } sections.push(""); }
       if (subtasks.length) { sections.push(`## Subtasks (${subtasks.length})`); subtasks.forEach(s => sections.push(`- [${s.status}] ${s.description} @${s.assigned_to || "?"}`)); sections.push(""); }
       if (bugs.length) { sections.push(`## Bugs (${bugs.length})`); bugs.forEach(b => sections.push(`- [${b.status}] ${b.severity}: ${b.description}`)); }
+      if (t.assigned_to) {
+        const ag = db.prepare(`SELECT model FROM agents WHERE role = ?`).get(t.assigned_to) as { model: string } | undefined;
+        sections.push("", formatModelRouting(t.assigned_to, ag?.model ?? null));
+      }
       return { content: [{ type: "text" as const, text: sections.join("\n") }] };
     }
   );
@@ -1557,6 +1562,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
               if (t.acceptance_criteria) {
                 sections.push(`Acceptance Criteria:`);
                 try { JSON.parse(t.acceptance_criteria).forEach((c: string) => sections.push(`  - ${c}`)); } catch { sections.push(`  ${t.acceptance_criteria}`); }
+              }
+              if (t.assigned_to) {
+                const ag = db.prepare(`SELECT model FROM agents WHERE role = ?`).get(t.assigned_to) as { model: string } | undefined;
+                sections.push("", formatModelRouting(t.assigned_to, ag?.model ?? null));
               }
             }
           }

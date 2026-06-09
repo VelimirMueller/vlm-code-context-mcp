@@ -4,6 +4,14 @@
 **Sprint:** 15 (Navigation Flattening)
 **Author:** UX Designer Agent
 
+> **Historical specification — Sprint 15 design intent.** This document captures the wireframes as designed during Sprint 15 Navigation Flattening work. The feature shipped, but with the following divergences from this spec that are now the authoritative current state:
+>
+> - **Tab count:** These wireframes show 5 tabs. The shipped dashboard has **6 tabs**: Dashboard, Planning, Code, Team, Retro, and **Benchmark** (added after Sprint 15). The Benchmark tab is missing from all wireframes in this document.
+> - **Header button:** Every wireframe shows a `[⚙ Settings]` button in the top-right of the app header. This button does not exist in the shipped product. The actual header contains an **SSE connection status badge** (a colored dot with the connection state label) and a **`BridgeStatusBadge`** component — no Settings button.
+> - **Agent names (Wireframe 3):** The Team page wireframe uses placeholder names ("Backend Dev", "Frontend Dev", "UX Designer") that were never the real agent identifiers. The 9 real agents seeded by `src/scrum/defaults.ts` are: **FE Engineer** (`fe-engineer`), **BE Engineer** (`be-engineer`), **Developer** (`developer`), **DevOps** (`devops`), **QA Engineer** (`qa`), **Security Engineer** (`security`), **Architect** (`architect`), **Team Lead** (`team-lead`), **Product Owner** (`product-owner`).
+>
+> Do not use this document as a reference for the current UI. Consult `src/dashboard/app/src/components/molecules/TopNav.tsx` and `src/dashboard/app/src/App.tsx` for authoritative current navigation structure.
+
 ---
 
 ## Wireframe 1: Dashboard (Desktop)
@@ -54,7 +62,7 @@
 ```
 
 **Key Features:**
-- Single-level navigation (5 tabs always visible)
+- Single-level navigation (5 tabs shown here; **6 tabs shipped** — Benchmark tab not shown in this wireframe)
 - Quick actions with count badges
 - Breadcrumb showing location
 - Auto-selected active sprint
@@ -174,6 +182,8 @@
 - Availability status
 - Filter by role
 - One click to view agent details
+
+> **Note (divergence):** The agent names shown ("Backend Dev", "Frontend Dev", "UX Designer", etc.) are placeholders used during Sprint 15 design. The 9 real agents are: FE Engineer, BE Engineer, Developer, DevOps, QA Engineer, Security Engineer, Architect, Team Lead, Product Owner.
 
 ---
 

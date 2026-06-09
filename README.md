@@ -191,7 +191,7 @@ No agent holds the full project in its context window. They query what they need
 
 ## The Agent Team
 
-9 configurable agents, each with a role, model, and mood score.
+9 configurable agents, each with a role, model, and mood score. Dev roles and QA default to the strongest model (`claude-opus-4-8`); the rest use `claude-sonnet-4-6`.
 
 | Role | Focus |
 |---|---|
@@ -205,7 +205,7 @@ No agent holds the full project in its context window. They query what they need
 | Security Engineer | Vulnerability review, threat modeling, security best practices |
 | DevOps | CI/CD, builds, deployment |
 
-Add, remove, or swap models through MCP tools or with a single click in the dashboard.
+Add, remove, or swap models through MCP tools or with a single click in the dashboard — and the choice **routes execution**: during `/kickoff` and `/sprint`, each ticket is implemented by a subagent spawned at its assigned agent's model tier (`opus`/`sonnet`/`haiku`).
 
 ---
 

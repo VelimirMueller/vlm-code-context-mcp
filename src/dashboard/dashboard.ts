@@ -527,7 +527,7 @@ function apiAllRetroFindings() {
 // ─── Agent CRUD ────────────────────────────────────────────────────────────
 
 function apiCreateAgent(body: any) {
-  if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  if (body.model) validateEnum(body.model, ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
   if (existing) throw Object.assign(new Error("agent with this role already exists"), { status: 409 });
   writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
@@ -537,7 +537,7 @@ function apiCreateAgent(body: any) {
 }
 
 function apiUpdateAgent(role: string, body: any) {
-  if (body.model) validateEnum(body.model, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  if (body.model) validateEnum(body.model, ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
   if (!existing) throw Object.assign(new Error("agent not found"), { status: 404 });
   const sets: string[] = []; const vals: any[] = [];

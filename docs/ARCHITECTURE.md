@@ -14,40 +14,53 @@ vlm-code-context-mcp is an MCP server that pre-indexes TypeScript/JavaScript cod
 
 ### Scrum System (src/scrum/)
 
-- 20+ database tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones, decisions, epics, sprint_metrics, ticket_dependencies, tags, ticket_tags, agent_mood_history, event_log, discoveries
-- 71 MCP tools for full sprint lifecycle management (including bridge wizard)
+- ~26 database tables: agents, sprints, tickets, subtasks, retro_findings, blockers, bugs, skills, processes, milestones, decisions, epics, sprint_metrics, ticket_dependencies, tags, ticket_tags, agent_mood_history, event_log, discoveries, token_usage, pending_actions, workflow_runs, workflow_step_log, schema_versions, and migration shadow tables
+- 83 MCP tools for full sprint lifecycle management (including bridge wizard); 11 code-context tools in src/server/index.ts = 94 total
 - All data lives in SQLite (context.db) — no file-based storage
 
 ### Dashboard (src/dashboard/)
 
 - **App**: Vite + React 18 + TypeScript + Tailwind CSS (src/dashboard/app/)
 - **Server**: Node.js HTTP server serving APIs + static files (src/dashboard/dashboard.ts)
-- **State**: Zustand stores (file, sprint, agent, planning, UI)
+- **State**: 9 Zustand stores (fileStore, sprintStore, agentStore, planningStore, uiStore, benchmarkStore, bridgeStore, comparisonStore, toastStore)
 - **Animation**: Framer Motion for transitions + micro-interactions
 
 ## Component Architecture (Atomic Design)
 
 ```
-atoms/       → AnimatedNumber, Badge, Button, Dot, Skeleton, Stat, Toast
-molecules/   → AgentCard, BentoCard, FileItem, FolderItem, HeroText,
-               MarkdownRenderer, SearchBar, SprintCard, StatGroup, SubTabBar,
-               TabBar, TicketCard
-organisms/   → BentoGrid, DependencyGraph, FileTree, GanttChart, KanbanBoard,
-               LandingAnimation, MilestoneList, SprintDetail, SprintList,
-               SprintPlanner, TeamGrid, Topbar, VisionEditor
-templates/   → (via index.ts: ExplorerLayout, SprintLayout, PlanningLayout)
-pages/       → CodeExplorer, Sprint, ProjectManagement
+atoms/       → AnimatedNumber, Badge, BridgeStatusBadge, Button, ClaudeOutputStream,
+               DiscoveryCoverageBar, Dot, ErrorBoundary, Skeleton, Stat,
+               StatusBadge, SyncButton, Toast, ToastContainer
+molecules/   → AgentCard, AlertDialog, BentoCard, Breadcrumb, DiscoveryRow,
+               EnterpriseTable, FileItem, FolderItem, HeroText, InlineEditForm,
+               MarkdownRenderer, MeSection, PhaseGateStepper, QuickActionsBar,
+               QuickFilters, SearchBar, SprintCard, StatGroup, SubTabBar,
+               TabBar, TeamMemberForm, TicketCard, TopNav, WizardModal
+organisms/   → BentoGrid, BurndownChart, BurndownMetrics, CapacityPlanningView,
+               DashboardTour, DependencyGraph, DiscoveryList, EnhancedCapacityView,
+               EnhancedGanttChart, EnterpriseDataTable, EpicList, FileTree,
+               GanttChart, InsightsDashboard, KanbanBoard, LandingAnimation,
+               MilestoneList, PlanningDashboard, PlanningInsights, PlanningWizard,
+               ProcessFlow, SprintBurndownView, SprintCompletionPanel, SprintDetail,
+               SprintList, SprintPlanner, SprintPlanningView, SprintTableView,
+               TeamGrid, TeamManagementModal, TicketDetailModal, Topbar,
+               VisionEditor, VisionPlayer
+pages/       → Benchmark, CodeExplorer, Dashboard, ProjectManagement, Retro, Team
 ```
 
 ## State Management
 
-5 Zustand stores:
+9 Zustand stores:
 
 - **fileStore** — files, directories, selected file detail, graph, stats
 - **sprintStore** — sprints, tickets, retro findings
 - **agentStore** — agent health and mood
 - **planningStore** — milestones, vision, gantt, backlog (read + write)
 - **uiStore** — page navigation, tabs, sidebar, search, folder expand state
+- **benchmarkStore** — benchmark runs and comparison results
+- **bridgeStore** — bridge/hook connection status
+- **comparisonStore** — MCP vs traditional comparison data
+- **toastStore** — toast notification queue
 
 ## API Endpoints
 
@@ -91,7 +104,9 @@ pages/       → CodeExplorer, Sprint, ProjectManagement
 
 ```
 npm run build
+  → node scripts/compile-skills.mjs (compiles vendored skills into generated defaults module)
   → tsc (compiles MCP server to dist/)
+  → cp src/dashboard/dashboard.html dist/dashboard/ (copies fallback HTML)
   → vite build (compiles React app to dist/dashboard/)
 
 npm run dashboard:dev

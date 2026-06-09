@@ -319,7 +319,9 @@ load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> }
 
 This returns sprint progress, ticket detail, and open blockers. For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
-**Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` injects a Frontend Playbook (house-style primer + skill index). When you start a frontend ticket, pull the specific guidance with `get_skill({ name: "fe:<slug>" })` (and any companion/shared file it references, e.g. `fe:<slug>/<file>` or `fe:_shared/<file>`).
+**Delegate by model.** `load_phase_context` returns a **Model routing** directive for the ticket. Implement every ticket by spawning a subagent via the **Task tool with the `model` tier from that directive** (`opus`/`sonnet`/`haiku`) — pass the ticket's title, description, and acceptance criteria. Let the subagent implement and report back; then run the QA gate and mark the ticket DONE. This is how a ticket's assigned-agent model actually takes effect.
+
+**Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` also injects a Frontend Playbook (house-style primer + skill index). When you delegate a frontend ticket, give the subagent that guidance — pull the specific skill with `get_skill({ name: "fe:<slug>" })` (and any companion/shared file it references, e.g. `fe:<slug>/<file>` or `fe:_shared/<file>`).
 
 For each ticket the user completes:
 
