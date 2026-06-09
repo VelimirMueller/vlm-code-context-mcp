@@ -93,10 +93,20 @@ describe("resetAgents", () => {
 });
 
 describe("resetSkills", () => {
-  it("truncates and re-seeds skills", () => {
+  it("truncates and re-seeds skills (structural + frontend)", () => {
     db.prepare("INSERT INTO skills (name, content) VALUES (?, ?)").run("OLD_SKILL", "old");
     const count = resetSkills(db);
-    expect(count).toBe(SKILL_DEFAULTS.length);
+
+    // Return value is the total restored: structural + frontend
+    const total = (db.prepare("SELECT COUNT(*) as c FROM skills").get() as { c: number }).c;
+    expect(count).toBe(total);
+
+    // Breakdown: 5 structural + the re-seeded frontend skills
+    const structural = (db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number }).c;
+    expect(structural).toBe(SKILL_DEFAULTS.length);
+    const fe = (db.prepare("SELECT COUNT(*) as c FROM skills WHERE name LIKE 'fe:%'").get() as { c: number }).c;
+    expect(fe).toBeGreaterThan(0);
+    expect(count).toBe(SKILL_DEFAULTS.length + fe);
 
     const old = db.prepare("SELECT * FROM skills WHERE name = 'OLD_SKILL'").get();
     expect(old).toBeUndefined();

@@ -156,10 +156,7 @@ export const SKILL_DEFAULTS: SkillDefault[] = [
   },
 ];
 
-// ─── Seed Function ──────────────────────────────────────────────────────────
-
-import type Database from "better-sqlite3";
-
+// fe:_house-style — leading underscore marks it as the meta/primer entry, not a normal skill
 export const FE_PRIMER_NAME = "fe:_house-style";
 
 export const FRONTEND_HOUSE_STYLE_PRIMER = `# Frontend House Style — Preferred Ways of Working
@@ -187,6 +184,10 @@ When you start a task, pull the matching skill's full guidance with
 \`get_skill({ name: "fe:<slug>" })\`. A skill body may reference companions and shared docs by relative path:
 \`./x.md\` → \`get_skill({ name: "fe:<slug>/x.md" })\`; \`../other-skill/SKILL.md\` → \`get_skill({ name: "fe:other-skill" })\`;
 \`../_shared/x.md\` → \`get_skill({ name: "fe:_shared/x.md" })\`.`;
+
+// ─── Seed Function ──────────────────────────────────────────────────────────
+
+import type Database from "better-sqlite3";
 
 /** Idempotently insert any missing frontend skills + primer. Returns count inserted. */
 export function seedFrontendSkills(db: Database.Database): number {
@@ -308,6 +309,7 @@ export function resetAgents(db: Database.Database): number {
 
 /**
  * Reset skills table to factory defaults. Truncates and re-seeds.
+ * Returns the total number of skills restored (structural + frontend).
  */
 export function resetSkills(db: Database.Database): number {
   // Pre-build check: ensure build is up-to-date
@@ -331,9 +333,9 @@ export function resetSkills(db: Database.Database): number {
   }
 
   // Factory reset restores frontend skills too (the DELETE above cleared them).
-  seedFrontendSkills(db);
+  const feRestored = seedFrontendSkills(db);
 
-  return SKILL_DEFAULTS.length;
+  return SKILL_DEFAULTS.length + feRestored;
 }
 
 /**
