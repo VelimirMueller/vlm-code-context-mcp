@@ -1,0 +1,31 @@
+name: Sync skills
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Re-vendor skills from upstream main
+        run: node scripts/sync-skills.mjs
+      - name: Open or update sync PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/sync-skills
+          add-paths: skills/
+          commit-message: "chore(skills): sync vendored skills from upstream main"
+          title: "chore(skills): sync from claude_development_skills"
+          body: |
+            Automated sync of the vendored `skills/` tree from the plugin repo's `main`.
+            Source commit is recorded in `skills/.source.json`. Review the diff before merging.
