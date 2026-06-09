@@ -26,7 +26,7 @@ This directory contains comprehensive UX documentation for the Code Context MCP 
 ## Documents
 
 ### 1. User Journey Map
-**File:** [`ux-user-journey-map.md`](./ux-user-journey-map.md)
+**File:** `ux-user-journey-map.md` _(planned in Sprint 14 — never committed; not in this repo)_
 **Created:** Sprint 14
 **Author:** UX Designer Agent
 
