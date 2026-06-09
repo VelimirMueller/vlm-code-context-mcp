@@ -319,6 +319,8 @@ load_phase_context({ phase: "implementation", sprint_id: <id>, ticket_id: <id> }
 
 This returns sprint progress, ticket detail, and open blockers. For file-level context, use `search_files()` and `get_file_context({ include_changes: false })` as needed.
 
+**Delegate by model.** `load_phase_context` returns a **Model routing** directive for the ticket. Implement every ticket by spawning a subagent via the **Task tool with the `model` tier from that directive** (`opus`/`sonnet`/`haiku`) — pass the ticket's title, description, and acceptance criteria. Let the subagent implement and report back; then run the QA gate and mark the ticket DONE. This is how a ticket's assigned-agent model actually takes effect.
+
 For each ticket the user completes:
 
 1. `update_ticket({ ticket_id, status: "IN_PROGRESS" })`
