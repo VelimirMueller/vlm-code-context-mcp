@@ -11,6 +11,7 @@
   "files": [
     "dist",
     ".claude/commands",
+    "skills",
     "scripts",
     "comparison.json",
     "benchmark-results.json",
@@ -35,6 +36,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
+    "sync:skills": "node scripts/sync-skills.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "npm run build",
     "prepare": "husky",
