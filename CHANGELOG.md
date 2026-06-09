@@ -5,6 +5,17 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-09
+
+### Added
+- **Per-agent model routing via subagent delegation** — each ticket's implementation is delegated to a subagent spawned (Task tool) at its assigned agent's model tier (`opus`/`sonnet`/`haiku`). `load_phase_context` (implementation) and `get_ticket` now emit a **Model routing** directive, and the `/kickoff` and `/sprint` flows act on it. This is what makes a ticket's assigned-agent model actually take effect (the dashboard model field was previously advisory only).
+
+### Changed
+- Agent model defaults updated to current IDs: `fe-engineer`, `be-engineer`, `developer`, and `qa` default to the strongest model (`claude-opus-4-8`); other roles use `claude-sonnet-4-6`. The dashboard model picker and `/api/agent` validation now offer `claude-opus-4-8`, replacing the outdated `claude-opus-4-6`.
+
+### Fixed
+- Dashboard `SprintPlanningView` had a malformed conditional (`cond ? (<jsx/>)` with no `:` branch) that failed the TypeScript parser and ESLint; completed it as a `cond && (<jsx/>)` render. `npm run lint` now reports 0 errors.
+
 ## [1.2.1] - 2026-06-09
 
 ### Security
