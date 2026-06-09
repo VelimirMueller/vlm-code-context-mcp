@@ -1,17 +1,20 @@
 import type Database from "better-sqlite3";
 
-/** Read one skill's full content by name. Returns null if absent. */
+/** Read one skill's full content by name. Returns null if the skill is absent or has no content. */
 export function getSkillContent(db: Database.Database, name: string): string | null {
-  const row = db.prepare(`SELECT content FROM skills WHERE name = ?`).get(name) as { content: string } | undefined;
-  return row ? (row.content ?? "") : null;
+  const row = db.prepare(`SELECT content FROM skills WHERE name = ?`).get(name) as { content: string | null } | undefined;
+  return row?.content ?? null;
 }
 
 /** Pull the `description:` line out of a SKILL.md YAML frontmatter block. */
 export function parseSkillSummary(content: string): string {
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) return "";
   const m = fm[1].match(/^description:\s*(.+)$/m);
-  return m ? m[1].trim().replace(/^["']|["']$/g, "").slice(0, 120) : "";
+  if (!m) return "";
+  const val = m[1].trim().replace(/\r$/, "");
+  if (val === "|" || val === ">") return ""; // YAML block-scalar indicator, not a summary
+  return val.replace(/^["']|["']$/g, "").slice(0, 120);
 }
 
 /**
@@ -34,7 +37,7 @@ export function buildFrontendPlaybook(db: Database.Database): string | null {
     )
     .all() as { name: string; content: string }[];
 
-  if (!primer && indexRows.length === 0) return null;
+  if (!primer?.content && indexRows.length === 0) return null;
 
   const sections: string[] = ["", "## Frontend Playbook"];
   if (primer?.content) sections.push(primer.content.trim());
