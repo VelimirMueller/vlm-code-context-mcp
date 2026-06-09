@@ -9,6 +9,7 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
+import { resolveDashboardToken, isAuthorized } from "./auth.js";
 
 
 
@@ -1571,6 +1572,15 @@ function requireLocalAccess(req: http.IncomingMessage, res: http.ServerResponse,
 }
 
 // ─── Server ──────────────────────────────────────────────────────────────────
+// Shared bearer token for /api/* (#15b). Auto-generated + persisted if unset.
+const DASHBOARD_TOKEN = resolveDashboardToken();
+
+/** Inject the dashboard token into served HTML so the same-origin app can read it. */
+function injectToken(html: string): string {
+  const tag = `<script>window.__DASHBOARD_TOKEN__=${JSON.stringify(DASHBOARD_TOKEN)};</script>`;
+  return html.includes("</head>") ? html.replace("</head>", `${tag}</head>`) : tag + html;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
@@ -1582,6 +1592,14 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Access-Control-Allow-Origin", "http://localhost:" + PORT);
+
+  // Bearer-token auth on all /api/* routes (#15b); page + assets stay public so
+  // the browser can load the app and read the injected token.
+  if (!isAuthorized(req, url, DASHBOARD_TOKEN)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end('{"error":"unauthorized: missing or invalid dashboard token"}');
+    return;
+  }
 
   // MCP→Dashboard notification endpoint (called by MCP tools after DB writes)
   if (url.pathname === "/api/notify" && req.method === "POST") {
@@ -2024,11 +2042,11 @@ const server = http.createServer(async (req, res) => {
     const indexHtml = fs.readFileSync(path.join(distDir, "index.html"), "utf-8");
     res.setHeader("Content-Type", "text/html");
     res.writeHead(200);
-    res.end(indexHtml);
+    res.end(injectToken(indexHtml));
   } catch {
     res.setHeader("Content-Type", "text/html");
     res.writeHead(200);
-    res.end(HTML);
+    res.end(injectToken(HTML));
   }
 });
 
@@ -2051,7 +2069,7 @@ function startServer(port: number, maxRetries = 10): void {
     // Write port to .env.local so Vite dev proxy auto-configures on next start
     try {
       const envLocalPath = path.join(__dirname, "app", ".env.local");
-      fs.writeFileSync(envLocalPath, `VITE_DASHBOARD_PORT=${port}\n`);
+      fs.writeFileSync(envLocalPath, `VITE_DASHBOARD_PORT=${port}\nVITE_DASHBOARD_TOKEN=${DASHBOARD_TOKEN}\n`);
     } catch {}
     console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
 

@@ -280,7 +280,17 @@ function extractSummary(content: string, filePath: string, ext: string): string 
 }
 
 // ─── Resolve import path to a real file ──────────────────────────────────────
-function resolveImportPath(importSource: string, fromFile: string, rootDir: string): string | null {
+/**
+ * True if `child` is `parent` itself or nested within it. Uses path.relative
+ * (not string prefixing) so "/home/user" does not match "/home/userland", and
+ * rejects any path that climbs out via "..". Guards against path traversal (#14).
+ */
+function isPathInside(child: string, parent: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+export function resolveImportPath(importSource: string, fromFile: string, rootDir: string): string | null {
   if (!importSource.startsWith(".") && !importSource.startsWith("/")) return null;
 
   const base = importSource.startsWith("/")
@@ -299,7 +309,9 @@ function resolveImportPath(importSource: string, fromFile: string, rootDir: stri
   ];
 
   for (const c of candidates) {
-    if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
+    // Containment check: never resolve an import to a file outside rootDir,
+    // even if a ../ sequence points at a real file elsewhere on disk (#14).
+    if (fs.existsSync(c) && fs.statSync(c).isFile() && isPathInside(c, rootDir)) return c;
   }
   return null;
 }
@@ -695,8 +707,34 @@ function generateDirDescription(dirPath: string, stats: { files: number; size: n
 }
 
 // ─── Main indexer ────────────────────────────────────────────────────────────
+/**
+ * Directories index_directory is permitted to read. Defaults to the process
+ * working directory; CODE_CONTEXT_ALLOWED_ROOTS (comma-separated absolute
+ * paths) adds more. Prevents an untrusted caller (e.g. the unauthenticated
+ * dashboard API) from indexing arbitrary locations like ~/.ssh or /etc (#14).
+ */
+function allowedIndexRoots(): string[] {
+  const roots = [process.cwd()];
+  const env = process.env.CODE_CONTEXT_ALLOWED_ROOTS;
+  if (env && env.trim()) {
+    for (const p of env.split(",")) {
+      const trimmed = p.trim();
+      if (trimmed) roots.push(path.resolve(trimmed));
+    }
+  }
+  return roots;
+}
+
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number } {
   const rootDir = path.resolve(dirPath);
+  const roots = allowedIndexRoots();
+  if (!roots.some(r => isPathInside(rootDir, r))) {
+    throw new Error(
+      `Refusing to index '${rootDir}': outside the allowed sandbox. ` +
+        `Allowed roots: ${roots.join(", ")}. Set CODE_CONTEXT_ALLOWED_ROOTS ` +
+        `(comma-separated absolute paths) to permit additional locations.`,
+    );
+  }
   if (!fs.existsSync(rootDir)) throw new Error(`Directory not found: ${rootDir}`);
   const stat = fs.statSync(rootDir);
   if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${rootDir}`);

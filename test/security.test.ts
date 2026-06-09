@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import path from "path";
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
-import { indexDirectory } from "../src/server/indexer.js";
+import { indexDirectory, resolveImportPath } from "../src/server/indexer.js";
 import { initSchema } from "../src/server/schema.js";
 import { initScrumSchema, runMigrations } from "../src/scrum/schema.js";
 
@@ -111,5 +113,74 @@ describe("Security: localhost binding configured", () => {
     expect(src).toContain("X-Content-Type-Options");
     expect(src).toContain("X-Frame-Options");
     expect(src).toContain("X-XSS-Protection");
+  });
+});
+
+describe("Security: path traversal in resolveImportPath (#14)", () => {
+  it("resolves a legitimate relative import inside rootDir", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cc-root-"));
+    try {
+      const fromFile = path.join(root, "a.ts");
+      writeFileSync(fromFile, "");
+      writeFileSync(path.join(root, "b.ts"), "export const x = 1;");
+      expect(resolveImportPath("./b", fromFile, root)).toBe(path.join(root, "b.ts"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a relative import that escapes rootDir via ../", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cc-root-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "cc-out-"));
+    try {
+      const secret = path.join(outside, "secret.ts");
+      writeFileSync(secret, "export const s = 1;");
+      const fromFile = path.join(root, "a.ts");
+      const escaping = path.relative(path.dirname(fromFile), secret);
+      expect(escaping.startsWith("..")).toBe(true); // sanity: the import really escapes root
+      expect(existsSync(secret)).toBe(true); // target exists → only a containment check stops it
+      expect(resolveImportPath(escaping, fromFile, root)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Security: index_directory sandbox (#14)", () => {
+  it("refuses to index a directory outside the allowed sandbox", () => {
+    const db = createFullDb();
+    const outside = mkdtempSync(path.join(tmpdir(), "cc-evil-"));
+    writeFileSync(path.join(outside, "secret.ts"), "export const s = 1;");
+    try {
+      // cwd is the repo root during tests; `outside` (in tmpdir) is not within it.
+      expect(() => indexDirectory(db, outside)).toThrow(/sandbox|allowed root/i);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      db.close();
+    }
+  });
+
+  it("indexes a directory inside cwd", () => {
+    const db = createFullDb();
+    try {
+      expect(() => indexDirectory(db, FIXTURE_DIR)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("honors CODE_CONTEXT_ALLOWED_ROOTS for out-of-cwd paths", () => {
+    const db = createFullDb();
+    const allowed = mkdtempSync(path.join(tmpdir(), "cc-allowed-"));
+    writeFileSync(path.join(allowed, "ok.ts"), "export const ok = 1;");
+    process.env.CODE_CONTEXT_ALLOWED_ROOTS = allowed;
+    try {
+      expect(() => indexDirectory(db, allowed)).not.toThrow();
+    } finally {
+      delete process.env.CODE_CONTEXT_ALLOWED_ROOTS;
+      rmSync(allowed, { recursive: true, force: true });
+      db.close();
+    }
   });
 });

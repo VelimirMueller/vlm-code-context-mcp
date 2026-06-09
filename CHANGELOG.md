@@ -5,6 +5,16 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-06-09
+
+### Security
+- **Path traversal in the indexer (#14)** — `resolveImportPath()` now rejects any import resolving outside the project root (containment check via `path.relative`), and `index_directory` enforces a sandbox: only `process.cwd()` is indexable by default, extended via `CODE_CONTEXT_ALLOWED_ROOTS`. Prevents reading arbitrary files (e.g. `~/.ssh`) into the queryable store.
+- **SQL injection in `query`/`execute` (#15a)** — replaced the keyword denylist with allowlist validators plus better-sqlite3's `stmt.reader` check (`src/server/sql-guard.ts`). `query` accepts only a single read-only `SELECT`/`WITH` (no stacked statements, comments, or CTE-prefixed writes); `execute` accepts only a single `INSERT`/`UPDATE`/`DELETE`. Closes the semicolon, comment, and subquery bypasses.
+- **Unauthenticated dashboard API (#15b)** — all `/api/*` routes now require a bearer token (`Authorization` header, or `?token=` for the SSE stream). The token is auto-generated and persisted to a gitignored `.code-context/dashboard.token` (override with `CODE_CONTEXT_DASHBOARD_TOKEN`), injected into the served page for the same-origin app, and sent by the MCP server on its notify calls. The page and static assets stay public so the browser can bootstrap.
+
+### Removed
+- **npm publish workflow** (`.github/workflows/publish.yml`) — releases are now git tag + GitHub release only; the package is not published to npm.
+
 ## [1.2.0] - 2026-06-09
 
 ### Added

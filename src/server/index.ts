@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import Database from "better-sqlite3";
+import { runReadOnlyQuery, runWriteStatement } from "./sql-guard.js";
 import { z } from "zod";
 import path from "path";
 import { initSchema } from "./schema.js";
@@ -400,19 +401,11 @@ server.tool(
   "Run a read-only SELECT query against the context database",
   { sql: z.string().describe("A SELECT SQL statement") },
   async ({ sql }) => {
-    const trimmed = sql.trim().toLowerCase();
-    if (!trimmed.startsWith("select")) {
-      return { content: [{ type: "text", text: "Only SELECT statements allowed. Use execute() for writes." }], isError: true };
+    const result = runReadOnlyQuery(db, sql);
+    if (!result.ok) {
+      return { content: [{ type: "text", text: result.error }], isError: true };
     }
-    if (/\b(drop|alter|delete|insert|update|create)\b/i.test(sql)) {
-      return { content: [{ type: "text", text: "Dangerous SQL detected in query. Only pure SELECT allowed." }], isError: true };
-    }
-    try {
-      const rows = db.prepare(sql).all();
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
-    } catch (err: any) {
-      return { content: [{ type: "text", text: `SQL Error: ${err.message}` }], isError: true };
-    }
+    return { content: [{ type: "text", text: JSON.stringify(result.rows, null, 2) }] };
   }
 );
 
@@ -425,21 +418,13 @@ server.tool(
     params: z.array(z.any()).optional().describe("Optional positional parameters"),
   },
   async ({ sql, params = [] }) => {
-    const trimmed = sql.trim().toLowerCase();
-    if (trimmed.startsWith("select")) {
-      return { content: [{ type: "text", text: "Use query() for SELECT." }], isError: true };
+    const result = runWriteStatement(db, sql, params);
+    if (!result.ok) {
+      return { content: [{ type: "text", text: result.error }], isError: true };
     }
-    if (/\b(drop\s+table|alter\s+table|drop\s+index)\b/i.test(sql)) {
-      return { content: [{ type: "text", text: "DROP TABLE, ALTER TABLE, and DROP INDEX are not allowed." }], isError: true };
-    }
-    try {
-      const result = db.prepare(sql).run(...params);
-      return {
-        content: [{ type: "text", text: `Rows affected: ${result.changes}, last id: ${result.lastInsertRowid}` }],
-      };
-    } catch (err: any) {
-      return { content: [{ type: "text", text: `SQL Error: ${err.message}` }], isError: true };
-    }
+    return {
+      content: [{ type: "text", text: `Rows affected: ${result.changes}, last id: ${result.lastInsertRowid}` }],
+    };
   }
 );
 

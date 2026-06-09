@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { createTestDb } from "./helpers/db.js";
 import { indexDirectory } from "../src/server/indexer.js";
 import Database from "better-sqlite3";
@@ -8,6 +8,17 @@ import os from "os";
 
 // The parseImports/parseExports functions are not exported from indexer.ts,
 // so we test them through the indexing pipeline: write fixture files, index, query DB.
+
+// createTempProject() builds fixtures under os.tmpdir(), which is outside cwd.
+// indexDirectory() now sandboxes to cwd by default (#14), so allow tmpdir here.
+const prevAllowedRoots = process.env.CODE_CONTEXT_ALLOWED_ROOTS;
+beforeAll(() => {
+  process.env.CODE_CONTEXT_ALLOWED_ROOTS = os.tmpdir();
+});
+afterAll(() => {
+  if (prevAllowedRoots === undefined) delete process.env.CODE_CONTEXT_ALLOWED_ROOTS;
+  else process.env.CODE_CONTEXT_ALLOWED_ROOTS = prevAllowedRoots;
+});
 
 function createTempProject(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "parser-test-"));
