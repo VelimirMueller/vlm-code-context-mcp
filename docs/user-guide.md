@@ -579,6 +579,12 @@ npx code-context-dashboard export context.db > results.json
 
 ---
 
+### Frontend skills on `/kickoff`
+
+When a sprint has tickets assigned to the `fe-engineer` role, `/kickoff` automatically surfaces a Frontend Playbook — a house-style primer plus an index of available frontend skills. As you start a frontend ticket, ask for the full guidance with `get_skill({ name: "fe:<slug>" })`. The skills live in your project database — edit them (or the `fe:_house-style` primer) to encode your team's preferred ways of working; your edits survive updates.
+
+---
+
 ## Next Steps
 
 1. ✅ Install and set up your project
