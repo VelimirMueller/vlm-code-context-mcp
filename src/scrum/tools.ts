@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { resolveDashboardToken } from "../dashboard/auth.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -11,6 +12,13 @@ function resolveDashboardPort(db: Database.Database): string {
     if (row?.content) return row.content;
   } catch {}
   return DASHBOARD_PORT;
+}
+
+/** Bearer header so MCP→dashboard notify calls authenticate against /api/* (#15b). */
+let cachedDashboardToken: string | null = null;
+function dashboardAuthHeaders(): Record<string, string> {
+  cachedDashboardToken ??= resolveDashboardToken();
+  return { Authorization: `Bearer ${cachedDashboardToken}` };
 }
 
 interface DashboardEvent {
@@ -37,11 +45,11 @@ function notifyDashboard(db: Database.Database, event?: DashboardEvent): void {
       // Send typed event directly to dashboard SSE
       fetch(`http://localhost:${port}/api/notify/event`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...dashboardAuthHeaders() },
         body: JSON.stringify(event),
       }).catch(() => {});
     } else {
-      fetch(`http://localhost:${port}/api/notify`, { method: "POST" }).catch(() => {});
+      fetch(`http://localhost:${port}/api/notify`, { method: "POST", headers: dashboardAuthHeaders() }).catch(() => {});
     }
   } catch {}
 }
@@ -2690,7 +2698,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const dashPort = resolveDashboardPort(db);
         let dashboardUp = false;
         try {
-          const resp = await fetch(`http://localhost:${dashPort}/api/bridge/status`, { signal: AbortSignal.timeout(500) });
+          const resp = await fetch(`http://localhost:${dashPort}/api/bridge/status`, { signal: AbortSignal.timeout(500), headers: dashboardAuthHeaders() });
           dashboardUp = resp.ok;
         } catch { /* dashboard not running */ }
 
@@ -2826,7 +2834,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         try {
           await fetch(`http://localhost:${port}/api/claude-output`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...dashboardAuthHeaders() },
             body: JSON.stringify({ text: text.slice(0, 5000), lineType: line_type || "text", step: step || undefined }),
           }).catch(() => {});
         } catch {}
@@ -2852,7 +2860,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         try {
           await fetch(`http://localhost:${port}/api/claude-step`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...dashboardAuthHeaders() },
             body: JSON.stringify({ name, status, title: title || undefined, description: description || undefined }),
           }).catch(() => {});
         } catch {}

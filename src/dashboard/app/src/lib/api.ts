@@ -1,3 +1,5 @@
+import { getDashboardToken } from './token';
+
 const inflight = new Map<string, Promise<unknown>>();
 
 const TIMEOUT_MS = 10_000;
@@ -27,7 +29,15 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     const existing = inflight.get(key);
     if (existing) return existing as Promise<T>;
   }
-  const init: RequestInit = { headers: { 'Content-Type': 'application/json' }, ...options };
+  const token = getDashboardToken();
+  const init: RequestInit = {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string> | undefined),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  };
   const promise = (async () => {
     try {
       const r = await fetchWithTimeout(path, init);
