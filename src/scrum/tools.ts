@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
+import { buildFrontendPlaybook, getSkillContent } from "./frontend-playbook.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -285,6 +286,17 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (bugs.length) { sections.push(`## Bugs (${bugs.length})`); bugs.forEach(b => sections.push(`- [${b.status}] ${b.severity}: ${b.description}`)); }
       return { content: [{ type: "text" as const, text: sections.join("\n") }] };
     }
+  );
+
+  server.tool(
+    "get_skill",
+    "Fetch the full content of a single skill by name (e.g. 'fe:set-up-auth', the primer 'fe:_house-style', or a shared/companion ref like 'fe:_shared/<file>' or 'fe:set-up-auth/auth-patterns.md'). Use after load_phase_context surfaces the frontend index.",
+    { name: z.string().describe("Skill name, e.g. 'fe:set-up-auth'") },
+    async ({ name }) => {
+      const content = getSkillContent(db, name);
+      if (content === null) return { content: [{ type: "text" as const, text: `Skill '${name}' not found.` }] };
+      return { content: [{ type: "text" as const, text: content }] };
+    },
   );
 
   server.tool(
@@ -1553,6 +1565,11 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           if (blockers.length > 0) {
             sections.push(`\n## Open Blockers (${blockers.length})`);
             blockers.forEach((b: any) => sections.push(`- #${b.id}: ${b.description}`));
+          }
+
+          if (tickets.some((t: any) => t.assigned_to === "fe-engineer")) {
+            const playbook = buildFrontendPlaybook(db);
+            if (playbook) sections.push(playbook);
           }
         }
 
