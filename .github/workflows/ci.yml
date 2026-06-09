@@ -50,3 +50,16 @@ jobs:
             exit 1
           fi
           echo "Skill count validation passed: $SKILL_COUNT skills"
+      - name: Validate vendored skills
+        run: |
+          if [ ! -d skills ]; then
+            echo "Error: vendored skills/ directory is missing"
+            exit 1
+          fi
+          MANIFEST_COUNT=$(node -p "require('./skills/.source.json').skillCount")
+          ACTUAL_COUNT=$(find skills -name SKILL.md | wc -l | tr -d ' ')
+          if [ "$MANIFEST_COUNT" -ne "$ACTUAL_COUNT" ]; then
+            echo "Error: skills/.source.json skillCount=$MANIFEST_COUNT but found $ACTUAL_COUNT SKILL.md files"
+            exit 1
+          fi
+          echo "Vendored skills validation passed: $ACTUAL_COUNT skills"

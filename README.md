@@ -67,7 +67,7 @@ npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 ```
 
-Creates `context.db`, indexes your codebase, seeds a 7-agent team, and writes `.mcp.json`.
+Creates `context.db`, indexes your codebase, seeds a 9-agent team, installs the bundled frontend skills into `.claude/skills/`, and writes `.mcp.json`.
 
 **3 · Restart your AI client**
 
@@ -129,6 +129,20 @@ Type these directly in Claude Code.
 | `/milestone` | Create, update, close milestones with epic verification |
 | `/retro` | Data-backed retrospectives with burndown + velocity analysis |
 | `/sprint-connect` | Bridge the dashboard UI to your Claude session |
+
+---
+
+## Bundled Frontend Skills
+
+`setup` also installs a curated library of **22 frontend skills** into your project's `.claude/skills/` — a living snapshot of state-of-the-art practices and recommended workflows for building scalable React 19 / Vue 3 frontends. Claude Code discovers them automatically, giving your agent opinionated, audit-aware guidance for scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, and more.
+
+| | |
+|---|---|
+| Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored snapshot |
+| Install | `code-context-mcp setup` → `.claude/skills/<skill>/SKILL.md` (non-destructive; your edits are never overwritten) |
+| Update | `npm run sync:skills`, or the daily `sync-skills` workflow that opens a PR when new skills land upstream |
+
+The library grows over time — backend and infrastructure domains follow frontend. Run `npm run sync:skills` whenever you want to pull the latest.
 
 ---
 
