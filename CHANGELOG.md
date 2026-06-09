@@ -5,6 +5,21 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-09
+
+### Added
+- **Bundled frontend skills** — the 22 Claude Code skills from [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) now ship inside the package (`skills/`). `code-context-mcp setup` installs them into the project's `.claude/skills/<skill>/`, so Claude Code discovers them automatically. Existing skill files are never overwritten.
+- **`npm run sync:skills`** (`scripts/sync-skills.mjs`) — re-vendors the skills from the plugin repo's `main` and records provenance in `skills/.source.json` (source, ref, commit, timestamp, count).
+- **Scheduled sync workflow** (`.github/workflows/sync-skills.yml`) — runs daily and on demand; re-vendors the skills and opens a PR whenever upstream `main` changes.
+- **User-perspective install test** (`test/skills-package-install.test.ts`) plus a CI step validating that `skills/.source.json` `skillCount` matches the actual `SKILL.md` count.
+
+### Changed
+- `package.json` `files[]` now ships the `skills/` directory.
+- `setup` is now a 7-step flow with a new "Installing Claude skills" step; step labels normalized.
+
+### Notes
+- Skills install **flat** at `.claude/skills/<skill>/SKILL.md`. Claude Code discovers project skills one level deep, so the upstream `frontend/` domain wrapper is stripped on install while `_shared/` is kept as a sibling so the skills' `../_shared/` references still resolve.
+
 ## [1.1.3] - 2026-04-16
 
 ### Fixed
