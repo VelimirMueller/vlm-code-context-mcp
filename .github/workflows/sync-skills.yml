@@ -17,15 +17,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Re-vendor skills from upstream main
-        run: node scripts/sync-skills.mjs
+      - name: Re-vendor skills from upstream main + recompile defaults
+        run: |
+          node scripts/sync-skills.mjs
+          node scripts/compile-skills.mjs
       - name: Open or update sync PR
         uses: peter-evans/create-pull-request@v6
         with:
           branch: chore/sync-skills
-          add-paths: skills/
+          add-paths: |
+            vendor/skills/
+            src/scrum/frontend-skill-defaults.generated.ts
           commit-message: "chore(skills): sync vendored skills from upstream main"
           title: "chore(skills): sync from claude_development_skills"
           body: |
-            Automated sync of the vendored `skills/` tree from the plugin repo's `main`.
-            Source commit is recorded in `skills/.source.json`. Review the diff before merging.
+            Automated sync of the vendored `vendor/skills/` tree from the plugin repo's `main`,
+            plus the regenerated `src/scrum/frontend-skill-defaults.generated.ts` that seeds the
+            project DB. Source commit is recorded in `vendor/skills/.source.json`. Review the diff before merging.

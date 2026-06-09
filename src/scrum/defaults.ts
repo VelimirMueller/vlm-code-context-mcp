@@ -5,6 +5,7 @@
  * They are never read at runtime — the DB is the sole source of truth.
  * Use reset_* MCP tools to re-seed from these defaults.
  */
+import { FRONTEND_SKILL_DEFAULTS } from "./frontend-skill-defaults.generated.js";
 
 // ─── Agent Defaults ─────────────────────────────────────────────────────────
 
@@ -155,9 +156,54 @@ export const SKILL_DEFAULTS: SkillDefault[] = [
   },
 ];
 
+// fe:_house-style — leading underscore marks it as the meta/primer entry, not a normal skill
+export const FE_PRIMER_NAME = "fe:_house-style";
+
+export const FRONTEND_HOUSE_STYLE_PRIMER = `# Frontend House Style — Preferred Ways of Working
+
+Applies to all \`fe-engineer\` work. Load any referenced skill with \`get_skill({ name })\`.
+
+## Stack
+- Build: Vite. Framework: React 19 (function components + hooks only).
+- Routing: TanStack Router (typed, file-based). Server state: TanStack Query.
+- Client state: minimal — prefer URL + Query cache over global stores.
+- Styling: Tailwind v4 with \`@theme\` tokens. No inline hex; use tokens.
+- Forms: React Hook Form + Zod resolver. Validate at the edge.
+- Lint/format: Biome. TypeScript strict.
+- Tests: Vitest + Testing Library. Test behavior, not implementation.
+
+## Conventions
+- Atomic-design folders: atoms → molecules → organisms → templates → pages.
+- Treat the current user as server state (fetched), never duplicated into client state.
+- Accessibility is non-negotiable: semantic HTML, labelled controls, Biome a11y rules on.
+- Env vars validated via a typed schema (\`import.meta.env\`) — fail fast on missing.
+- Error boundaries at the app shell + per route; report via the \`captureError\` seam.
+
+## How to use these skills
+When you start a task, pull the matching skill's full guidance with
+\`get_skill({ name: "fe:<slug>" })\`. A skill body may reference companions and shared docs by relative path:
+\`./x.md\` → \`get_skill({ name: "fe:<slug>/x.md" })\`; \`../other-skill/SKILL.md\` → \`get_skill({ name: "fe:other-skill" })\`;
+\`../_shared/x.md\` → \`get_skill({ name: "fe:_shared/x.md" })\`.`;
+
 // ─── Seed Function ──────────────────────────────────────────────────────────
 
 import type Database from "better-sqlite3";
+
+/** Idempotently insert any missing frontend skills + primer. Returns count inserted. */
+export function seedFrontendSkills(db: Database.Database): number {
+  const insert = db.prepare(
+    `INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING`,
+  );
+  const rows: SkillDefault[] = [
+    { name: FE_PRIMER_NAME, content: FRONTEND_HOUSE_STYLE_PRIMER, owner_role: "fe-engineer" },
+    ...FRONTEND_SKILL_DEFAULTS,
+  ];
+  let inserted = 0;
+  for (const s of rows) {
+    if (insert.run(s.name, s.content, s.owner_role).changes > 0) inserted++;
+  }
+  return inserted;
+}
 
 /**
  * Seed factory defaults into empty tables. Never overwrites existing data.
@@ -207,6 +253,9 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
       skillCount++;
     }
   }
+
+  // Frontend skills: additive, idempotent (independent of the structural-skills guard)
+  skillCount += seedFrontendSkills(db);
 
   // Seed mood data if table is empty and agents + sprints exist
   try {
@@ -260,6 +309,7 @@ export function resetAgents(db: Database.Database): number {
 
 /**
  * Reset skills table to factory defaults. Truncates and re-seeds.
+ * Returns the total number of skills restored (structural + frontend).
  */
 export function resetSkills(db: Database.Database): number {
   // Pre-build check: ensure build is up-to-date
@@ -276,13 +326,16 @@ export function resetSkills(db: Database.Database): number {
     stmt.run(s.name, s.content, s.owner_role);
   }
 
-  // Validation: ensure skill count is exactly 5
-  const count = (db.prepare("SELECT COUNT(*) as c FROM skills").get() as { c: number }).c;
-  if (count !== 5) {
-    throw new Error(`Skill validation failed: expected 5 skills, got ${count}`);
+  // Validation: exactly 5 structural skills (frontend skills are seeded separately)
+  const structural = (db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number }).c;
+  if (structural !== 5) {
+    throw new Error(`Skill validation failed: expected 5 structural skills, got ${structural}`);
   }
 
-  return SKILL_DEFAULTS.length;
+  // Factory reset restores frontend skills too (the DELETE above cleared them).
+  const feRestored = seedFrontendSkills(db);
+
+  return SKILL_DEFAULTS.length + feRestored;
 }
 
 /**
