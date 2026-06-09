@@ -10,7 +10,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const FRONTEND_SRC = path.join(REPO_ROOT, "vendor", "skills", "frontend");
 const OUT_FILE = path.join(REPO_ROOT, "src", "scrum", "frontend-skill-defaults.generated.ts");
 
-function walkFiles(dir) {
+export function walkFiles(dir) {
   const files = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -20,23 +20,25 @@ function walkFiles(dir) {
   return files;
 }
 
-/** Walk srcDir; return [{ name, content, owner_role }] for every skill + shared file. */
+/**
+ * Walk srcDir; return [{ name, content, owner_role }] for every skill file.
+ * Naming scheme (so get_skill can resolve a SKILL.md's relative references):
+ *   <skill>/SKILL.md    -> fe:<skill>                 (the skill itself)
+ *   <skill>/<companion> -> fe:<skill>/<companion>     (e.g. ./auth-patterns.md -> fe:set-up-auth/auth-patterns.md)
+ *   _shared/<relpath>   -> fe:_shared/<relpath>       (e.g. ../_shared/x.md  -> fe:_shared/x.md)
+ */
 export function compileSkills(srcDir) {
   const out = [];
   if (!fs.existsSync(srcDir)) return out;
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const dirPath = path.join(srcDir, entry.name);
-    if (entry.name === "_shared") {
-      for (const f of walkFiles(dirPath)) {
-        const rel = path.relative(dirPath, f).split(path.sep).join("/");
-        out.push({ name: `fe:_shared/${rel}`, content: fs.readFileSync(f, "utf-8"), owner_role: "fe-engineer" });
-      }
-      continue;
-    }
-    const skillFile = path.join(dirPath, "SKILL.md");
-    if (fs.existsSync(skillFile)) {
-      out.push({ name: `fe:${entry.name}`, content: fs.readFileSync(skillFile, "utf-8"), owner_role: "fe-engineer" });
+    const prefix = entry.name === "_shared" ? "fe:_shared" : `fe:${entry.name}`;
+    for (const f of walkFiles(dirPath)) {
+      const rel = path.relative(dirPath, f).split(path.sep).join("/");
+      // A skill's own SKILL.md collapses to the bare skill name; everything else keeps its relative path.
+      const name = entry.name !== "_shared" && rel === "SKILL.md" ? `fe:${entry.name}` : `${prefix}/${rel}`;
+      out.push({ name, content: fs.readFileSync(f, "utf-8"), owner_role: "fe-engineer" });
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
