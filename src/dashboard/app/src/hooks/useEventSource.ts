@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { withToken } from '@/lib/token';
 
 interface StepProgressData {
   step: string;
@@ -59,7 +60,7 @@ export function useEventSource({
 
     esRef.current?.close();
     setConnectionState('reconnecting');
-    const es = new EventSource(url);
+    const es = new EventSource(withToken(url));
     esRef.current = es;
 
     es.onopen = () => {
