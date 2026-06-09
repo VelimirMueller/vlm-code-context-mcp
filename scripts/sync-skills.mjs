@@ -12,7 +12,7 @@ const DEFAULT_REF = "main";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
-const VENDOR_DIR = path.join(REPO_ROOT, "skills");
+const VENDOR_DIR = path.join(REPO_ROOT, "vendor", "skills");
 
 /** Recursively copy srcDir into destDir, overwriting existing files. */
 export function copyTree(srcDir, destDir) {
