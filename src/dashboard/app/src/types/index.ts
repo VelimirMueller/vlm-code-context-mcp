@@ -36,6 +36,7 @@ export interface Sprint {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  archived_at: string | null;
   milestone_id?: number;
   velocity_committed: number;
   velocity_completed: number;

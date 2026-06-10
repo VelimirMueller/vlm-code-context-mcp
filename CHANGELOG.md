@@ -5,6 +5,16 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-10
+
+### Added
+- **Sprint archiving** — finished sprints (status `closed`/`rest`/`done`) can be archived from the dashboard: Archive/Unarchive button in the sprint detail header (with an `Archived` badge), plus a bulk **"Archive all completed (n)"** action in the sidebar behind a confirm dialog. Archived sprints move behind the sidebar's "Show Archive" toggle and stay out of default views while remaining in **all metrics** (velocity trends, retro aggregation, insights). Unarchive restores them unchanged.
+- New nullable `archived_at` column on `sprints` (migration v20) — orthogonal to `status` and `deleted_at`, so archiving never rewrites sprint history.
+- Three dashboard endpoints behind the existing bearer auth: `POST /api/sprint/:id/archive` (400 unless the sprint is finished — eligibility is enforced server-side), `POST /api/sprint/:id/unarchive`, and `POST /api/sprints/archive-completed` (single-transaction bulk, returns `{ archived: n }`). Every archive/unarchive writes an audit-trail event, so changes appear in the activity feed.
+
+### Changed
+- The sidebar archive section is now driven by the explicit `archived_at` flag instead of the implicit "milestone completed + all sprints closed/rest" heuristic. This also fixes `done`-status sprints never counting as finished in the old grouping.
+
 ## [1.3.0] - 2026-06-09
 
 ### Added

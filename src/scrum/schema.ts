@@ -29,6 +29,7 @@ export function initScrumSchema(db: Database.Database): void {
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
       deleted_at TEXT DEFAULT NULL,
+      archived_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -441,6 +442,10 @@ export function runMigrations(db: Database.Database): void {
     { version: 19, name: 'add_ticket_composite_index', sql: `
       CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);
     ` },
+    // archived_at column + index are applied in the idempotent post-rebuild section below
+    // (the v17 sprints rebuild copies a fixed column list and would otherwise drop a column
+    // added here on legacy DBs). This entry only records the version.
+    { version: 20, name: 'add_sprint_archived_at', sql: `SELECT 1` },
   ];
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
@@ -523,6 +528,14 @@ export function runMigrations(db: Database.Database): void {
 
   // Composite index on sprints — must run after sprints_v3 rebuild guarantees deleted_at exists
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sprints_status_deleted ON sprints(status, deleted_at);`);
+
+  // Migration 20: add archived_at to sprints (idempotent; must run after the v17 rebuild,
+  // which copies a fixed column list and would otherwise drop a column added earlier).
+  const sprintCols20 = db.pragma("table_info(sprints)") as Array<{ name: string }>;
+  if (!sprintCols20.some((c) => c.name === "archived_at")) {
+    db.exec("ALTER TABLE sprints ADD COLUMN archived_at TEXT DEFAULT NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
   });
   migrate();
 }

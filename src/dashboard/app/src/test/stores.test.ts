@@ -81,12 +81,27 @@ describe('uiStore', () => {
 
 describe('sprintStore', () => {
   let useSprintStore: typeof import('@/stores/sprintStore').useSprintStore;
+  let useToastStore: typeof import('@/stores/toastStore').useToastStore;
 
   beforeEach(async () => {
     const mod = await import('@/stores/sprintStore');
     useSprintStore = mod.useSprintStore;
+    const toastMod = await import('@/stores/toastStore');
+    useToastStore = toastMod.useToastStore;
+    useToastStore.setState({ toasts: [] });
+    useSprintStore.setState({ selectedSprintId: null, sprintDetail: null });
     mockFetch.mockReset();
   });
+
+  // Route mocked fetch responses by "METHOD path". Falls back to {} for any
+  // refetch URL (grouped/sprints/detail/tickets/retro) we don't care to assert.
+  const routeFetch = (routes: Record<string, unknown>) => {
+    mockFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const body = routes[`${method} ${path}`] ?? routes[path] ?? {};
+      return Promise.resolve({ ok: true, json: async () => body });
+    });
+  };
 
   it('initial state has empty arrays', () => {
     expect(useSprintStore.getState().sprints).toEqual([]);
@@ -118,6 +133,104 @@ describe('sprintStore', () => {
     });
     const filtered = useSprintStore.getState().getFilteredTickets();
     expect(filtered.every(t => t.status === 'BLOCKED')).toBe(true);
+  });
+
+  // ─── archive actions (T-220) ─────────────────────────────────────────
+
+  it('archiveSprint posts to the archive endpoint and refetches grouped + sprints', async () => {
+    routeFetch({ 'POST /api/sprint/7/archive': { ok: true, archived_at: '2026-06-10 09:24:24' } });
+    await useSprintStore.getState().archiveSprint(7);
+
+    const calls = mockFetch.mock.calls;
+    expect(calls.some(([p, i]) => p === '/api/sprint/7/archive' && i?.method === 'POST')).toBe(true);
+    expect(calls.some(([p]) => p === '/api/sprints/grouped')).toBe(true);
+    expect(calls.some(([p]) => p === '/api/sprints')).toBe(true);
+  });
+
+  it('archiveSprint shows a success toast', async () => {
+    routeFetch({ 'POST /api/sprint/7/archive': { ok: true, archived_at: '2026-06-10 09:24:24' } });
+    await useSprintStore.getState().archiveSprint(7);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('success');
+    expect(toasts[0].message).toBe('Sprint archived');
+  });
+
+  it('archiveSprint shows an error toast when the post fails', async () => {
+    mockFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/sprint/7/archive' && init?.method === 'POST') {
+        return Promise.resolve({ ok: false, status: 400, statusText: 'Bad Request', json: async () => ({}) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+    await useSprintStore.getState().archiveSprint(7);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('error');
+  });
+
+  it('unarchiveSprint posts to the unarchive endpoint and toasts on success', async () => {
+    routeFetch({ 'POST /api/sprint/7/unarchive': { ok: true, archived_at: null } });
+    await useSprintStore.getState().unarchiveSprint(7);
+
+    const calls = mockFetch.mock.calls;
+    expect(calls.some(([p, i]) => p === '/api/sprint/7/unarchive' && i?.method === 'POST')).toBe(true);
+    expect(calls.some(([p]) => p === '/api/sprints/grouped')).toBe(true);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('success');
+    expect(toasts[0].message).toBe('Sprint restored');
+  });
+
+  it('unarchiveSprint shows an error toast when the post fails', async () => {
+    mockFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/sprint/7/unarchive' && init?.method === 'POST') {
+        return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+    await useSprintStore.getState().unarchiveSprint(7);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('error');
+  });
+
+  it('archiveAllCompleted posts to the bulk endpoint and toasts with the returned count', async () => {
+    routeFetch({ 'POST /api/sprints/archive-completed': { archived: 3 } });
+    await useSprintStore.getState().archiveAllCompleted();
+
+    const calls = mockFetch.mock.calls;
+    expect(calls.some(([p, i]) => p === '/api/sprints/archive-completed' && i?.method === 'POST')).toBe(true);
+    expect(calls.some(([p]) => p === '/api/sprints/grouped')).toBe(true);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('success');
+    expect(toasts[0].message).toBe('Archived 3 sprints');
+  });
+
+  it('archiveAllCompleted shows an error toast when the post fails', async () => {
+    mockFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/sprints/archive-completed' && init?.method === 'POST') {
+        return Promise.resolve({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+    await useSprintStore.getState().archiveAllCompleted();
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('error');
+  });
+
+  it('archiveSprint refreshes detail when the archived sprint is selected', async () => {
+    useSprintStore.setState({ selectedSprintId: 7 });
+    routeFetch({
+      'POST /api/sprint/7/archive': { ok: true, archived_at: '2026-06-10 09:24:24' },
+      '/api/sprint/7': { id: 7, name: 'S7', status: 'closed', archived_at: '2026-06-10 09:24:24' },
+    });
+    await useSprintStore.getState().archiveSprint(7);
+    // selectSprint re-fetches detail for the selected id
+    expect(mockFetch.mock.calls.some(([p]) => p === '/api/sprint/7')).toBe(true);
+    expect(useSprintStore.getState().sprintDetail?.archived_at).toBe('2026-06-10 09:24:24');
   });
 });
 
