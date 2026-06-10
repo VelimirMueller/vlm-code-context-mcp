@@ -9,6 +9,7 @@ import { BurndownChart } from './BurndownChart';
 import { SprintCompletionPanel } from './SprintCompletionPanel';
 import { PHASE_ORDER, getPhaseStyle, getPhaseLabel } from '@/lib/phases';
 import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
+import { Badge } from '@/components/atoms/Badge';
 import type { RetroFinding } from '@/types';
 
 interface GateInfo { gate: string; passed: boolean; detail: string }
@@ -25,6 +26,8 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
   const loading = useSprintStore((s) => s.loading.detail);
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const selectSprint = useSprintStore((s) => s.selectSprint);
+  const archiveSprint = useSprintStore((s) => s.archiveSprint);
+  const unarchiveSprint = useSprintStore((s) => s.unarchiveSprint);
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
   const [milestoneUpdating, setMilestoneUpdating] = useState(false);
@@ -96,6 +99,17 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
   const phaseStyle = getPhaseStyle(sprintDetail.status);
   const statusColor = phaseStyle.bg;
 
+  const isArchived = sprintDetail.archived_at !== null;
+  const canArchive = ['closed', 'rest', 'done'].includes(sprintDetail.status);
+
+  const handleArchiveToggle = async () => {
+    if (!sprintDetail) return;
+    const wasArchived = sprintDetail.archived_at !== null;
+    if (wasArchived) { await unarchiveSprint(sprintDetail.id); } else { await archiveSprint(sprintDetail.id); }
+    // TODO(human): post-archive selection behavior — decide what happens to the
+    // selection/detail view after archiving the currently-open sprint.
+  };
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
       {/* Sprint header */}
@@ -116,6 +130,24 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isArchived && <Badge text="Archived" variant="default" />}
+          {(isArchived || canArchive) && (
+            <button
+              onClick={handleArchiveToggle}
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '3px 10px',
+                fontSize: 11,
+                color: 'var(--text2)',
+                fontFamily: 'var(--font)',
+                cursor: 'pointer',
+              }}
+            >
+              {isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+          )}
           <select
             value={sprintDetail.milestone_id ?? ''}
             disabled={milestoneUpdating}
