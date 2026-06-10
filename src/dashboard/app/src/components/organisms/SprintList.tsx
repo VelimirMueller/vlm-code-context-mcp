@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSprintStore } from '@/stores/sprintStore';
 import { SprintCard } from '@/components/molecules/SprintCard';
-import type { MilestoneSprintGroup } from '@/types';
+import { AlertDialog } from '@/components/molecules/AlertDialog';
+import type { MilestoneSprintGroup, Sprint } from '@/types';
+
+const ARCHIVABLE_STATUSES = ['closed', 'rest', 'done'];
+const isArchiveEligible = (s: Sprint) =>
+  ARCHIVABLE_STATUSES.includes(s.status) && s.archived_at === null;
 
 export function SprintList() {
   const milestoneGroups = useSprintStore((s) => s.milestoneGroups);
@@ -9,11 +14,13 @@ export function SprintList() {
   const selectedSprintId = useSprintStore((s) => s.selectedSprintId);
   const selectSprint = useSprintStore((s) => s.selectSprint);
   const fetchGrouped = useSprintStore((s) => s.fetchGroupedSprints);
+  const archiveAllCompleted = useSprintStore((s) => s.archiveAllCompleted);
   const loadingSprints = useSprintStore((s) => s.loading.sprints);
   const loadingGrouped = useSprintStore((s) => s.loading.grouped);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
+  const [showBulkDialog, setShowBulkDialog] = useState(false);
 
   useEffect(() => {
     fetchGrouped();
@@ -95,9 +102,18 @@ export function SprintList() {
     );
   }
 
-  const isSprintDone = (s: { status: string }) => s.status === 'closed' || s.status === 'rest';
-  const activeGroups = milestoneGroups.filter((g) => g.milestone?.status !== 'completed' || g.sprints.some((s) => !isSprintDone(s)));
-  const archivedGroups = milestoneGroups.filter((g) => g.milestone?.status === 'completed' && g.sprints.every((s) => isSprintDone(s)));
+  // Archive state is orthogonal to status: filter each group by archived_at.
+  // Active = sprints not archived; Archive = sprints with archived_at set.
+  // Groups that become empty after filtering are dropped from their section.
+  const activeGroups = milestoneGroups
+    .map((g) => ({ ...g, sprints: g.sprints.filter((s) => s.archived_at === null) }))
+    .filter((g) => g.sprints.length > 0);
+  const archivedGroups = milestoneGroups
+    .map((g) => ({ ...g, sprints: g.sprints.filter((s) => s.archived_at !== null) }))
+    .filter((g) => g.sprints.length > 0);
+
+  // Bulk-eligible count, computed the same way the server enforces eligibility.
+  const bulkEligibleCount = sprints.filter(isArchiveEligible).length;
 
   return (
     <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
@@ -194,9 +210,25 @@ export function SprintList() {
         );
       })}
 
-      {/* Archive toggle */}
-      {archivedGroups.length > 0 && (
+      {/* Bulk archive + archive section */}
+      {(bulkEligibleCount > 0 || archivedGroups.length > 0) && (
         <div style={{ marginTop: 8 }}>
+          {/* Archive all completed: same button style as the archive toggle */}
+          {bulkEligibleCount > 0 && (
+            <button
+              onClick={() => setShowBulkDialog(true)}
+              style={{
+                width: '100%', background: 'none', border: '1px solid var(--border2)',
+                borderRadius: 6, color: 'var(--text3)', fontSize: 11, padding: '6px 10px',
+                cursor: 'pointer', fontFamily: 'var(--font)', textAlign: 'center',
+                marginBottom: 6,
+              }}
+            >
+              Archive all completed ({bulkEligibleCount})
+            </button>
+          )}
+
+          {archivedGroups.length > 0 && (
           <button
             onClick={() => setShowArchive(!showArchive)}
             style={{
@@ -207,6 +239,7 @@ export function SprintList() {
           >
             {showArchive ? 'Hide' : 'Show'} Archive ({archivedGroups.reduce((a, g) => a + g.sprints.length, 0)} sprints)
           </button>
+          )}
           {showArchive && archivedGroups.map((group) => {
             const key = group.milestone ? `m-${group.milestone.id}` : 'unassigned';
             const isCollapsed = collapsed.has(key);
@@ -242,6 +275,19 @@ export function SprintList() {
               </div>
             );
           })}
+
+          <AlertDialog
+            open={showBulkDialog}
+            title="Archive completed sprints"
+            message={`Archive ${bulkEligibleCount} completed sprints? They stay in all metrics and can be unarchived anytime.`}
+            confirmLabel="Archive"
+            variant="warning"
+            onCancel={() => setShowBulkDialog(false)}
+            onConfirm={() => {
+              setShowBulkDialog(false);
+              archiveAllCompleted();
+            }}
+          />
         </div>
       )}
     </div>

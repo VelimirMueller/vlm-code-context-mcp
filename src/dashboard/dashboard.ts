@@ -635,6 +635,53 @@ function apiDeleteSprint(sprintId: number) {
   return { ok: true };
 }
 
+// Sprints are archivable only once finished. Eligibility is enforced here (server-side,
+// single source of truth) so a stale frontend can never archive an in-flight sprint.
+const ARCHIVABLE_STATUSES = ['closed', 'rest', 'done'] as const;
+
+function apiArchiveSprint(sprintId: number) {
+  const sprint = writeDb.prepare("SELECT id, status, archived_at FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
+  if (!ARCHIVABLE_STATUSES.includes(sprint.status)) {
+    throw Object.assign(new Error(`only finished sprints can be archived (status must be one of: ${ARCHIVABLE_STATUSES.join(', ')}); got '${sprint.status}'`), { status: 400 });
+  }
+  writeDb.prepare("UPDATE sprints SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(sprintId);
+  const updated = writeDb.prepare("SELECT archived_at FROM sprints WHERE id = ?").get(sprintId) as any;
+  try {
+    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', ?, ?, 'dashboard')").run(sprintId, sprint.archived_at ?? null, updated.archived_at);
+  } catch (e) { console.error("[api] apiArchiveSprint audit error:", e); }
+  return { ok: true, archived_at: updated.archived_at };
+}
+
+function apiUnarchiveSprint(sprintId: number) {
+  const sprint = writeDb.prepare("SELECT id, archived_at FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
+  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
+  writeDb.prepare("UPDATE sprints SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?").run(sprintId);
+  try {
+    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', ?, NULL, 'dashboard')").run(sprintId, sprint.archived_at ?? null);
+  } catch (e) { console.error("[api] apiUnarchiveSprint audit error:", e); }
+  return { ok: true, archived_at: null };
+}
+
+function apiArchiveCompletedSprints() {
+  // One transaction: select the eligible ids, archive them all, audit one event each.
+  const bulk = writeDb.transaction(() => {
+    const rows = writeDb.prepare(
+      `SELECT id FROM sprints WHERE status IN ('closed', 'rest', 'done') AND archived_at IS NULL AND deleted_at IS NULL`,
+    ).all() as Array<{ id: number }>;
+    const update = writeDb.prepare("UPDATE sprints SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?");
+    const audit = writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', NULL, ?, 'dashboard')");
+    const select = writeDb.prepare("SELECT archived_at FROM sprints WHERE id = ?");
+    for (const { id } of rows) {
+      update.run(id);
+      const { archived_at } = select.get(id) as any;
+      try { audit.run(id, archived_at); } catch (e) { console.error("[api] apiArchiveCompletedSprints audit error:", e); }
+    }
+    return rows.length;
+  });
+  return { archived: bulk() };
+}
+
 function apiUpdateTicketMilestone(ticketId: number, body: any) {
   const milestoneId = body.milestone_id;
   if (milestoneId === null || milestoneId === undefined) {
@@ -1775,9 +1822,23 @@ const server = http.createServer(async (req, res) => {
         data = apiPlanSprint(body);
         notifyClients();
       }
+      else if (url.pathname === "/api/sprints/archive-completed" && req.method === "POST") {
+        data = apiArchiveCompletedSprints();
+        notifyClients();
+      }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/advance$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         data = apiAdvanceSprint(sid);
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/archive$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiArchiveSprint(sid);
+        notifyClients();
+      }
+      else if (url.pathname.match(/^\/api\/sprint\/\d+\/unarchive$/) && req.method === "POST") {
+        const sid = Number(url.pathname.split("/")[3]);
+        data = apiUnarchiveSprint(sid);
         notifyClients();
       }
       else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();

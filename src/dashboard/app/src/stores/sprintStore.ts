@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { get } from '@/lib/api';
+import { get, post } from '@/lib/api';
+import { useToastStore } from '@/stores/toastStore';
 import type { Sprint, Ticket, RetroFinding, MilestoneSprintGroup, BurndownData, Blocker, Bug } from '@/types';
 
 export type TicketFilter = 'all' | 'mine' | 'blocked' | 'qaPending' | 'unassigned';
@@ -40,6 +41,9 @@ export interface SprintStore {
 
   fetchSprints: () => Promise<void>;
   fetchGroupedSprints: () => Promise<void>;
+  archiveSprint: (id: number) => Promise<void>;
+  unarchiveSprint: (id: number) => Promise<void>;
+  archiveAllCompleted: () => Promise<void>;
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
   fetchRetro: (sprintId: number) => Promise<void>;
@@ -106,6 +110,40 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set((s) => ({ error: { ...s.error, sprints: (e as Error).message } }));
     } finally {
       set((s) => ({ loading: { ...s.loading, sprints: false } }));
+    }
+  },
+
+  archiveSprint: async (id: number) => {
+    try {
+      await post(`/api/sprint/${id}/archive`, {});
+      await Promise.all([getState().fetchGroupedSprints(), getState().fetchSprints()]);
+      if (getState().selectedSprintId === id) await getState().selectSprint(id);
+      useToastStore.getState().addToast('Sprint archived', 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
+    }
+  },
+
+  unarchiveSprint: async (id: number) => {
+    try {
+      await post(`/api/sprint/${id}/unarchive`, {});
+      await Promise.all([getState().fetchGroupedSprints(), getState().fetchSprints()]);
+      if (getState().selectedSprintId === id) await getState().selectSprint(id);
+      useToastStore.getState().addToast('Sprint restored', 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
+    }
+  },
+
+  archiveAllCompleted: async () => {
+    try {
+      const res = await post<{ archived: number }>('/api/sprints/archive-completed', {});
+      await Promise.all([getState().fetchGroupedSprints(), getState().fetchSprints()]);
+      const { selectedSprintId } = getState();
+      if (selectedSprintId !== null) await getState().selectSprint(selectedSprintId);
+      useToastStore.getState().addToast(`Archived ${res?.archived ?? 0} sprints`, 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
     }
   },
 
