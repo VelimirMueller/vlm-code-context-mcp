@@ -106,8 +106,8 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
     if (!sprintDetail) return;
     const wasArchived = sprintDetail.archived_at !== null;
     if (wasArchived) { await unarchiveSprint(sprintDetail.id); } else { await archiveSprint(sprintDetail.id); }
-    // TODO(human): post-archive selection behavior — decide what happens to the
-    // selection/detail view after archiving the currently-open sprint.
+    // Deliberately keep the sprint selected after archiving: the Archived badge +
+    // Unarchive button make the action visible and instantly reversible in place.
   };
 
   return (
