@@ -13,11 +13,10 @@
 ```bash
 npm install vlm-code-context-mcp
 npx code-context-mcp setup .
-claude mcp add code-context
-npx vlm-code-context-mcp ./context.db
+npx code-context-dashboard ./context.db   # optional — live dashboard on :3333
 ```
 
-Three commands. Zero API keys. One `context.db` file.
+Two commands, then restart Claude Code — `setup` writes `.mcp.json`, so the server loads automatically. Zero API keys. One `context.db` file.
 
 </div>
 
@@ -78,11 +77,14 @@ npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 ```
 
-Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, writes `.mcp.json`, and offers to wire the sprint statusline into `.claude/settings.json`. Run it again later and it switches to **update mode** — migrate (with automatic backup) + config repair, never touching your data; `--force` renames the old database instead of deleting it.
+Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, writes `.mcp.json`, and offers to wire the sprint statusline into `.claude/settings.json` (pass `--defaults` to skip the prompts). Run it again later and it switches to **update mode** — migrate (with automatic backup) + config repair, never touching your data; `--force` renames the old database instead of deleting it.
 
 **3 · Restart your AI client**
 
-Restart Claude Code (or any MCP client). Verify with `get_project_status`.
+Restart Claude Code (or any MCP client) — it picks the server up from the `.mcp.json` that setup wrote. Verify with `get_project_status`.
+
+> Registering manually instead? The equivalent is
+> `claude mcp add code-context -- node node_modules/vlm-code-context-mcp/dist/server/index.js ./context.db`
 
 **4 · Launch the dashboard**
 
@@ -90,7 +92,7 @@ Restart Claude Code (or any MCP client). Verify with `get_project_status`.
 npx code-context-dashboard ./context.db
 ```
 
-Opens at `http://localhost:3333` with live SSE updates. To also auto-reindex on file save:
+Opens at `http://localhost:3333` with live SSE updates. File watching + auto-reindex on save are on by default (derived from the indexed files); pass a directory as the 4th argument only to override it — e.g. on a database that has nothing indexed yet:
 
 ```bash
 npx code-context-dashboard ./context.db 3333 .
