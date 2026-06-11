@@ -224,9 +224,9 @@ export function initScrumSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS event_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug', 'discovery')),
+      entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug', 'discovery', 'retro_finding')),
       entity_id INTEGER NOT NULL,
-      action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed')),
+      action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed', 'triaged')),
       field_name TEXT,
       old_value TEXT,
       new_value TEXT,
@@ -452,6 +452,9 @@ export function runMigrations(db: Database.Database): void {
     // try_next lifecycle columns (status/dropped_reason/deferred_at) are applied in the
     // idempotent post-migration section below — same pattern as v14/v20.
     { version: 21, name: 'add_retro_finding_lifecycle', sql: `SELECT 1` },
+    // event_log CHECK rebuild (retro_finding entity + triaged action) happens in the
+    // idempotent post-migration section below — CHECK constraints can't be ALTERed.
+    { version: 22, name: 'extend_event_log_check', sql: `SELECT 1` },
   ];
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
@@ -477,6 +480,31 @@ export function runMigrations(db: Database.Database): void {
   // v21: try_next lifecycle — existing rows default to 'open' (the un-triaged state)
   if (!retroCols.some((c) => c.name === "status")) {
     db.exec("ALTER TABLE retro_findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'adopted', 'dropped'))");
+  }
+
+  // v22: rebuild event_log with extended CHECKs (retro_finding entity, triaged action) —
+  // idempotent: skip when the current constraint already allows retro_finding.
+  const eventLogSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_log'").get() as any)?.sql ?? "";
+  if (eventLogSql && !eventLogSql.includes("'retro_finding'")) {
+    db.exec(`
+      CREATE TABLE event_log_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug', 'discovery', 'retro_finding')),
+        entity_id INTEGER NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed', 'triaged')),
+        field_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        actor TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO event_log_v2 (id, entity_type, entity_id, action, field_name, old_value, new_value, actor, created_at)
+        SELECT id, entity_type, entity_id, action, field_name, old_value, new_value, actor, created_at FROM event_log;
+      DROP TABLE event_log;
+      ALTER TABLE event_log_v2 RENAME TO event_log;
+      CREATE INDEX IF NOT EXISTS idx_event_log_entity ON event_log(entity_type, entity_id);
+      CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
+    `);
   }
   if (!retroCols.some((c) => c.name === "dropped_reason")) {
     db.exec("ALTER TABLE retro_findings ADD COLUMN dropped_reason TEXT");

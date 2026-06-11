@@ -80,6 +80,42 @@ describe("migration v21 — retro finding lifecycle", () => {
   });
 });
 
+describe("migration v22 — event_log CHECK extension", () => {
+  it("accepts retro_finding/triaged events after migration (regression: silently failing audit trail)", () => {
+    const db = setupDb();
+    expect(() =>
+      db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', 1, 'triaged', 'status', 'open', 'adopted', 'mcp')`).run()
+    ).not.toThrow();
+  });
+
+  it("rebuilds a legacy event_log (old CHECK) preserving rows and still accepting old entity types", () => {
+    const db = setupDb();
+    db.exec(`
+      DROP TABLE event_log;
+      CREATE TABLE event_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('ticket', 'sprint', 'epic', 'milestone', 'agent', 'blocker', 'bug', 'discovery')),
+        entity_id INTEGER NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted', 'status_changed')),
+        field_name TEXT, old_value TEXT, new_value TEXT, actor TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, actor) VALUES ('ticket', 42, 'created', 'mcp')`).run();
+
+    runMigrations(db);
+
+    const preserved = db.prepare(`SELECT entity_type, entity_id FROM event_log WHERE entity_id = 42`).get() as any;
+    expect(preserved.entity_type).toBe("ticket");
+    expect(() =>
+      db.prepare(`INSERT INTO event_log (entity_type, entity_id, action) VALUES ('retro_finding', 1, 'triaged')`).run()
+    ).not.toThrow();
+    expect(() =>
+      db.prepare(`INSERT INTO event_log (entity_type, entity_id, action) VALUES ('sprint', 1, 'status_changed')`).run()
+    ).not.toThrow();
+  });
+});
+
 describe("getUntriagedTryNext", () => {
   let db: Database.Database;
   let sprintId: number;
