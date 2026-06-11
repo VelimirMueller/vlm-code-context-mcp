@@ -7,7 +7,7 @@ import path from "path";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
-import { registerScrumTools } from "../scrum/tools.js";
+import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
 
@@ -164,10 +164,10 @@ server.tool(
 // ─── Tool: get_file_context ──────────────────────────────────────────────────
 server.tool(
   "get_file_context",
-  "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents). Use include_changes=false to skip change history and save tokens.",
+  "Get a file's summary, its exports, what it imports (dependencies), and what imports it (dependents). Pass include_changes=true only when debugging (adds recent change history with diffs).",
   {
     path: z.string().describe("Absolute file path"),
-    include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: true). Set to false to save tokens."),
+    include_changes: z.boolean().optional().describe("Include recent change history with diffs (default: false — C1 token diet; enable when debugging)"),
     change_limit: z.number().optional().describe("Max number of recent changes to include (default: 3)"),
   },
   async ({ path: filePath, include_changes, change_limit }) => {
@@ -210,8 +210,8 @@ server.tool(
       dependents.length > 0 ? `## Imported by (${dependents.length})\n${dependents.map(d => `- ${d.path} [${d.symbols}]`).join("\n")}` : "",
     ];
 
-    // Only include change history if requested (default: true for backward compat)
-    const shouldIncludeChanges = include_changes !== false;
+    // C1 (#10): change history is opt-in — the +200-token diff payload only pays off when debugging
+    const shouldIncludeChanges = include_changes === true;
     if (shouldIncludeChanges) {
       const maxChanges = change_limit ?? 3;
       const changes = db.prepare(`
@@ -475,6 +475,7 @@ server.tool(
             files_indexed: fileCount?.c ?? 0,
             sprints: sprintCount?.c ?? 0,
           },
+          dist_freshness: checkDistFreshness() ?? "fresh",
         }, null, 2),
       }],
       isError: !dbHealthy,
