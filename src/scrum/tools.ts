@@ -5,13 +5,10 @@ import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
-import { buildFrontendPlaybook, buildWorkflowPlaybook, getSkillContent } from "./frontend-playbook.js";
+import { buildFrontendPlaybook, buildWorkflowPlaybook } from "./frontend-playbook.js";
 import {
-  SKILL_SETS,
   formatEnablement,
   getEnabledSkillSets,
-  setEnabledSkillSets,
-  skillSetForName,
   skillSetsConfigured,
 } from "./skill-sets.js";
 import { sprintPulse, ticketDoneCard, launchCard, sprintCompleteCard, type SprintPulseData } from "./cards.js";
@@ -22,6 +19,8 @@ import {
   getLatestSprint,
   getTicketStatusCounts,
 } from "./queries.js";
+import { registerAnalyticsTools } from "./tools/analytics.js";
+import { registerSkillsTools } from "./tools/skills.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -58,7 +57,7 @@ interface DashboardEvent {
 }
 
 /** Fire-and-forget HTTP POST to dashboard so SSE clients refresh instantly. */
-function notifyDashboard(db: Database.Database, event?: DashboardEvent): void {
+export function notifyDashboard(db: Database.Database, event?: DashboardEvent): void {
   const port = resolveDashboardPort(db);
   try {
     if (event) {
@@ -141,12 +140,12 @@ export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: 
 }
 
 /** Truncate a string for compact gate listings. */
-function truncateFinding(s: string, max = 140): string {
+export function truncateFinding(s: string, max = 140): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
 /** Wrap a server-rendered card in a diff fence so callers print the result verbatim. */
-function fenceCard(card: string): string {
+export function fenceCard(card: string): string {
   return "```diff\n" + card + "\n```";
 }
 
@@ -529,6 +528,9 @@ export function buildPlanningGateContext(db: Database.Database): string {
  */
 export function registerScrumTools(server: McpServer, db: Database.Database): void {
 
+  registerAnalyticsTools(server, db);
+  registerSkillsTools(server, db);
+
   server.tool(
     "list_agents",
     "List all scrum team agents with their roles and capabilities",
@@ -691,50 +693,6 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (routing) sections.push("", routing);
       return { content: [{ type: "text" as const, text: sections.join("\n") }] };
     }
-  );
-
-  server.tool(
-    "get_skill",
-    "Fetch the full content of a single skill by name (e.g. 'fe:set-up-auth', 'la:build-landing-page', 'wf:write-pull-requests', the primer 'fe:_house-style', or a shared/companion ref like 'fe:_shared/<file>'). Use after load_phase_context surfaces a skill index.",
-    { name: z.string().describe("Skill name, e.g. 'fe:set-up-auth' or 'wf:write-pull-requests'") },
-    async ({ name }) => {
-      const set = skillSetForName(name);
-      if (set && !getEnabledSkillSets(db)[set.id]) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Skill set '${set.id}' (${set.prefix}:*) is disabled for this project. Enable it with update_skill_sets({ ${set.id}: true }) — /kickoff also asks on its first run.`,
-          }],
-        };
-      }
-      const content = getSkillContent(db, name);
-      if (content === null) return { content: [{ type: "text" as const, text: `Skill '${name}' not found.` }] };
-      return { content: [{ type: "text" as const, text: content }] };
-    },
-  );
-
-  server.tool(
-    "update_skill_sets",
-    "Enable or disable predefined skill sets (frontend fe:*, landing la:*, workflow wf:*) for this project. Partial update — omitted sets keep their current state. Enabled sets are indexed into phase context and served by get_skill.",
-    {
-      frontend: z.boolean().optional().describe("Serve fe:* skills (default: enabled)"),
-      landing: z.boolean().optional().describe("Serve la:* landing-page skills (default: disabled)"),
-      workflow: z.boolean().optional().describe("Serve wf:* PR/commit skills (default: disabled)"),
-    },
-    async ({ frontend, landing, workflow }) => {
-      if (frontend === undefined && landing === undefined && workflow === undefined) {
-        const current = formatEnablement(getEnabledSkillSets(db), skillSetsConfigured(db));
-        return { content: [{ type: "text" as const, text: `Skill sets: ${current}\nPass at least one of { frontend, landing, workflow } to change.` }] };
-      }
-      const map = setEnabledSkillSets(db, { frontend, landing, workflow });
-      const hints = SKILL_SETS.filter((s) => map[s.id]).map((s) => `${s.prefix}:*`);
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Skill sets updated: ${formatEnablement(map, true)}\nEnabled sets (${hints.join(", ") || "none"}) are indexed into load_phase_context and pullable via get_skill.`,
-        }],
-      };
-    },
   );
 
   server.tool(
@@ -1416,59 +1374,6 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     }
   );
 
-  server.tool(
-    "export_sprint_report",
-    "Generate a complete markdown sprint report",
-    { sprint_id: z.number().describe("Sprint ID") },
-    async ({ sprint_id }) => {
-      const sprint = getSprintById(db, sprint_id) as any;
-      if (!sprint) return { content: [{ type: "text" as const, text: `Sprint ${sprint_id} not found.` }] };
-      const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id=? ORDER BY priority, status`).all(sprint_id) as any[];
-      const retro = db.prepare(`SELECT * FROM retro_findings WHERE sprint_id=? ORDER BY category`).all(sprint_id) as any[];
-      const bugs = db.prepare(`SELECT * FROM bugs WHERE sprint_id=?`).all(sprint_id) as any[];
-      const blockers = db.prepare(`SELECT * FROM blockers WHERE sprint_id=?`).all(sprint_id) as any[];
-
-      const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-      const donePts = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-      const deltas = getScopeDeltas(db, sprint_id);
-
-      const lines = [
-        `# Sprint Report: ${sprint.name}`,
-        `**Status:** ${sprint.status} | **Goal:** ${sprint.goal || '—'}`,
-        `**Velocity:** ${donePts}/${totalPts} points in scope (${sprint.velocity_completed || 0}/${sprint.velocity_committed || 0} vs frozen commitment)${deltas.addedTickets ? ` | **+${deltas.addedPoints}pt added mid-sprint** (${deltas.addedTickets} tickets)` : ''}${deltas.removedTickets ? ` | ${deltas.removedTickets} removed` : ''}`,
-        '',
-        `## Tickets (${tickets.length})`,
-        '| Ref | Title | Priority | Status | Assignee | Points | QA |',
-        '|-----|-------|----------|--------|----------|--------|----|',
-        ...tickets.map((t: any) => `| ${t.ticket_ref || '#' + t.id} | ${t.title} | ${t.priority} | ${t.status} | ${t.assigned_to || '—'} | ${t.story_points || 0} | ${t.qa_verified ? 'Yes' : 'No'} |`),
-        '',
-      ];
-
-      if (bugs.length) {
-        lines.push(`## Bugs (${bugs.length})`);
-        bugs.forEach((b: any) => lines.push(`- [${b.status}] ${b.severity}: ${b.description}`));
-        lines.push('');
-      }
-      if (blockers.length) {
-        lines.push(`## Blockers (${blockers.length})`);
-        blockers.forEach((b: any) => lines.push(`- [${b.status}] ${b.description}`));
-        lines.push('');
-      }
-      if (retro.length) {
-        lines.push(`## Retrospective (${retro.length} findings)`);
-        ['went_well', 'went_wrong', 'try_next'].forEach(cat => {
-          const items = retro.filter((f: any) => f.category === cat);
-          if (items.length) {
-            lines.push(`### ${cat.replace('_', ' ')}`);
-            items.forEach((f: any) => lines.push(`- ${f.finding} (${f.role || 'team'})`));
-          }
-        });
-      }
-
-      return { content: [{ type: "text" as const, text: lines.join('\n') }] };
-    }
-  );
-
   // ═══════════════════════════════════════════════════════════════════════════
   // MILESTONE & BACKLOG OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1994,84 +1899,6 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     }
   );
 
-  // ─── Sprint Process Instructions ────────────────────────────────────────────
-  const INSTRUCTION_SECTIONS: Record<string, string> = {
-    lifecycle: `## Sprint Lifecycle (4 phases)
-1. **planning** → Define sprint goal, assign tickets & points, commit velocity (~19pts target), confirm capacity (1 day)
-2. **implementation** → Development work, daily standups, QA verification, code reviews (3 days)
-3. **done** → Sprint summary, retrospective findings, velocity review (0.5 day)
-4. **rest** → Team recovery, knowledge sharing (0.5 day)
-
-**Status flow:** planning → implementation → done → rest
-**Gate checks:** Advancing to implementation requires tickets + velocity. Advancing to done requires all tickets resolved. Closing requires retro findings.`,
-
-    tickets: `## Ticket Workflow
-**Status flow:** TODO → IN_PROGRESS → DONE
-
-### Critical Rules
-1. **Move to IN_PROGRESS** — When starting work on a ticket, IMMEDIATELY set status to IN_PROGRESS. Do not leave tickets in TODO while actively working on them.
-2. **Query Before Update** — ALWAYS use \`list_tickets\` to get IDs before \`update_ticket\`. Internal DB IDs are NOT sequential.
-3. **QA Gate** — \`qa_verified\` must be true before status → DONE.
-4. **Acceptance Criteria** — Must be defined during sprint planning.
-5. **Point Cap** — No single dev should exceed 8 story points.
-6. **Minimum Ticket Rule** — Every team member must be assigned at least 1 ticket per sprint. Be creative with assignments: security specialist can audit a feature, QA can write test plans, architect can document decisions, manager can review metrics, marketing can draft release notes. No one sits idle.
-7. **Burnout Protection** — It is FORBIDDEN to assign tickets to team members who are burned out (mood ≤ 2). If a dev is burned out, reduce sprint scope instead of overloading the team. Check agent mood via \`list_agents\` before sprint planning. Sustainable pace > velocity targets.`,
-
-    retro: `## Retrospective Process
-Retros are **MANDATORY** — never skip, even when sprint is green.
-
-### Required Categories
-- **went_well** — What worked? Continue doing this.
-- **went_wrong** — What caused friction? Root-cause it.
-- **try_next** — What experiments for next sprint?
-
-### Rules
-- Each role contributes at least one finding
-- Action items need an \`action_owner\` assigned
-- Sprint CANNOT close until retro findings exist (minimum 3, one per category)`,
-
-    roles: (() => {
-      try {
-        const agents = db.prepare("SELECT role, name, description, department FROM agents ORDER BY department, role").all() as { role: string; name: string; description: string; department: string }[];
-        if (agents.length === 0) return "## Role Responsibilities\nNo agents configured. Use `reset_agents` to seed the default team.";
-        const lines = agents.map(a => `- **${a.role}** (${a.department}) — ${a.description}`);
-        return `## Role Responsibilities (${agents.length} agents from DB)\n${lines.join("\n")}\n\nManage agents via \`list_agents\`, \`create_agent\`, or \`reset_agents\`. Always use \`list_agents\` to check real roles before assigning tickets.`;
-      } catch { return "## Role Responsibilities\nUse `list_agents` to see current team."; }
-    })(),
-
-    checklist: `## Sprint Close Checklist
-- [ ] All tickets DONE or explicitly NOT_DONE with reason
-- [ ] All DONE tickets have \`qa_verified = true\`
-- [ ] No tickets stuck in IN_PROGRESS
-- [ ] Retro findings added (min 3: one went_well, one went_wrong, one try_next)
-- [ ] Action items have owners assigned
-- [ ] Sprint \`velocity_completed\` updated
-- [ ] Sprint status set to \`closed\``,
-
-    pitfalls: `## Common Pitfalls
-- **Skipping Retros** — "Sprint went perfectly" → Wrong: even green sprints have lessons
-- **Assuming Ticket IDs** — "T-042 is probably ID 42" → Wrong: always query with list_tickets
-- **DONE Without QA** — "Works on my machine" → Wrong: qa_verified must be true
-- **Overloading Devs** — "Alice can do 15pts" → Wrong: max 8pts per dev
-- **Burning Out Devs** — "They can push through" → Wrong: burned-out devs (mood ≤ 2) CANNOT be assigned tickets. Reduce scope.
-- **Closing Early** — "All tickets done" → Wrong: must add retro findings first`,
-  };
-
-  server.tool(
-    "get_sprint_instructions",
-    "Get sprint process instructions — lifecycle, ticket workflow, retro rules, role responsibilities, and close checklist. Call with no args for full guide, or pass a section name.",
-    { section: z.enum(["lifecycle", "tickets", "retro", "roles", "checklist", "pitfalls"]).optional().describe("Specific section to retrieve") },
-    async ({ section }) => {
-      if (section) {
-        const text = INSTRUCTION_SECTIONS[section];
-        if (!text) return { content: [{ type: "text" as const, text: `Unknown section. Available: ${Object.keys(INSTRUCTION_SECTIONS).join(", ")}` }], isError: true };
-        return { content: [{ type: "text" as const, text }] };
-      }
-      const full = `# Sprint Process Instructions\n\n${Object.values(INSTRUCTION_SECTIONS).join("\n\n---\n\n")}`;
-      return { content: [{ type: "text" as const, text: full }] };
-    }
-  );
-
   // ─── Project Status ──────────────────────────────────────────────────────────
   server.tool(
     "get_project_status",
@@ -2439,43 +2266,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     }
   );
 
-  // ─── Factory Reset Tools ────────────────────────────────────────────────────
-  server.tool(
-    "reset_agents",
-    "Reset all agents to factory defaults. WARNING: This deletes all current agents and re-seeds from TypeScript defaults.",
-    {},
-    async () => {
-      const { resetAgents } = await import("./defaults.js");
-      const count = resetAgents(db);
-      notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Reset complete: ${count} agents restored to factory defaults.` }] };
-    }
-  );
-
-  server.tool(
-    "reset_skills",
-    "Reset all skills to factory defaults. WARNING: This deletes all current skills and re-seeds from TypeScript defaults.",
-    {},
-    async () => {
-      const { resetSkills } = await import("./defaults.js");
-      const count = resetSkills(db);
-      notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Reset complete: ${count} skills restored to factory defaults.` }] };
-    }
-  );
-
-  server.tool(
-    "reset_sprint_process",
-    "Reset sprint process configuration to factory defaults.",
-    {},
-    async () => {
-      const { resetSprintProcess } = await import("./defaults.js");
-      resetSprintProcess(db);
-      notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Sprint process reset to factory defaults.` }] };
-    }
-  );
-
   // ─── Remotion Vision Animation ──────────────────────────────────────────────
   server.tool(
     "generate_vision_animation",
@@ -2717,73 +2507,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     }
   );
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RETRO PATTERN DETECTION (M12-019)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool(
-    "analyze_retro_patterns",
-    "Analyze retrospective findings across all sprints — category breakdown, recurring issues, and action follow-through rate",
-    {},
-    async () => {
-      try {
-        // Total findings count
-        const totalRow = db.prepare(`SELECT COUNT(*) as total FROM retro_findings`).get() as any;
-        const total = totalRow.total;
-        if (total === 0) return { content: [{ type: "text" as const, text: "No retro findings to analyze." }] };
-
-        // Category breakdown
-        const categories = db.prepare(`SELECT category, COUNT(*) as count FROM retro_findings GROUP BY category ORDER BY count DESC`).all() as any[];
-
-        // A1: auto-apply adopted findings whose ticket landed, then compute lifecycle stats
-        autoApplyRetroActions(db);
-        const lc = db.prepare(`
-          SELECT
-            SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open,
-            SUM(CASE WHEN status = 'adopted' THEN 1 ELSE 0 END) as adopted,
-            SUM(CASE WHEN status = 'adopted' AND action_applied = 1 THEN 1 ELSE 0 END) as applied,
-            SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) as dropped,
-            COUNT(*) as total
-          FROM retro_findings WHERE category = 'try_next'
-        `).get() as any;
-        const oldestOpen = db.prepare(`
-          SELECT MAX((SELECT COUNT(*) FROM sprints s2 WHERE s2.id > rf.sprint_id AND s2.deleted_at IS NULL)) as age
-          FROM retro_findings rf WHERE rf.category = 'try_next' AND rf.status = 'open'
-        `).get() as any;
-        const triageRate = lc.total > 0 ? Math.round(((lc.adopted + lc.dropped) / lc.total) * 100) : 0;
-        const appliedRate = lc.total > 0 ? Math.round((lc.applied / lc.total) * 100) : 0;
-
-        // A4: recurring-issue clustering — findings (not words), across distinct sprints
-        const wrongFindings = db.prepare(`SELECT rf.finding, rf.sprint_id, rf.role, s.name as sprint_name FROM retro_findings rf JOIN sprints s ON rf.sprint_id = s.id WHERE rf.category = 'went_wrong'`).all() as any[];
-        const clusters = clusterRecurringIssues(wrongFindings);
-        const topWords = clusters.slice(0, 5).map(c =>
-          `**${c.term}** — ${c.findingCount} finding(s) across ${c.sprintCount} sprints (${c.sprints.join(", ")})${c.roles.length ? ` [${c.roles.join(", ")}]` : ""}\n   e.g. ${truncateFinding(c.example, 160)}`);
-
-        // Build report
-        const lines = [
-          `# Retro Pattern Analysis`,
-          ``,
-          `**Total findings:** ${total}`,
-          ``,
-          `## Category Breakdown`,
-          ...categories.map((c: any) => `- **${c.category}**: ${c.count} (${Math.round((c.count / total) * 100)}%)`),
-          ``,
-          `## Action Follow-Through (try_next lifecycle)`,
-          `- open: ${lc.open || 0}${lc.open > 0 && oldestOpen?.age != null ? ` (oldest: ${oldestOpen.age} sprints)` : ""} | adopted: ${lc.adopted || 0} (${lc.applied || 0} applied) | dropped: ${lc.dropped || 0}`,
-          `- Triage rate (decided): ${triageRate}%`,
-          `- Applied rate (adopted & shipped): ${appliedRate}%`,
-          ``,
-          `## Top Recurring Issues (went_wrong)`,
-          wrongFindings.length === 0 ? "No went_wrong findings yet." : (topWords.length > 0 ? topWords.map((t, i) => `${i + 1}. ${t}`).join("\n") : "Not enough data for patterns."),
-        ];
-
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
   // ── Sprint Process Config (data-driven) ────────────────────────────────────
 
   server.tool(
@@ -2842,32 +2565,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprint_id, d, remaining, completed);
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Snapshot ${d}: ${completed}pts done, ${remaining}pts remaining` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
-  server.tool(
-    "get_burndown",
-    "Get burndown data for a sprint — daily snapshots of remaining vs completed points",
-    {
-      sprint_id: z.number().describe("Sprint ID"),
-      format: z.enum(["text", "card"]).optional().describe("card = diff-fence pulse card (sparkline) above the daily rows"),
-      verbose: z.boolean().optional().describe("All daily rows (default: last 5 — C1 token diet)"),
-    },
-    async ({ sprint_id, format, verbose }) => {
-      try {
-        const sprint = db.prepare(`SELECT name, velocity_committed FROM sprints WHERE id = ?`).get(sprint_id) as any;
-        if (!sprint) return { content: [{ type: "text" as const, text: "Sprint not found" }], isError: true };
-        const rows = db.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprint_id) as any[];
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: `No burndown data for ${sprint.name}. Use snapshot_sprint_metrics to capture data points.` }] };
-        const shown = verbose ? rows : rows.slice(-5);
-        const lines = shown.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
-        if (!verbose && rows.length > shown.length) lines.unshift(`(${rows.length - shown.length} earlier snapshots hidden — verbose=true for all)`);
-        const pulse = format === "card" ? buildSprintPulseData(db, sprint_id) : null;
-        const cardBlock = pulse ? fenceCard(sprintPulse(pulse)) + "\n" : "";
-        return { content: [{ type: "text" as const, text: `${cardBlock}# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -3049,31 +2746,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     }
   );
 
-  server.tool(
-    "get_time_report",
-    "Get time tracking report for a sprint — estimated vs actual hours per agent",
-    {
-      sprint_id: z.number().describe("Sprint ID"),
-    },
-    async ({ sprint_id }) => {
-      try {
-        const rows = db.prepare(`
-          SELECT assigned_to, COUNT(*) as tickets,
-            SUM(estimated_hours) as total_estimated, SUM(actual_hours) as total_actual,
-            CASE WHEN SUM(estimated_hours) > 0 THEN ROUND(SUM(actual_hours) / SUM(estimated_hours) * 100, 1) ELSE NULL END as accuracy_pct
-          FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL GROUP BY assigned_to ORDER BY assigned_to
-        `).all(sprint_id) as any[];
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No time data for this sprint." }] };
-        const lines = rows.map((r: any) => `- **${r.assigned_to}**: ${r.tickets} tickets, est ${r.total_estimated || 0}h, actual ${r.total_actual || 0}h${r.accuracy_pct ? ` (${r.accuracy_pct}% accuracy)` : ""}`);
-        const totEst = rows.reduce((s: number, r: any) => s + (r.total_estimated || 0), 0);
-        const totAct = rows.reduce((s: number, r: any) => s + (r.total_actual || 0), 0);
-        return { content: [{ type: "text" as const, text: `# Time Report\n\n${lines.join("\n")}\n\n**Total:** est ${totEst}h, actual ${totAct}h` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
   // ═══════════════════════════════════════════════════════════════════════════
   // M20: Agent Mood History
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3094,54 +2766,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const warning = mood <= 2 ? "\n⚠️ BURNOUT RISK — mood ≤ 2. Reduce workload next sprint." : "";
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Mood recorded: agent ${agent_id}, sprint ${sprint_id}, mood ${mood}/5${warning}` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
-  server.tool(
-    "get_mood_trends",
-    "Get mood history for an agent or all agents — detects burnout patterns",
-    {
-      agent_id: z.number().optional().describe("Agent ID (omit for all agents)"),
-      last_n_sprints: z.number().optional().describe("Number of recent sprints (default 5)"),
-    },
-    async ({ agent_id, last_n_sprints }) => {
-      try {
-        const limit = last_n_sprints || 5;
-        let rows: any[];
-        if (agent_id) {
-          rows = db.prepare(`
-            SELECT m.*, a.name as agent_name, s.name as sprint_name
-            FROM agent_mood_history m
-            JOIN agents a ON m.agent_id = a.id
-            JOIN sprints s ON m.sprint_id = s.id
-            WHERE m.agent_id = ?
-            ORDER BY s.created_at DESC LIMIT ?
-          `).all(agent_id, limit) as any[];
-        } else {
-          rows = db.prepare(`
-            SELECT m.*, a.name as agent_name, s.name as sprint_name
-            FROM agent_mood_history m
-            JOIN agents a ON m.agent_id = a.id
-            JOIN sprints s ON m.sprint_id = s.id
-            ORDER BY a.name, s.created_at DESC
-          `).all() as any[];
-        }
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No mood data recorded. Use record_mood to start tracking." }] };
-
-        // Detect burnout: mood ≤ 2 for 2+ consecutive sprints
-        const byAgent = new Map<string, any[]>();
-        rows.forEach((r: any) => { const arr = byAgent.get(r.agent_name) || []; arr.push(r); byAgent.set(r.agent_name, arr); });
-        const alerts: string[] = [];
-        byAgent.forEach((moods, name) => {
-          const consecutive = moods.filter((m: any) => m.mood <= 2).length;
-          if (consecutive >= 2) alerts.push(`🔴 **${name}** — mood ≤ 2 for ${consecutive} sprints — BURNOUT RISK`);
-        });
-
-        const lines = rows.map((r: any) => `- ${r.agent_name} @ ${r.sprint_name}: mood ${r.mood}/5, ${r.workload_points}pts${r.notes ? ` — ${r.notes}` : ""}`);
-        return { content: [{ type: "text" as const, text: `# Mood Trends\n\n${alerts.length > 0 ? alerts.join("\n") + "\n\n" : ""}${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -3174,34 +2798,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         );
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Token usage recorded: ${total.toLocaleString()} total (${input_tokens.toLocaleString()} in + ${output_tokens.toLocaleString()} out)${label ? ` [${label}]` : ""}` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
-  server.tool(
-    "get_token_usage",
-    "Get token usage history, optionally filtered by sprint or ticket",
-    {
-      sprint_id: z.number().optional().describe("Filter by sprint"),
-      ticket_id: z.number().optional().describe("Filter by ticket"),
-    },
-    async ({ sprint_id, ticket_id }) => {
-      try {
-        let rows: any[];
-        if (ticket_id) {
-          rows = db.prepare(`SELECT * FROM token_usage WHERE ticket_id = ? ORDER BY created_at DESC`).all(ticket_id);
-        } else if (sprint_id) {
-          rows = db.prepare(`SELECT * FROM token_usage WHERE sprint_id = ? ORDER BY created_at DESC`).all(sprint_id);
-        } else {
-          rows = db.prepare(`SELECT * FROM token_usage ORDER BY created_at DESC LIMIT 50`).all();
-        }
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No token usage recorded. Use log_token_usage to start tracking." }] };
-        const totalIn = rows.reduce((s: number, r: any) => s + r.input_tokens, 0);
-        const totalOut = rows.reduce((s: number, r: any) => s + r.output_tokens, 0);
-        const lines = rows.map((r: any) => `- ${r.label || "unlabeled"}: ${r.total_tokens.toLocaleString()} tokens (${r.input_tokens.toLocaleString()} in + ${r.output_tokens.toLocaleString()} out), ${r.tool_calls} calls${r.duration_sec ? `, ${Math.round(r.duration_sec / 60)}m` : ""}`);
-        return { content: [{ type: "text" as const, text: `# Token Usage (${rows.length} records)\nTotal: ${(totalIn + totalOut).toLocaleString()} tokens\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -3249,42 +2845,6 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(entity_type, entity_id, action, field_name || null, old_value || null, new_value || null, actor || null);
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Event logged: ${entity_type} #${entity_id} ${action}` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
-      }
-    }
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // M20: Velocity Trends
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool(
-    "get_velocity_trends",
-    "Get velocity trend data across sprints — committed vs completed, completion rate, bugs",
-    {
-      last_n_sprints: z.number().optional().describe("Number of recent sprints (default 10)"),
-      status: z.string().optional().describe("Filter by sprint status (e.g. 'closed')"),
-    },
-    async ({ last_n_sprints, status }) => {
-      try {
-        let sql = `SELECT * FROM velocity_trends`;
-        const params: any[] = [];
-        if (status) { sql += ` WHERE status = ?`; params.push(status); }
-        sql += ` LIMIT ?`;
-        params.push(last_n_sprints || 10);
-        const rows = db.prepare(sql).all(...params) as any[];
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No velocity data available." }] };
-        // A3: completion is measured against the frozen commitment; scope changes shown explicitly
-        const lines = rows.map((r: any) => {
-          const deltas = getScopeDeltas(db, r.sprint_id);
-          const scope = deltas.addedTickets > 0 || deltas.removedTickets > 0
-            ? ` | scope: +${deltas.addedPoints}pt added (${deltas.addedTickets})${deltas.removedTickets ? `, ${deltas.removedTickets} removed` : ""}`
-            : "";
-          return `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts committed (${r.completion_rate}%)${scope}, ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`;
-        });
-        const avgRate = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.completion_rate, 0) / rows.length) : 0;
-        return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion vs frozen commitment: ${avgRate}%\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
