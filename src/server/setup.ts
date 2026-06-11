@@ -70,12 +70,13 @@ if (FORCE && fs.existsSync(DB_PATH)) {
   console.log("  Removed existing database (--force).\n");
 }
 
+const isFreshDb = !fs.existsSync(DB_PATH);
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 initSchema(db);
 initScrumSchema(db);
-runMigrations(db);
+runMigrations(db, { freshDb: isFreshDb });
 console.log("  Code-context schema ready.");
 console.log("  Scrum schema ready.\n");
 

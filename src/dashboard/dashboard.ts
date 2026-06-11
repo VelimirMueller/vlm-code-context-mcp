@@ -51,6 +51,7 @@ console.log(`[db] Database path: ${dbPath}`);
 
 // Single read-write connection for all queries and writes
 // (A read-only connection cannot see WAL changes from external processes like the MCP server)
+const isFreshDb = !fs.existsSync(dbPath);
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
@@ -59,7 +60,7 @@ const db = writeDb; // alias for backward compat — all queries use the same co
 // Ensure schemas exist
 initSchema(writeDb);
 initScrumSchema(writeDb);
-runMigrations(writeDb);
+runMigrations(writeDb, { freshDb: isFreshDb });
 
 // Soft-delete migration: add deleted_at columns if missing
 for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
