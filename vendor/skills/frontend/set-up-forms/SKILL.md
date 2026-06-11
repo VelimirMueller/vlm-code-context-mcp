@@ -140,3 +140,4 @@ Expected: 0 errors — the form's values type is inferred from the schema and ma
 - ./forms-patterns.md — schema-first rationale, accessibility rules, form-state-is-UI-state, submit→mutation, Valibot alternative.
 - ../_shared/glossary.md — server state vs UI state (a form's in-progress values are UI state).
 - ../_shared/conventions.md — `@/` alias, molecule classification.
+- ../../landing/set-up-lead-capture/SKILL.md — public lead/signup forms (spam defenses, consent at capture, destination seam); this skill owns authenticated in-app forms.
