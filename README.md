@@ -147,19 +147,20 @@ Type these directly in Claude Code.
 
 ---
 
-## Frontend Skills (server-provided)
+## Skill Sets (server-provided)
 
-The server ships a curated library of **22 frontend skills** — state-of-the-art practices for building scalable React 19 / Vue 3 frontends (scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, and more) — plus an editable **house-style primer**.
+The server ships three predefined skill libraries — **Frontend** (22 skills: React 19 / Vue 3 scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, plus an editable **house-style primer**), **Landing pages** (structure, SEO, lead capture, content audits), and **Workflow** (write-pull-requests, write-commit-messages).
 
-Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. When you run `/kickoff` and a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and an index of available skills; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
+Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. `/kickoff` asks once which sets to enable (frontend is on by default; `update_skill_sets` changes it any time). When a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and the enabled skill indexes — workflow skills inject for every implementer; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
 
 | | |
 |---|---|
 | Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored under `vendor/skills/` (build input) |
-| Storage | seeded into the project DB `skills` table (`owner_role: fe-engineer`); **edit them to make them yours** — re-seeds never overwrite your edits |
-| Trigger | automatic on `fe-engineer` tickets during `/kickoff` |
+| Storage | seeded into the project DB `skills` table (`fe:*`, `la:*`, `wf:*`); **edit them to make them yours** — re-seeds never overwrite your edits |
+| Opt-in | `/kickoff` Phase 1b asks once; `update_skill_sets({ landing: true, ... })` any time |
+| Trigger | fe/la on `fe-engineer` tickets, wf on any implementation work during `/kickoff` |
 | Load | index + primer up front; full body via `get_skill({ name })` |
-| Update | `npm run sync:skills` (re-vendors + recompiles), or the daily `sync-skills` workflow |
+| Update | boot-time auto-sync from the latest upstream release; `npm run sync:skills` re-vendors the offline fallback |
 
 ---
 

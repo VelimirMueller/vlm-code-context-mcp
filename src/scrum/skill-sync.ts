@@ -1,16 +1,18 @@
-// Runtime sync of fe:* skills from the latest claude_development_skills release.
-// Baked defaults (frontend-skill-defaults.generated.ts) remain the offline fallback;
-// this module brings an installed user's DB up to the newest upstream release tag
+// Runtime sync of vendored skill sets (fe:*, la:*, wf:*) from the latest
+// claude_development_skills release. Baked defaults
+// (frontend-skill-defaults.generated.ts) remain the offline fallback; this
+// module brings an installed user's DB up to the newest upstream release tag
 // without requiring a new npm publish. Pure helpers are exported for tests.
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { FE_PRIMER_NAME, type SkillDefault } from "./defaults.js";
+import { SKILL_SETS } from "./skill-sets.js";
 
 export const SKILLS_REPO = "VelimirMueller/claude_development_skills";
 export const FE_SKILLS_SOURCE_KEY = "FE_SKILLS_SOURCE_JSON";
 
 export interface UpstreamFile {
-  /** Path relative to the upstream skills/frontend/ directory. */
+  /** Path relative to the upstream set directory (e.g. skills/frontend/). */
   path: string;
   content: string;
 }
@@ -58,19 +60,24 @@ export function pickLatestTag(tags: string[]): string | null {
 /**
  * Map upstream files to skill rows using the same naming scheme as
  * scripts/compile-skills.mjs, so synced rows replace their baked counterparts:
- *   <skill>/SKILL.md    -> fe:<skill>
- *   <skill>/<companion> -> fe:<skill>/<companion>
- *   _shared/<relpath>   -> fe:_shared/<relpath>
+ *   <skill>/SKILL.md    -> <prefix>:<skill>
+ *   <skill>/<companion> -> <prefix>:<skill>/<companion>
+ *   _shared/<relpath>   -> <prefix>:_shared/<relpath>
  */
-export function toSkillRows(files: UpstreamFile[]): SkillDefault[] {
+export function toSkillRows(
+  files: UpstreamFile[],
+  prefix = "fe",
+  ownerRole: string | null = "fe-engineer",
+): SkillDefault[] {
   const rows: SkillDefault[] = [];
   for (const f of files) {
     const segments = f.path.split("/");
     if (segments.length < 2) continue; // top-level files have no skill directory
     const dir = segments[0];
     const rel = segments.slice(1).join("/");
-    const name = dir === "_shared" ? `fe:_shared/${rel}` : rel === "SKILL.md" ? `fe:${dir}` : `fe:${dir}/${rel}`;
-    rows.push({ name, content: f.content, owner_role: "fe-engineer" });
+    const name =
+      dir === "_shared" ? `${prefix}:_shared/${rel}` : rel === "SKILL.md" ? `${prefix}:${dir}` : `${prefix}:${dir}/${rel}`;
+    rows.push({ name, content: f.content, owner_role: ownerRole });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
   return rows;
@@ -152,7 +159,6 @@ export function applySkillSync(
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 const GH_HEADERS = { Accept: "application/vnd.github+json", "User-Agent": "code-context-mcp" };
-const FRONTEND_PREFIX = "skills/frontend/";
 const RAW_FETCH_CONCURRENCY = 8;
 
 export interface SyncOptions {
@@ -162,9 +168,12 @@ export interface SyncOptions {
 }
 
 /**
- * Fetch the latest upstream release tag and upsert its frontend skills into the DB.
- * Short-circuits when the DB is already at that tag. Never throws — network or
- * shape failures return { ok: false } so boot can fall back to baked defaults.
+ * Fetch the latest upstream release tag and upsert every vendored skill set
+ * (frontend, landing, workflow) into the DB. Sets the upstream has not
+ * published are simply absent that release; frontend is required as the
+ * sanity anchor. Short-circuits when the DB is already at that tag. Never
+ * throws — network or shape failures return { ok: false } so boot can fall
+ * back to baked defaults.
  */
 export async function syncSkillsFromUpstream(
   db: Database.Database,
@@ -195,24 +204,32 @@ export async function syncSkillsFromUpstream(
     });
     if (!treeRes.ok) return { ok: false, reason: `tree request failed (${treeRes.status})` };
     const tree = (await treeRes.json()) as { tree?: { path: string; type: string }[] };
-    const blobs = (tree.tree ?? []).filter((t) => t.type === "blob" && t.path.startsWith(FRONTEND_PREFIX));
-    if (blobs.length === 0) {
-      return { ok: false, reason: `no ${FRONTEND_PREFIX} files in ${latest} — aborting without changes` };
-    }
+    const allBlobs = (tree.tree ?? []).filter((t) => t.type === "blob");
 
-    const files: UpstreamFile[] = [];
-    for (let i = 0; i < blobs.length; i += RAW_FETCH_CONCURRENCY) {
-      const batch = await Promise.all(
-        blobs.slice(i, i + RAW_FETCH_CONCURRENCY).map(async (b) => {
-          const res = await fetchImpl(`https://raw.githubusercontent.com/${repo}/${sha}/${b.path}`, { signal });
-          if (!res.ok) throw new Error(`raw fetch failed for ${b.path} (${res.status})`);
-          return { path: b.path.slice(FRONTEND_PREFIX.length), content: await res.text() };
-        }),
-      );
-      files.push(...batch);
+    const rows: SkillDefault[] = [];
+    for (const set of SKILL_SETS) {
+      const blobs = allBlobs.filter((t) => t.path.startsWith(set.upstreamDir));
+      if (blobs.length === 0) {
+        // The anchor set must exist — a release without skills/frontend/ means
+        // the repo layout changed; bail before touching anything.
+        if (set.id === "frontend") {
+          return { ok: false, reason: `no ${set.upstreamDir} files in ${latest} — aborting without changes` };
+        }
+        continue;
+      }
+      const files: UpstreamFile[] = [];
+      for (let i = 0; i < blobs.length; i += RAW_FETCH_CONCURRENCY) {
+        const batch = await Promise.all(
+          blobs.slice(i, i + RAW_FETCH_CONCURRENCY).map(async (b) => {
+            const res = await fetchImpl(`https://raw.githubusercontent.com/${repo}/${sha}/${b.path}`, { signal });
+            if (!res.ok) throw new Error(`raw fetch failed for ${b.path} (${res.status})`);
+            return { path: b.path.slice(set.upstreamDir.length), content: await res.text() };
+          }),
+        );
+        files.push(...batch);
+      }
+      rows.push(...toSkillRows(files, set.prefix, set.ownerRole));
     }
-
-    const rows = toSkillRows(files);
     if (rows.length === 0) return { ok: false, reason: "upstream files produced no skill rows" };
 
     const counts = applySkillSync(db, rows, {
