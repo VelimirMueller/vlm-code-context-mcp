@@ -455,6 +455,9 @@ export function runMigrations(db: Database.Database): void {
     // event_log CHECK rebuild (retro_finding entity + triaged action) happens in the
     // idempotent post-migration section below — CHECK constraints can't be ALTERed.
     { version: 22, name: 'extend_event_log_check', sql: `SELECT 1` },
+    // D1/D2 live-board + multi-agent schema — columns/tables/backfill applied in the
+    // idempotent post-migration section below.
+    { version: 23, name: 'add_ticket_revisions_and_assignments', sql: `SELECT 1` },
   ];
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
@@ -481,6 +484,52 @@ export function runMigrations(db: Database.Database): void {
   if (!retroCols.some((c) => c.name === "status")) {
     db.exec("ALTER TABLE retro_findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'adopted', 'dropped'))");
   }
+
+  // v23 (D1): ticket change flags — UI edits set pending_change, sessions acknowledge
+  const ticketCols = db.pragma("table_info(tickets)") as Array<{ name: string }>;
+  if (!ticketCols.some((c) => c.name === "change_seq")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN change_seq INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!ticketCols.some((c) => c.name === "pending_change")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN pending_change INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // v23 (D1): field-level revision trail for UI/MCP ticket edits
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ticket_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('ui', 'mcp')),
+      changed_fields TEXT NOT NULL,
+      old_values TEXT NOT NULL,
+      new_values TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticket_revisions_ticket ON ticket_revisions(ticket_id);
+  `);
+
+  // v23 (D2): multi-agent assignments — lead implements, supporters verify (decision #4)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ticket_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      model TEXT,
+      is_lead INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (ticket_id, role),
+      FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticket_assignments_ticket ON ticket_assignments(ticket_id);
+  `);
+  // Backfill: every assigned ticket gets its agent as the lead assignment (idempotent)
+  db.exec(`
+    INSERT OR IGNORE INTO ticket_assignments (ticket_id, role, is_lead)
+    SELECT id, assigned_to, 1 FROM tickets
+    WHERE assigned_to IS NOT NULL AND assigned_to != ''
+      AND id NOT IN (SELECT ticket_id FROM ticket_assignments WHERE is_lead = 1)
+  `);
 
   // v22: rebuild event_log with extended CHECKs (retro_finding entity, triaged action) —
   // idempotent: skip when the current constraint already allows retro_finding.
