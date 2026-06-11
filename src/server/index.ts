@@ -22,8 +22,17 @@ db.pragma("foreign_keys = ON");
 
 initSchema(db);
 initScrumSchema(db);
+// Peek the stamped version before migrating so the report shows the delta
+const preMigrationVersion =
+  (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as { v: number | null })?.v ?? 0;
 runMigrations(db, { freshDb: isFreshDb });
-console.error(`[schema] v${LATEST_SCHEMA_VERSION}${isFreshDb ? " (new database)" : ""}`);
+console.error(
+  isFreshDb
+    ? `[schema] v${LATEST_SCHEMA_VERSION} (new database)`
+    : preMigrationVersion < LATEST_SCHEMA_VERSION
+      ? `[schema] migrated v${preMigrationVersion} → v${LATEST_SCHEMA_VERSION}`
+      : `[schema] v${LATEST_SCHEMA_VERSION} (up to date)`,
+);
 
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(db);
