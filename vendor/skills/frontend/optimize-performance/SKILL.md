@@ -93,9 +93,10 @@ Call it once from the app entry; send to analytics (or the `captureError`-style 
 pnpm build          # inspect dist/stats.html against the budget
 pnpm preview        # run Lighthouse / read web-vitals in console
 ```
-Targets: **LCP < 2.5s, INP < 200ms, CLS < 0.1** (mobile, mid-tier device).
+Targets: **LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1** (mobile, mid-tier device).
 
 ## References
 - ./performance-rules.md — measure-first, the Compiler's effect, splitting strategy, CWV targets, image/CLS rules, when manual memo still matters.
 - ../_shared/conventions.md — `@/` alias, `libs/` seam.
 - ../_shared/stack-versions.md — tooling versions.
+- ../../landing/build-landing-page/SKILL.md — the hero LCP/CLS budget on public pages, where CWV are ranking + revenue (the priority inversion: `../../landing/_shared/page-types.md`).
