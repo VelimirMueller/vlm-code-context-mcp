@@ -401,7 +401,7 @@ export function initScrumSchema(db: Database.Database): void {
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_tickets_epic_id ON tickets(epic_id);");
 
-  // Migrate: add milestone_id and archived_at to sprints if missing (legacy DBs)
+  // add milestone_id column and idx_sprints_archived index to sprints if missing (legacy DBs)
   const sprintCols = db.pragma("table_info(sprints)") as Array<{ name: string }>;
   if (!sprintCols.some((c) => c.name === "milestone_id")) {
     db.exec("ALTER TABLE sprints ADD COLUMN milestone_id INTEGER REFERENCES milestones(id)");
@@ -427,6 +427,7 @@ export function runMigrations(
   opts: { freshDb?: boolean } = {},
 ): void {
   const current = (db.prepare("SELECT MAX(version) as v FROM schema_versions").get() as any)?.v ?? 0;
+  // IMPORTANT: new columns/tables must ALSO be added to initScrumSchema above — enforced by migrations.test.ts "canonical schema parity".
   const migrations = [
     { version: 1, name: 'add_epic_id_to_tickets', sql: "SELECT 1" }, // already done
     { version: 2, name: 'add_milestone_id_to_sprints', sql: "SELECT 1" }, // already done
@@ -595,16 +596,23 @@ export function runMigrations(
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
   const migrate = db.transaction(() => {
-  // Safe column additions that migrations depend on (must run before versioned migrations)
-  const agentCols = db.pragma("table_info(agents)") as Array<{ name: string }>;
-  if (!agentCols.some((c) => c.name === "department")) {
-    db.exec("ALTER TABLE agents ADD COLUMN department TEXT DEFAULT 'development'");
-  }
+  if (opts.freshDb && current === 0) {
+    // Brand-new DB: initScrumSchema already created the canonical schema.
+    // Stamp all versions instead of replaying (avoids the v5/v17 rebuild dance).
+    const stamp = db.prepare("INSERT INTO schema_versions (version, name) VALUES (?, ?)");
+    for (const m of migrations) stamp.run(m.version, m.name);
+  } else {
+    // Safe column additions that migrations depend on (must run before versioned migrations)
+    const agentCols = db.pragma("table_info(agents)") as Array<{ name: string }>;
+    if (!agentCols.some((c) => c.name === "department")) {
+      db.exec("ALTER TABLE agents ADD COLUMN department TEXT DEFAULT 'development'");
+    }
 
-  for (const m of migrations) {
-    if (m.version > current) {
-      db.exec(m.sql);
-      db.prepare("INSERT INTO schema_versions (version, name) VALUES (?, ?)").run(m.version, m.name);
+    for (const m of migrations) {
+      if (m.version > current) {
+        db.exec(m.sql);
+        db.prepare("INSERT INTO schema_versions (version, name) VALUES (?, ?)").run(m.version, m.name);
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { runReadOnlyQuery, runWriteStatement } from "./sql-guard.js";
 import { z } from "zod";
 import path from "path";
+import fs from "fs";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
@@ -13,13 +14,15 @@ import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
-const db = new Database(path.resolve(DB_PATH));
+const resolvedDbPath = path.resolve(DB_PATH);
+const isFreshDb = !fs.existsSync(resolvedDbPath);
+const db = new Database(resolvedDbPath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
 initSchema(db);
 initScrumSchema(db);
-runMigrations(db);
+runMigrations(db, { freshDb: isFreshDb });
 
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(db);

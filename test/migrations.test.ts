@@ -52,7 +52,8 @@ describe("downgrade guard", () => {
 type ColInfo = { name: string; type: string; notnull: number; dflt_value: unknown };
 
 /** Structural snapshot: tables, per-table columns (sorted by name — ALTER appends
- *  while CREATE inlines, so order must not matter), named indexes, views. */
+ *  while CREATE inlines, so order must not matter), named indexes, views.
+ *  (CHECK constraints excluded: inline vs ALTER syntax differs textually.) */
 export function schemaSnapshot(db: Database.Database) {
   const objs = db
     .prepare(
@@ -70,6 +71,37 @@ export function schemaSnapshot(db: Database.Database) {
   const views = objs.filter((o) => o.type === "view").map((o) => o.name).sort();
   return { tables, columns, indexes, views };
 }
+
+describe("fresh-DB baseline", () => {
+  it("stamps all versions without replaying, and matches the replay path structurally", () => {
+    const baseline = freshDb({ freshDb: true });
+    const replayed = freshDb();
+    const count = (baseline.prepare("SELECT COUNT(*) c FROM schema_versions").get() as any).c;
+    expect(count).toBe(LATEST_SCHEMA_VERSION);
+    const v = (baseline.prepare("SELECT MAX(version) v FROM schema_versions").get() as any).v;
+    expect(v).toBe(LATEST_SCHEMA_VERSION);
+    const allVersions = (baseline.prepare("SELECT COUNT(*) c FROM schema_versions WHERE version BETWEEN 1 AND 23").get() as any).c;
+    expect(allVersions).toBe(LATEST_SCHEMA_VERSION);
+    expect(schemaSnapshot(baseline)).toEqual(schemaSnapshot(replayed));
+  });
+
+  it("ignores freshDb on an already-versioned DB (no double-stamping)", () => {
+    const db = freshDb();
+    runMigrations(db, { freshDb: true }); // wrong flag on existing DB must be harmless
+    const count = (db.prepare("SELECT COUNT(*) c FROM schema_versions").get() as any).c;
+    expect(count).toBe(LATEST_SCHEMA_VERSION);
+  });
+
+  it("baseline path keeps initScrumSchema's table definitions (no rebuild executed)", () => {
+    const baseline = freshDb({ freshDb: true });
+    const initOnly = new Database(":memory:");
+    initSchema(initOnly);
+    initScrumSchema(initOnly);
+    const sqlOf = (db: Database.Database) =>
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sprints'").get() as any).sql;
+    expect(sqlOf(baseline)).toBe(sqlOf(initOnly));
+  });
+});
 
 describe("canonical schema parity", () => {
   it("initScrumSchema alone matches init + full migration replay", () => {
