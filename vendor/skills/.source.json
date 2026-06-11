@@ -1,7 +1,7 @@
 {
   "source": "https://github.com/VelimirMueller/claude_development_skills",
-  "ref": "main",
-  "commit": "0c9531103ff7e282b89fbcda2ab2d0be34663754",
-  "syncedAt": "2026-06-09T09:38:38.494Z",
-  "skillCount": 22
+  "ref": "v0.5.1",
+  "commit": "485e79a199040ab8391cb4eb44e97759955d97e8",
+  "syncedAt": "2026-06-11T14:30:25.968Z",
+  "skillCount": 33
 }
