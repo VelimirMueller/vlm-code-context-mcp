@@ -102,9 +102,10 @@ pnpm dev
 ```
 Navigate: the tab title and `<title>` change per route (a screen reader announces the new title); view-source/inspect shows the right meta. Share a URL → the OG preview is correct.
 
-**SPA caveat:** client-rendered head tags are applied after JS runs, so non-JS crawlers/scrapers may miss them. For SEO/social-critical pages, prerender or SSR (out of scope for this Vite-SPA plugin — see `head-patterns.md`).
+**SPA caveat:** client-rendered head tags are applied after JS runs, so non-JS crawlers/scrapers may miss them. For SEO/social-critical pages, prerender or SSR — and use the landing catalogue, which owns discoverability: `../../landing/set-up-seo/SKILL.md` (see also `head-patterns.md`).
 
 ## References
 - ./head-patterns.md — per-route titles (a11y + SEO), dynamic titles, html lang + locale, OG/canonical, dedupe, the SPA prerender caveat.
 - ../set-up-routing/SKILL.md — the `head` route option / loader data.
 - ../set-up-i18n/SKILL.md — syncing `lang` to the locale.
+- ../../landing/set-up-seo/SKILL.md — discoverability for public pages (crawlability, structured data, sitemap); this skill only manages the in-app head.
