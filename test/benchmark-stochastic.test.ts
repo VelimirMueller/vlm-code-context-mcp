@@ -39,6 +39,7 @@ import fs from "fs";
 import Database from "better-sqlite3";
 import { indexDirectory } from "../src/server/indexer.js";
 import { createTestDb } from "./helpers/db.js";
+import { resolveBenchmarkOutputPath } from "./helpers/benchmark-output.js";
 
 const FIXTURE_DIR = path.resolve(__dirname, "fixtures/sample-project");
 const NUM_TRIALS = 200;
@@ -879,13 +880,14 @@ describe("Stochastic MCP vs Vanilla benchmark", () => {
     expect(trials).toHaveLength(NUM_TRIALS);
   });
 
-  it("writes stochastic-results.json", () => {
-    const outPath = path.resolve(
-      __dirname,
-      "../benchmark-stochastic-results.json",
+  it("writes benchmark-stochastic-results.json (tmpdir by default; tracked repo path only with BENCHMARK_WRITE_RESULTS=1)", () => {
+    const outPath = resolveBenchmarkOutputPath(
+      path.resolve(__dirname, "../benchmark-stochastic-results.json"),
     );
     fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
     expect(fs.existsSync(outPath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(outPath, "utf-8"));
+    expect(written).toEqual(JSON.parse(JSON.stringify(report)));
   });
 
   // ── Core hypothesis test ──────────────────────────────────────────────────

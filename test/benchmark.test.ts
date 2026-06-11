@@ -42,6 +42,7 @@ import fs from "fs";
 import Database from "better-sqlite3";
 import { indexDirectory } from "../src/server/indexer.js";
 import { createTestDb } from "./helpers/db.js";
+import { resolveBenchmarkOutputPath } from "./helpers/benchmark-output.js";
 
 const FIXTURE_DIR = path.resolve(__dirname, "fixtures/sample-project");
 
@@ -1604,10 +1605,14 @@ describe("MCP vs Vanilla benchmark — 10 tasks", () => {
     expect(report.tasks).toHaveLength(10);
   });
 
-  it("writes benchmark-results.json for dashboard consumption", () => {
-    const outPath = path.resolve(__dirname, "../benchmark-results.json");
+  it("writes benchmark-results.json (tmpdir by default; tracked repo path only with BENCHMARK_WRITE_RESULTS=1)", () => {
+    const outPath = resolveBenchmarkOutputPath(
+      path.resolve(__dirname, "../benchmark-results.json"),
+    );
     fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
     expect(fs.existsSync(outPath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(outPath, "utf-8"));
+    expect(written).toEqual(JSON.parse(JSON.stringify(report)));
   });
 
   // ── Per-task: MCP should use fewer or equal tokens ────────────────────────

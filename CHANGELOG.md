@@ -5,6 +5,20 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-11
+
+### Added
+- **Honest velocity** — `advance_sprint` now runs the planning gate on planning → implementation (pre-created sprints can no longer bypass it) and **freezes `velocity_committed` at gate passage**. Added/removed scope is derived (`getScopeDeltas`) and reported in `get_velocity_trends` and `export_sprint_report` as `committed (+added / removed)`; completion rates measure against the frozen commitment, so 100% is earnable, not guaranteed.
+- **Real recurring-issue analysis** — `analyze_retro_patterns` clusters went_wrong findings (stopword-filtered unigrams/bigrams, recurring = present in ≥2 distinct sprints, bigram-shadowing) instead of counting words. "because (5x)" can no longer be a top issue.
+- **Dashboard live mirror** — `start_sprint`, `advance_sprint`, `update_ticket`, and `create_ticket` auto-emit typed `step_progress`/`entity_changed` events server-side, so the wizard timeline follows terminal-driven ceremonies with zero extra LLM tool calls.
+- **Token diet** (discoveries #8–#11, #13): `list_discoveries` compact by default (open items, truncated one-liners; `verbose: true` for everything), `get_burndown` shows the last 5 snapshots by default, `get_sprint_playbook` drops the lifecycle tutorial after the third sprint, the retro mood query aggregates in SQL, the frontend house-style primer injects only with the sprint's first fe ticket, and `get_file_context` `include_changes` now defaults to **false**. Measured on the canned ceremony replay (`scripts/measure-tokens.mts`): **2807 → 1702 output tokens (−39%)**.
+- **Stale-dist warning** (adopts Sprint 1's try_next): `get_resume_state` and `health` warn when `src/` is newer than the compiled `dist/` — the silent-missing-tools failure mode is now announced.
+- **Benchmark hygiene** (adopts Sprint 19's try_next): benchmark tests write to tmpdir by default; tracked result JSONs only update with `BENCHMARK_WRITE_RESULTS=1`. `npm test` leaves a clean tree.
+- **Commands-structure CI check** (adopts Sprint 5's try_next): `npm run check:commands` validates `.claude/commands/*` (phase headers, rules, v1.4 contracts, no box-drawing, line ceiling) and runs in CI.
+
+### Fixed
+- **Silent audit-trail loss** (migration v22): `event_log`'s CHECK constraints rejected `retro_finding`/`triaged` rows and the catch-and-ignore pattern hid it. The table is rebuilt with extended constraints; triage audit inserts are no longer silenced.
+
 ## [1.4.0] - 2026-06-11
 
 ### Added

@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
@@ -133,6 +135,114 @@ function fenceCard(card: string): string {
   return "```diff\n" + card + "\n```";
 }
 
+/** Newest mtime of files with the given extensions under dir (shallow recursion, skips dot-dirs/node_modules). */
+function newestMtime(dir: string, exts: string[], depth = 0): number {
+  if (depth > 4) return 0;
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestMtime(p, exts, depth + 1));
+    else if (exts.some((e) => entry.name.endsWith(e))) newest = Math.max(newest, statSync(p).mtimeMs);
+  }
+  return newest;
+}
+
+/**
+ * S1 (Sprint 1 try_next, adopted Sprint 23): warn when src is newer than the compiled
+ * dist the running server was loaded from — new/changed tools are silently missing
+ * until `npm run build` + MCP reconnect. Returns null when fresh or not a dev checkout.
+ */
+export function checkDistFreshness(rootDir: string = process.cwd()): string | null {
+  try {
+    const srcDir = join(rootDir, "src");
+    const distDir = join(rootDir, "dist");
+    if (!existsSync(srcDir) || !existsSync(distDir)) return null; // packaged install — nothing to compare
+    const srcNewest = newestMtime(srcDir, [".ts", ".tsx"]);
+    const distNewest = newestMtime(distDir, [".js"]);
+    if (srcNewest > distNewest + 5000) {
+      return "⚠ STALE DIST: src/ is newer than the compiled server — run `npm run build` and reconnect MCP, or new/changed tools stay silently missing.";
+    }
+    return null;
+  } catch {
+    return null; // freshness is advisory — never break a tool over it
+  }
+}
+
+/** A4: stopwords — English function words + domain noise that says nothing about the issue. */
+const ISSUE_STOPWORDS = new Set([
+  "the", "a", "an", "is", "was", "were", "are", "be", "been", "being", "to", "of", "in", "for", "and", "or",
+  "not", "with", "on", "at", "by", "from", "it", "its", "this", "that", "these", "those", "we", "our", "ours",
+  "had", "has", "have", "no", "but", "as", "so", "than", "then", "when", "which", "while", "would", "should",
+  "could", "did", "does", "do", "into", "out", "over", "under", "after", "before", "because", "instead",
+  "rather", "their", "they", "them", "there", "here", "what", "where", "who", "how", "why", "all", "each",
+  "every", "some", "any", "more", "most", "other", "another", "such", "only", "own", "same", "too", "very",
+  "can", "will", "just", "also", "even", "still", "again", "never", "always", "without", "within", "during",
+  // domain noise — present in nearly every finding, discriminates nothing
+  "sprint", "sprints", "ticket", "tickets", "work", "time", "task", "tasks", "team", "needs", "needed",
+  "required", "caused", "causing", "made", "making", "took", "spent", "already", "existed", "existing",
+]);
+
+export interface IssueCluster {
+  term: string;
+  findingCount: number;
+  sprintCount: number;
+  sprints: string[];
+  roles: string[];
+  example: string;
+}
+
+/**
+ * A4: cluster went_wrong findings into recurring issues. A recurring issue is a
+ * unigram/bigram appearing in findings from >= 2 distinct sprints. Clusters count
+ * findings (not word occurrences); bigrams outrank unigrams at equal counts.
+ */
+export function clusterRecurringIssues(
+  findings: Array<{ finding: string; sprint_id: number; role?: string | null; sprint_name?: string }>
+): IssueCluster[] {
+  type Bucket = { isBigram: boolean; entries: Array<{ sprintId: number; sprintName: string; role: string | null; text: string }> };
+  const buckets = new Map<string, Bucket>();
+
+  for (const f of findings) {
+    const words = f.finding.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
+      .filter((w) => w.length > 3 && !ISSUE_STOPWORDS.has(w));
+    const terms = new Set<string>(words);
+    for (let i = 0; i < words.length - 1; i++) terms.add(`${words[i]} ${words[i + 1]}`);
+
+    for (const term of terms) {
+      let bucket = buckets.get(term);
+      if (!bucket) { bucket = { isBigram: term.includes(" "), entries: [] }; buckets.set(term, bucket); }
+      bucket.entries.push({ sprintId: f.sprint_id, sprintName: f.sprint_name || `#${f.sprint_id}`, role: f.role || null, text: f.finding });
+    }
+  }
+
+  const clusters: IssueCluster[] = [];
+  for (const [term, bucket] of buckets) {
+    const sprintIds = new Set(bucket.entries.map((e) => e.sprintId));
+    if (sprintIds.size < 2) continue; // recurring = seen in >= 2 distinct sprints
+    clusters.push({
+      term,
+      findingCount: bucket.entries.length,
+      sprintCount: sprintIds.size,
+      sprints: [...new Set(bucket.entries.map((e) => e.sprintName))].slice(0, 6),
+      roles: [...new Set(bucket.entries.map((e) => e.role).filter(Boolean))] as string[],
+      example: bucket.entries[0].text,
+    });
+  }
+
+  clusters.sort((a, b) =>
+    b.findingCount - a.findingCount
+    || (Number(b.term.includes(" ")) - Number(a.term.includes(" ")))
+    || b.sprintCount - a.sprintCount
+    || a.term.localeCompare(b.term));
+
+  // Suppress unigrams fully shadowed by a stronger or equal bigram containing them
+  return clusters.filter((c) => {
+    if (c.term.includes(" ")) return true;
+    return !clusters.some((other) => other.term.includes(" ") && other.term.includes(c.term) && other.findingCount >= c.findingCount);
+  });
+}
+
 /**
  * B1: assemble SprintPulseData for the card renderers — progress, burndown,
  * ticket counts, day-in-sprint, and warning lines (blockers, QA pending).
@@ -166,6 +276,34 @@ export function buildSprintPulseData(db: Database.Database, sprintId: number): S
   if (qaPending > 0) warnings.push(`QA pending on ${qaPending} done ticket(s)`);
 
   return { sprintName: sprint.name, day, dayTotal, donePoints, totalPoints, burndown, counts, warnings };
+}
+
+/**
+ * A3: scope deltas against the frozen commitment. Added = tickets created after the
+ * sprint entered implementation (event_log timestamp, falling back to start_date /
+ * created_at). Removed = tickets whose sprint_id audit trail shows them leaving.
+ */
+export function getScopeDeltas(db: Database.Database, sprintId: number): { addedPoints: number; addedTickets: number; removedTickets: number } {
+  const sprint = db.prepare(`SELECT start_date, created_at FROM sprints WHERE id = ?`).get(sprintId) as any;
+  if (!sprint) return { addedPoints: 0, addedTickets: 0, removedTickets: 0 };
+  const implEvent = db.prepare(`
+    SELECT created_at FROM event_log
+    WHERE entity_type = 'sprint' AND entity_id = ? AND action = 'status_changed' AND new_value = 'implementation'
+    ORDER BY created_at ASC LIMIT 1
+  `).get(sprintId) as any;
+  const implStart = implEvent?.created_at || sprint.start_date || sprint.created_at;
+
+  const added = db.prepare(`
+    SELECT COUNT(*) as c, COALESCE(SUM(story_points), 0) as pts FROM tickets
+    WHERE sprint_id = ? AND deleted_at IS NULL AND created_at > ?
+  `).get(sprintId, implStart) as any;
+
+  const removed = db.prepare(`
+    SELECT COUNT(DISTINCT entity_id) as c FROM event_log
+    WHERE entity_type = 'ticket' AND field_name = 'sprint_id' AND old_value = CAST(? AS TEXT)
+  `).get(sprintId) as any;
+
+  return { addedPoints: added.pts, addedTickets: added.c, removedTickets: removed.c };
 }
 
 /**
@@ -627,8 +765,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       sprint_id: z.number().describe("Sprint ID"),
       velocity_completed: z.number().optional().describe("Velocity completed (required when advancing to closed)"),
       format: z.enum(["text", "card"]).optional().describe("card = diff-fence transition card (launch/pulse/complete) + summary"),
+      acknowledge_open_items: z.boolean().optional().describe("Override the planning gate on planning → implementation (untriaged try_next / escalated discoveries)"),
     },
-    async ({ sprint_id, velocity_completed: _velocity_completed, format }) => {
+    async ({ sprint_id, velocity_completed: _velocity_completed, format, acknowledge_open_items }) => {
       let velocity_completed = _velocity_completed;
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
@@ -638,7 +777,29 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const nextPhase = PHASE_TRANSITIONS[effectivePhase];
       if (!nextPhase) return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" is in ${sprint.status} — no next phase.` }] };
 
+      // A1+A2+A3: pre-created sprints pass the planning gate here (discovery #20) —
+      // gate passage is the commitment moment, so velocity freezes on this transition too.
+      if (nextPhase === "implementation") {
+        const gate = checkPlanningGate(db);
+        if (gate.blocked && !acknowledge_open_items) {
+          return { content: [{ type: "text" as const, text: [
+            `⛔ SPRINT ADVANCE BLOCKED — planning gate (planning → implementation)`,
+            ``,
+            ...gate.sections,
+            ``,
+            `Triage the items above, then call advance_sprint again. To advance anyway, pass acknowledge_open_items: true (defers the decisions — they re-surface at the next planning).`,
+          ].join("\n") }] };
+        }
+      }
+
       const tickets = db.prepare(`SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
+
+      // A3: freeze commitment at implementation start if not explicitly set — never recalculated after
+      if (nextPhase === "implementation" && (!sprint.velocity_committed || sprint.velocity_committed <= 0)) {
+        const frozen = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+        db.prepare(`UPDATE sprints SET velocity_committed = ? WHERE id = ?`).run(frozen, sprint_id);
+        sprint.velocity_committed = frozen;
+      }
 
       // Use shared gate checks (advisory — never blocks)
       const gates = checkSprintGates(db, sprint, nextPhase);
@@ -699,6 +860,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       notifyDashboard(db);
 
+      // B4: server-side auto-emit — phase transitions appear in the wizard timeline
+      const PHASE_INDEX: Record<string, number> = { planning: 1, implementation: 2, done: 3, rest: 4 };
+      notifyDashboard(db, {
+        type: "step_progress",
+        entityType: "sprint",
+        entityId: sprint_id,
+        stepProgress: {
+          step: `phase-${nextPhase}`,
+          title: `${sprint.name}: ${sprint.status} → ${nextPhase}`,
+          description: "",
+          current: PHASE_INDEX[nextPhase] || 0,
+          total: 4,
+          status: "completed",
+        },
+      });
+
       const summaryText = `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}${warningText}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}`;
 
       // B1: card mode — transition-specific server-rendered card above the summary
@@ -758,6 +935,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         }
         const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestoneName, milestone_id || null, epic_id || null);
         notifyDashboard(db);
+        notifyDashboard(db, { type: "entity_changed", entityType: "ticket", entityId: Number(result.lastInsertRowid) }); // B4
         return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+result.lastInsertRowid} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
@@ -845,6 +1023,24 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       notifyDashboard(db);
 
+      // B4: server-side auto-emit — wizard mirrors terminal-driven ticket updates without extra LLM calls
+      if (status && status !== oldStatus && ticket.sprint_id) {
+        const prog = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) as done FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).get(ticket.sprint_id) as any;
+        notifyDashboard(db, {
+          type: "step_progress",
+          entityType: "ticket",
+          entityId: ticket_id,
+          stepProgress: {
+            step: `ticket-${ticket.ticket_ref || ticket_id}`,
+            title: `${ticket.ticket_ref || "#" + ticket_id} ${ticket.title} → ${status}`,
+            description: "",
+            current: prog.done || 0,
+            total: prog.total || 0,
+            status: status === "DONE" ? "completed" : status === "BLOCKED" ? "error" : "in_progress",
+          },
+        });
+      }
+
       // B1: card mode — render the pulse (or ticket-done card) + compact state inline
       if (format === "card" && ticket.sprint_id) {
         const pulse = buildSprintPulseData(db, ticket.sprint_id);
@@ -906,9 +1102,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           if (!t) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
           db.prepare(`UPDATE retro_findings SET status = 'adopted', linked_ticket_id = ?, dropped_reason = NULL, deferred_at = NULL WHERE id = ?`).run(ticket_id, finding_id);
           autoApplyRetroActions(db);
-          try {
-            db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'adopted', 'mcp')`).run(finding_id, f.status);
-          } catch {}
+          // Audit insert intentionally unguarded — a failing trail must surface, not vanish (bug from Sprint 23 triage)
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'adopted', 'mcp')`).run(finding_id, f.status);
           notifyDashboard(db);
           return { content: [{ type: "text" as const, text: `Finding #${finding_id} adopted → ${t.ticket_ref || "#" + t.id}: ${t.title}. action_applied flips automatically when the ticket reaches DONE.` }] };
         }
@@ -916,18 +1111,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         if (resolution === "drop") {
           if (!dropped_reason || !dropped_reason.trim()) return { content: [{ type: "text" as const, text: `drop requires dropped_reason — say why this will not be done.` }], isError: true };
           db.prepare(`UPDATE retro_findings SET status = 'dropped', dropped_reason = ?, deferred_at = NULL WHERE id = ?`).run(dropped_reason.trim(), finding_id);
-          try {
-            db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'dropped', 'mcp')`).run(finding_id, f.status);
-          } catch {}
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'dropped', 'mcp')`).run(finding_id, f.status);
           notifyDashboard(db);
           return { content: [{ type: "text" as const, text: `Finding #${finding_id} dropped: ${dropped_reason.trim()}` }] };
         }
 
         // defer
         db.prepare(`UPDATE retro_findings SET deferred_at = datetime('now') WHERE id = ?`).run(finding_id);
-        try {
-          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'deferred', NULL, datetime('now'), 'mcp')`).run(finding_id);
-        } catch {}
+        db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'deferred', NULL, datetime('now'), 'mcp')`).run(finding_id);
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Finding #${finding_id} deferred — gate satisfied for 24h; it re-surfaces at the next planning.` }] };
       } catch (e: any) {
@@ -1027,11 +1218,12 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
       const donePts = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+      const deltas = getScopeDeltas(db, sprint_id);
 
       const lines = [
         `# Sprint Report: ${sprint.name}`,
         `**Status:** ${sprint.status} | **Goal:** ${sprint.goal || '—'}`,
-        `**Velocity:** ${donePts}/${totalPts} points (${sprint.velocity_completed || 0}/${sprint.velocity_committed || 0} committed)`,
+        `**Velocity:** ${donePts}/${totalPts} points in scope (${sprint.velocity_completed || 0}/${sprint.velocity_committed || 0} vs frozen commitment)${deltas.addedTickets ? ` | **+${deltas.addedPoints}pt added mid-sprint** (${deltas.addedTickets} tickets)` : ''}${deltas.removedTickets ? ` | ${deltas.removedTickets} removed` : ''}`,
         '',
         `## Tickets (${tickets.length})`,
         '| Ref | Title | Priority | Status | Assignee | Points | QA |',
@@ -1243,6 +1435,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         closed: ["Sprint closed", "Call advance_sprint to move to rest"],
       };
 
+      // C1 (#11 smart verbosity): the lifecycle tutorial earns its tokens for the first
+      // few sprints; an experienced project gets the numbers and the gate, nothing else.
+      const sprintCount = (db.prepare(`SELECT COUNT(*) as c FROM sprints WHERE deleted_at IS NULL`).get() as any).c;
+      const experienced = sprintCount > 3;
+
       const pulseCard = format === "card" ? buildSprintPulseData(db, sprint.id) : null;
       const lines = [
         pulseCard ? fenceCard(sprintPulse(pulseCard)) : null,
@@ -1254,11 +1451,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         `## Tickets`,
         ...Object.entries(byStatus).map(([s, c]) => `  ${s}: ${c}`),
         ``,
-        `## Gate Status for ${sprint.status} → ${nextPhase}`,
-        gates.warnings.length === 0 ? `  All gates pass — call advance_sprint now to proceed to ${nextPhase}` : gates.warnings.map(g => `  WARNING: ${g}`).join("\n"),
-        ``,
-        `## What To Do Now`,
-        ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
+        gates.warnings.length === 0
+          ? `**Gates ${sprint.status} → ${nextPhase}:** pass — advance_sprint when ready`
+          : [`## Gate Status for ${sprint.status} → ${nextPhase}`, gates.warnings.map(g => `  WARNING: ${g}`).join("\n")].join("\n"),
+        ...(experienced ? [] : [
+          ``,
+          `## What To Do Now`,
+          ...(ACTIONS[sprint.status] || ["Proceed to next phase"]).map(a => `  - ${a}`),
+        ]),
       ];
 
       return { content: [{ type: "text" as const, text: lines.filter(l => l !== null).join("\n") }] };
@@ -1340,6 +1540,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
         notifyDashboard(db);
+        // B4: server-side auto-emit — sprint launch lands in the wizard timeline
+        notifyDashboard(db, {
+          type: "step_progress",
+          entityType: "sprint",
+          entityId: sprintId,
+          stepProgress: { step: "sprint_launch", title: `Sprint created: ${name} (${totalPts}pt)`, description: goal, current: 1, total: 4, status: "completed" },
+        });
         const launch = format === "card"
           ? fenceCard(launchCard({ sprintName: name, goal, ticketCount: tickets.length, points: totalPts, phase: "planning" })) + "\n"
           : null;
@@ -1724,8 +1931,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
       if (activeEpics > 0) nextPhase = "tickets";
       if (activeSprint) nextPhase = "implementation";
 
+      const staleWarning = checkDistFreshness();
       const lines = [
         `# Resume State`,
+        staleWarning,
         `files: ${files} | exports: ${exports} | agents: ${agents}`,
         `vision: ${hasVision ? "set" : "none"}`,
         `sprints: ${sprintsCompleted} completed${activeSprint ? ` | active: #${activeSprint.id} ${activeSprint.name} [${activeSprint.status}]` : " | active: none"}`,
@@ -1733,7 +1942,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         `milestone: ${activeMilestone ? `#${activeMilestone.id} ${activeMilestone.name} [${activeMilestone.status}] ${activeMilestone.progress}%` : "none"}`,
         `epics: ${activeEpics} active, ${completedEpics} completed`,
         `next_phase: ${nextPhase}`,
-      ];
+      ].filter((l): l is string => l !== null);
 
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
@@ -1856,9 +2065,17 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
             blockers.forEach((b: any) => sections.push(`- #${b.id}: ${b.description}`));
           }
 
-          if (tickets.some((t: any) => t.assigned_to === "fe-engineer")) {
-            const playbook = buildFrontendPlaybook(db);
-            if (playbook) sections.push(playbook);
+          // C1: house-style primer only with the sprint's FIRST fe ticket — later loads
+          // get a pointer; granular pulls go through get_skill (deterministic, no session state)
+          const feTickets = tickets.filter((t: any) => t.assigned_to === "fe-engineer");
+          if (feTickets.length > 0) {
+            const fePrior = feTickets.some((t: any) => ["IN_PROGRESS", "DONE"].includes(t.status) && t.id !== ticket_id);
+            if (!fePrior) {
+              const playbook = buildFrontendPlaybook(db);
+              if (playbook) sections.push(playbook);
+            } else {
+              sections.push(`\n**Frontend Playbook:** already injected earlier this sprint — pull specific skills with get_skill({ name: "fe:<slug>" }).`);
+            }
           }
         }
 
@@ -1881,11 +2098,13 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
             burndown.forEach((b: any) => sections.push(`- ${b.date}: ${b.completed_points}pts done, ${b.remaining_points}pts remaining`));
           }
 
-          // Mood trends (last 5 sprints)
-          const moods = db.prepare(`SELECT agent_id, sprint_id, mood FROM agent_mood_history ORDER BY sprint_id DESC LIMIT 35`).all() as any[];
-          if (moods.length > 0) {
-            const avgMood = Math.round(moods.reduce((s: number, m: any) => s + m.mood, 0) / moods.length * 10) / 10;
-            sections.push(`\n## Mood: avg ${avgMood}/5 (${moods.length} readings)`);
+          // Mood trends — aggregate in SQL instead of shipping 35 rows to average one number (#13)
+          const moodAgg = db.prepare(`
+            SELECT ROUND(AVG(mood), 1) as avg_mood, COUNT(*) as readings
+            FROM (SELECT mood FROM agent_mood_history ORDER BY sprint_id DESC LIMIT 35)
+          `).get() as any;
+          if (moodAgg?.readings > 0) {
+            sections.push(`\n## Mood: avg ${moodAgg.avg_mood}/5 (${moodAgg.readings} readings)`);
           }
 
           // Retro patterns
@@ -2305,25 +2524,11 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const triageRate = lc.total > 0 ? Math.round(((lc.adopted + lc.dropped) / lc.total) * 100) : 0;
         const appliedRate = lc.total > 0 ? Math.round((lc.applied / lc.total) * 100) : 0;
 
-        // Top recurring went_wrong findings — simple word-frequency approach
-        const wrongFindings = db.prepare(`SELECT finding FROM retro_findings WHERE category = 'went_wrong'`).all() as any[];
-        const wordCounts: Record<string, { count: number; examples: string[] }> = {};
-        const stopWords = new Set(["the", "a", "an", "is", "was", "were", "are", "be", "been", "to", "of", "in", "for", "and", "or", "not", "with", "on", "at", "by", "from", "it", "this", "that", "we", "our", "had", "has", "no", "but"]);
-        for (const f of wrongFindings) {
-          const words = (f.finding as string).toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
-          const seen = new Set<string>();
-          for (const w of words) {
-            if (seen.has(w)) continue;
-            seen.add(w);
-            if (!wordCounts[w]) wordCounts[w] = { count: 0, examples: [] };
-            wordCounts[w].count++;
-            if (wordCounts[w].examples.length < 2) wordCounts[w].examples.push(f.finding);
-          }
-        }
-        const topWords = Object.entries(wordCounts)
-          .sort((a, b) => b[1].count - a[1].count)
-          .slice(0, 3)
-          .map(([word, data]) => `"${word}" (${data.count}x) — e.g. ${data.examples[0]}`);
+        // A4: recurring-issue clustering — findings (not words), across distinct sprints
+        const wrongFindings = db.prepare(`SELECT rf.finding, rf.sprint_id, rf.role, s.name as sprint_name FROM retro_findings rf JOIN sprints s ON rf.sprint_id = s.id WHERE rf.category = 'went_wrong'`).all() as any[];
+        const clusters = clusterRecurringIssues(wrongFindings);
+        const topWords = clusters.slice(0, 5).map(c =>
+          `**${c.term}** — ${c.findingCount} finding(s) across ${c.sprintCount} sprints (${c.sprints.join(", ")})${c.roles.length ? ` [${c.roles.join(", ")}]` : ""}\n   e.g. ${truncateFinding(c.example, 160)}`);
 
         // Build report
         const lines = [
@@ -2420,14 +2625,17 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     {
       sprint_id: z.number().describe("Sprint ID"),
       format: z.enum(["text", "card"]).optional().describe("card = diff-fence pulse card (sparkline) above the daily rows"),
+      verbose: z.boolean().optional().describe("All daily rows (default: last 5 — C1 token diet)"),
     },
-    async ({ sprint_id, format }) => {
+    async ({ sprint_id, format, verbose }) => {
       try {
         const sprint = db.prepare(`SELECT name, velocity_committed FROM sprints WHERE id = ?`).get(sprint_id) as any;
         if (!sprint) return { content: [{ type: "text" as const, text: "Sprint not found" }], isError: true };
         const rows = db.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprint_id) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: `No burndown data for ${sprint.name}. Use snapshot_sprint_metrics to capture data points.` }] };
-        const lines = rows.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
+        const shown = verbose ? rows : rows.slice(-5);
+        const lines = shown.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
+        if (!verbose && rows.length > shown.length) lines.unshift(`(${rows.length - shown.length} earlier snapshots hidden — verbose=true for all)`);
         const pulse = format === "card" ? buildSprintPulseData(db, sprint_id) : null;
         const cardBlock = pulse ? fenceCard(sprintPulse(pulse)) + "\n" : "";
         return { content: [{ type: "text" as const, text: `${cardBlock}# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
@@ -2838,9 +3046,16 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         params.push(last_n_sprints || 10);
         const rows = db.prepare(sql).all(...params) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: "No velocity data available." }] };
-        const lines = rows.map((r: any) => `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts (${r.completion_rate}%), ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`);
+        // A3: completion is measured against the frozen commitment; scope changes shown explicitly
+        const lines = rows.map((r: any) => {
+          const deltas = getScopeDeltas(db, r.sprint_id);
+          const scope = deltas.addedTickets > 0 || deltas.removedTickets > 0
+            ? ` | scope: +${deltas.addedPoints}pt added (${deltas.addedTickets})${deltas.removedTickets ? `, ${deltas.removedTickets} removed` : ""}`
+            : "";
+          return `- **${r.sprint_name}** [${r.status}]: ${r.completed}/${r.committed}pts committed (${r.completion_rate}%)${scope}, ${r.tickets_done}/${r.tickets_total} tickets, ${r.bugs_found} bugs (${r.bugs_fixed} fixed)`;
+        });
         const avgRate = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.completion_rate, 0) / rows.length) : 0;
-        return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion: ${avgRate}%\n\n${lines.join("\n")}` }] };
+        return { content: [{ type: "text" as const, text: `# Velocity Trends (${rows.length} sprints)\nAvg completion vs frozen commitment: ${avgRate}%\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -2912,22 +3127,29 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
 
   server.tool(
     "list_discoveries",
-    "List discovery findings with optional filters",
+    "List discovery findings with optional filters. Compact by default (open items, truncated one-liners) — pass verbose=true for full text and all statuses.",
     {
       sprint_id: z.number().optional().describe("Filter by discovery sprint"),
-      status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("Filter by status"),
+      status: z.enum(["discovered", "planned", "implemented", "dropped"]).optional().describe("Filter by status (verbose implies all statuses unless set)"),
       category: z.enum(["architecture", "ux", "performance", "testing", "integration", "general"]).optional().describe("Filter by category"),
+      verbose: z.boolean().optional().describe("Full finding text, all statuses, full metadata (default false — C1 token diet)"),
     },
-    async ({ sprint_id, status, category }) => {
+    async ({ sprint_id, status, category, verbose }) => {
       try {
         let sql = `SELECT d.*, s.name as sprint_name, t.title as ticket_title FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id LEFT JOIN tickets t ON d.implementation_ticket_id = t.id WHERE 1=1`;
         const params: any[] = [];
         if (sprint_id) { sql += " AND d.discovery_sprint_id = ?"; params.push(sprint_id); }
         if (status) { sql += " AND d.status = ?"; params.push(status); }
+        else if (!verbose) { sql += " AND d.status IN ('discovered', 'planned')"; } // compact default: open work only
         if (category) { sql += " AND d.category = ?"; params.push(category); }
         sql += " ORDER BY s.created_at DESC, d.priority, d.created_at";
         const rows = db.prepare(sql).all(...params) as any[];
-        if (rows.length === 0) return { content: [{ type: "text" as const, text: "No discoveries found." }] };
+        if (rows.length === 0) return { content: [{ type: "text" as const, text: verbose ? "No discoveries found." : "No open discoveries. (verbose=true includes implemented/dropped.)" }] };
+        if (!verbose) {
+          const text = rows.map((d: any) =>
+            `- [${d.status}] ${d.priority} #${d.id} ${truncateFinding(d.finding, 110)}${d.implementation_ticket_id ? ` → #${d.implementation_ticket_id}` : ""}`).join("\n");
+          return { content: [{ type: "text" as const, text: `# Discoveries (${rows.length} open)\n${text}` }] };
+        }
         const text = rows.map((d: any) => {
           const ticket = d.ticket_title ? ` → T-${d.implementation_ticket_id}: ${d.ticket_title}` : "";
           const drop = d.drop_reason ? ` (${d.drop_reason})` : "";

@@ -36,6 +36,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
+    "check:commands": "node scripts/check-commands.mjs",
     "compile:skills": "node scripts/compile-skills.mjs",
     "sync:skills": "node scripts/sync-skills.mjs && node scripts/compile-skills.mjs",
     "postinstall": "node scripts/postinstall.js",
