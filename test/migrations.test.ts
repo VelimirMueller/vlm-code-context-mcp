@@ -48,3 +48,42 @@ describe("downgrade guard", () => {
     expect(v).toBe(LATEST_SCHEMA_VERSION);
   });
 });
+
+type ColInfo = { name: string; type: string; notnull: number; dflt_value: unknown };
+
+/** Structural snapshot: tables, per-table columns (sorted by name — ALTER appends
+ *  while CREATE inlines, so order must not matter), named indexes, views. */
+export function schemaSnapshot(db: Database.Database) {
+  const objs = db
+    .prepare(
+      "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .all() as Array<{ type: string; name: string }>;
+  const tables = objs.filter((o) => o.type === "table").map((o) => o.name).sort();
+  const columns: Record<string, Array<{ name: string; type: string; notnull: number; dflt: string }>> = {};
+  for (const t of tables) {
+    columns[t] = (db.pragma(`table_info(${t})`) as ColInfo[])
+      .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt: String(c.dflt_value) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const indexes = objs.filter((o) => o.type === "index").map((o) => o.name).sort();
+  const views = objs.filter((o) => o.type === "view").map((o) => o.name).sort();
+  return { tables, columns, indexes, views };
+}
+
+describe("canonical schema parity", () => {
+  it("initScrumSchema alone matches init + full migration replay", () => {
+    const replayed = freshDb(); // init + replay (current behavior)
+    const initOnly = new Database(":memory:");
+    initSchema(initOnly);
+    initScrumSchema(initOnly);
+    expect(schemaSnapshot(initOnly)).toEqual(schemaSnapshot(replayed));
+  });
+
+  it("fresh init seeds the default tags (absorbed migration v8)", () => {
+    const initOnly = new Database(":memory:");
+    initScrumSchema(initOnly);
+    const names = (initOnly.prepare("SELECT name FROM tags ORDER BY name").all() as any[]).map((r) => r.name);
+    expect(names).toEqual(["bug", "documentation", "performance", "security", "tech-debt", "ux"]);
+  });
+});
