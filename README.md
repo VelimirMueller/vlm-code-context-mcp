@@ -32,7 +32,7 @@ Tested across 10 real development tasks (retrieval, debugging, refactoring, impl
 | **Tool calls** | 49 | 68 | **27.9%** |
 | **Stochastic win rate** | — | — | **90.5%** (p < 0.001) |
 
-MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more.
+MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more. (Re-validated for v2.0.0 — and since 2.0, sprint ceremonies themselves cost **−39% output tokens** via compact-by-default tools, measured on a replayed kickoff.)
 
 <img width="1239" height="716" alt="benchmark2" src="https://github.com/user-attachments/assets/97662418-e16b-4c12-9d32-66546d3f95b7" />
 
@@ -53,6 +53,16 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.0 — Process 2.0 🚦
+
+- **Planning gates that close the retro loop** — sprints refuse to start while retro `try_next` learnings sit untriaged; adopt, drop, or defer each one (`triage_retro_finding`), and adopted items auto-flag as applied when their ticket lands.
+- **Honest velocity** — commitment freezes when implementation starts; mid-sprint scope shows as `+added / removed` instead of inflating completion rates.
+- **Terminal cockpit** — tools render width-locked progress cards in colored ```diff fences, and the `code-context-statusline` bin puts a live sprint HUD in Claude Code's status line at zero token cost.
+- **Live-editable board + session reaction** — edit tickets on the dashboard; the Claude session sees a `⚠ CHANGED TICKETS` diff block and acknowledges your changes.
+- **Multi-agent tickets** — several agents per ticket with per-assignment model overrides: the lead implements, supporters verify in parallel, QA aggregates the verdicts.
+
+---
+
 ## Quick Start
 
 **1 · Install**
@@ -67,7 +77,7 @@ npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 ```
 
-Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, and writes `.mcp.json`.
+Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, writes `.mcp.json`, and offers to wire the sprint statusline into `.claude/settings.json`. Run it again later and it switches to **update mode** — migrate (with automatic backup) + config repair, never touching your data; `--force` renames the old database instead of deleting it.
 
 **3 · Restart your AI client**
 
@@ -113,7 +123,7 @@ The orchestrator walks you through vision → discovery → milestone → epics 
 | **Benchmark** | MCP vs Vanilla comparison with animated metrics |
 | **Velocity** | Sprint-by-sprint trends, committed vs completed |
 
-Every database mutation triggers an instant refresh via SQLite WAL monitoring.
+Every database mutation triggers an instant refresh via SQLite WAL monitoring. Since 2.0 the board is **live-editable** — title, description, points, status, and multi-agent assignments (with per-assignment models) — and every edit raises a change flag the Claude session sees and acknowledges at its next context load. Completion stays earned: the UI can never set DONE or `qa_verified`.
 
 ---
 
@@ -207,6 +217,8 @@ No agent holds the full project in its context window. They query what they need
 
 Add, remove, or swap models through MCP tools or with a single click in the dashboard — and the choice **routes execution**: during `/kickoff` and `/sprint`, each ticket is implemented by a subagent spawned at its assigned agent's model tier (`opus`/`sonnet`/`haiku`).
 
+Since 2.0, tickets can carry **multiple agents with per-assignment model overrides**: the lead implements, supporting agents verify the diff in parallel from their role's perspective, and the QA gate requires every verdict before a ticket counts as done.
+
 ---
 
 ## Sprint Process
@@ -226,6 +238,8 @@ planning → implementation → done → rest
 
 Phases, durations, and gates are fully customizable via `update_sprint_config`.
 
+Since 2.0, planning is **gated**: `start_sprint` and `advance_sprint` refuse to proceed while untriaged retro `try_next` findings or escalated open discoveries (P0/P1 older than 3 sprints) exist — triage them, or override explicitly with `acknowledge_open_items: true`. Retro learnings stop being write-only.
+
 ---
 
 ## Tech Stack
@@ -234,7 +248,7 @@ Phases, durations, and gates are fully customizable via `update_sprint_config`.
 |---|---|
 | Runtime | Node.js 24 LTS |
 | Database | SQLite via better-sqlite3, WAL mode |
-| MCP protocol | @anthropic-ai/sdk |
+| MCP protocol | @modelcontextprotocol/sdk |
 | Dashboard | React 19 + Vite + Zustand + Framer Motion |
 | Styling | CSS variables + Tailwind, dark theme |
 | Live updates | SSE via WAL file watcher |
@@ -247,12 +261,14 @@ Phases, durations, and gates are fully customizable via `update_sprint_config`.
 
 | Component | Count |
 |---|---|
-| MCP tools | 76 (32 read + 44 write) |
-| Database tables | 30 (25 scrum + 5 code) |
-| React components | 62 |
+| MCP tools | 96 |
+| Database tables | 32 (27 scrum + 5 code) |
+| React components | 75 |
+| Tests | 651 (566 backend + 85 frontend) |
 | Agent roles | 9 (configurable) |
-| Sprint phases | 4 with gate checks |
+| Sprint phases | 4 with gate checks + planning gate |
 | Slash commands | 6 |
+| CLI bins | 3 (`code-context-mcp`, `code-context-dashboard`, `code-context-statusline`) |
 
 ---
 
