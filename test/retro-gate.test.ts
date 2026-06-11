@@ -7,6 +7,7 @@ import {
   getOpenDiscoveries,
   checkPlanningGate,
   buildPlanningGateContext,
+  buildSprintPulseData,
 } from "../src/scrum/tools.js";
 import Database from "better-sqlite3";
 
@@ -295,5 +296,54 @@ describe("buildPlanningGateContext", () => {
     buildPlanningGateContext(db);
     const row = db.prepare(`SELECT action_applied FROM retro_findings WHERE id = ?`).get(f) as any;
     expect(row.action_applied).toBe(1);
+  });
+});
+
+describe("buildSprintPulseData (B1 card wiring)", () => {
+  let db: Database.Database;
+  let sprintId: number;
+
+  beforeEach(() => {
+    db = setupDb();
+    db.prepare(`INSERT INTO sprints (name, status, velocity_committed, start_date) VALUES ('Pulse Sprint', 'implementation', 12, date('now', '-1 day'))`).run();
+    sprintId = (db.prepare(`SELECT id FROM sprints WHERE name = 'Pulse Sprint'`).get() as any).id;
+  });
+
+  function addSprintTicket(title: string, status: string, points: number, qa = 0): void {
+    db.prepare(`INSERT INTO tickets (sprint_id, title, status, story_points, qa_verified) VALUES (?, ?, ?, ?, ?)`)
+      .run(sprintId, title, status, points, qa);
+  }
+
+  it("assembles counts, points, day, and warnings", () => {
+    addSprintTicket("a", "DONE", 3, 1);
+    addSprintTicket("b", "DONE", 2, 0); // QA pending → warning
+    addSprintTicket("c", "IN_PROGRESS", 3);
+    addSprintTicket("d", "TODO", 2);
+    addSprintTicket("e", "BLOCKED", 2);
+    db.prepare(`INSERT INTO blockers (sprint_id, description, status) VALUES (?, 'stuck', 'open')`).run(sprintId);
+
+    const pulse = buildSprintPulseData(db, sprintId)!;
+    expect(pulse.sprintName).toBe("Pulse Sprint");
+    expect(pulse.counts).toEqual({ done: 2, inProgress: 1, todo: 1, blocked: 1 });
+    expect(pulse.donePoints).toBe(5);
+    expect(pulse.totalPoints).toBe(12);
+    expect(pulse.day).toBe(2); // started yesterday
+    expect(pulse.dayTotal).toBe(5);
+    expect(pulse.warnings).toContain("1 open blocker(s)");
+    expect(pulse.warnings).toContain("QA pending on 1 done ticket(s)");
+  });
+
+  it("clamps day into [1, dayTotal] and handles missing start_date", () => {
+    db.prepare(`UPDATE sprints SET start_date = date('now', '-30 day') WHERE id = ?`).run(sprintId);
+    expect(buildSprintPulseData(db, sprintId)!.day).toBe(5);
+    db.prepare(`UPDATE sprints SET start_date = NULL WHERE id = ?`).run(sprintId);
+    expect(buildSprintPulseData(db, sprintId)!.day).toBe(1);
+  });
+
+  it("maps burndown snapshots to the series and returns null for unknown sprints", () => {
+    db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, completed_points, remaining_points) VALUES (?, date('now', '-1 day'), 3, 9)`).run(sprintId);
+    db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, completed_points, remaining_points) VALUES (?, date('now'), 5, 7)`).run(sprintId);
+    expect(buildSprintPulseData(db, sprintId)!.burndown).toEqual([3, 5]);
+    expect(buildSprintPulseData(db, 99999)).toBeNull();
   });
 });

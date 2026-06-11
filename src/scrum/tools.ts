@@ -4,6 +4,7 @@ import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
 import { buildFrontendPlaybook, getSkillContent } from "./frontend-playbook.js";
+import { sprintPulse, ticketDoneCard, launchCard, sprintCompleteCard, type SprintPulseData } from "./cards.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -125,6 +126,46 @@ export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: 
 /** Truncate a string for compact gate listings. */
 function truncateFinding(s: string, max = 140): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/** Wrap a server-rendered card in a diff fence so callers print the result verbatim. */
+function fenceCard(card: string): string {
+  return "```diff\n" + card + "\n```";
+}
+
+/**
+ * B1: assemble SprintPulseData for the card renderers — progress, burndown,
+ * ticket counts, day-in-sprint, and warning lines (blockers, QA pending).
+ */
+export function buildSprintPulseData(db: Database.Database, sprintId: number): SprintPulseData | null {
+  const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprintId) as any;
+  if (!sprint) return null;
+  const tickets = db.prepare(`SELECT status, story_points, qa_verified FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprintId) as any[];
+  const counts = { done: 0, inProgress: 0, todo: 0, blocked: 0 };
+  for (const t of tickets) {
+    if (t.status === "DONE") counts.done++;
+    else if (t.status === "IN_PROGRESS") counts.inProgress++;
+    else if (t.status === "BLOCKED") counts.blocked++;
+    else counts.todo++;
+  }
+  const totalPoints = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+  const donePoints = tickets.filter((t: any) => t.status === "DONE").reduce((s: number, t: any) => s + (t.story_points || 0), 0);
+  const burndown = (db.prepare(`SELECT completed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprintId) as any[]).map((r: any) => r.completed_points || 0);
+
+  const dayTotal = 5;
+  let day = 1;
+  if (sprint.start_date) {
+    const d = db.prepare(`SELECT CAST(julianday('now') - julianday(?) AS INTEGER) + 1 as day`).get(sprint.start_date) as any;
+    day = Math.min(Math.max(d?.day ?? 1, 1), dayTotal);
+  }
+
+  const warnings: string[] = [];
+  const openBlockers = (db.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'`).get(sprintId) as any).c;
+  if (openBlockers > 0) warnings.push(`${openBlockers} open blocker(s)`);
+  const qaPending = tickets.filter((t: any) => t.status === "DONE" && !t.qa_verified).length;
+  if (qaPending > 0) warnings.push(`QA pending on ${qaPending} done ticket(s)`);
+
+  return { sprintName: sprint.name, day, dayTotal, donePoints, totalPoints, burndown, counts, warnings };
 }
 
 /**
@@ -585,8 +626,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     {
       sprint_id: z.number().describe("Sprint ID"),
       velocity_completed: z.number().optional().describe("Velocity completed (required when advancing to closed)"),
+      format: z.enum(["text", "card"]).optional().describe("card = diff-fence transition card (launch/pulse/complete) + summary"),
     },
-    async ({ sprint_id, velocity_completed: _velocity_completed }) => {
+    async ({ sprint_id, velocity_completed: _velocity_completed, format }) => {
       let velocity_completed = _velocity_completed;
       const sprint = db.prepare(`SELECT * FROM sprints WHERE id = ?`).get(sprint_id) as any;
       if (!sprint) return { content: [{ type: "text" as const, text: `Sprint #${sprint_id} not found.` }], isError: true };
@@ -656,7 +698,38 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       };
 
       notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}${warningText}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}` }] };
+
+      const summaryText = `Sprint "${sprint.name}" advanced: ${sprint.status} → ${nextPhase}${retroNote}${warningText}\n\nNext: ${NEXT_ACTIONS[nextPhase] || "Proceed to next phase."}`;
+
+      // B1: card mode — transition-specific server-rendered card above the summary
+      if (format === "card") {
+        let card: string | null = null;
+        if (nextPhase === "implementation") {
+          card = launchCard({
+            sprintName: sprint.name,
+            goal: sprint.goal || "",
+            ticketCount: tickets.length,
+            points: tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0),
+            phase: "implementation",
+          });
+        } else if (nextPhase === "rest") {
+          const doneTickets = tickets.filter((t: any) => t.status === "DONE");
+          card = sprintCompleteCard({
+            sprintName: sprint.name,
+            completed: velocity_completed ?? sprint.velocity_completed ?? doneTickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0),
+            committed: sprint.velocity_committed || 0,
+            ticketsDone: doneTickets.length,
+            ticketsTotal: tickets.length,
+            qaAllVerified: doneTickets.length > 0 && doneTickets.every((t: any) => t.qa_verified),
+          });
+        } else {
+          const pulse = buildSprintPulseData(db, sprint_id);
+          if (pulse) card = sprintPulse(pulse);
+        }
+        if (card) return { content: [{ type: "text" as const, text: `${fenceCard(card)}\n${summaryText}` }] };
+      }
+
+      return { content: [{ type: "text" as const, text: summaryText }] };
     }
   );
 
@@ -704,8 +777,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       notes: z.string().optional(),
       milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
       epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
+      format: z.enum(["text", "card"]).optional().describe("card = diff-fence sprint card + compact state in one response (no follow-up get_ticket needed)"),
     },
-    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id }) => {
+    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id, format }) => {
       const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
       if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
 
@@ -770,6 +844,26 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       }
 
       notifyDashboard(db);
+
+      // B1: card mode — render the pulse (or ticket-done card) + compact state inline
+      if (format === "card" && ticket.sprint_id) {
+        const pulse = buildSprintPulseData(db, ticket.sprint_id);
+        if (pulse) {
+          const updated = db.prepare(`SELECT status, qa_verified FROM tickets WHERE id = ?`).get(ticket_id) as any;
+          const card = updated.status === "DONE"
+            ? ticketDoneCard({
+                ref: ticket.ticket_ref || `#${ticket_id}`,
+                title: ticket.title,
+                points: ticket.story_points || 0,
+                agent: (assigned_to ?? ticket.assigned_to) || "—",
+                qaVerified: !!updated.qa_verified,
+                pulse,
+              })
+            : sprintPulse(pulse);
+          return { content: [{ type: "text" as const, text: `${fenceCard(card)}\nTicket #${ticket_id}: ${status ? `${oldStatus} → ${updated.status}` : "fields updated"} | sprint ${pulse.donePoints}/${pulse.totalPoints}pt, ${pulse.counts.done}/${pulse.counts.done + pulse.counts.inProgress + pulse.counts.todo + pulse.counts.blocked} tickets done` }] };
+        }
+      }
+
       return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
     }
   );
@@ -1106,8 +1200,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     "Get the current sprint playbook: phase, ticket summary, gate status, blockers, and directive next actions. Follow the actions listed — do not ask for confirmation.",
     {
       sprint_id: z.number().optional().describe("Sprint ID (default: latest active sprint)"),
+      format: z.enum(["text", "card"]).optional().describe("card = diff-fence pulse card above the playbook"),
     },
-    async ({ sprint_id }) => {
+    async ({ sprint_id, format }) => {
       let sprint: any;
       if (sprint_id) {
         sprint = db.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprint_id);
@@ -1148,7 +1243,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         closed: ["Sprint closed", "Call advance_sprint to move to rest"],
       };
 
+      const pulseCard = format === "card" ? buildSprintPulseData(db, sprint.id) : null;
       const lines = [
+        pulseCard ? fenceCard(sprintPulse(pulseCard)) : null,
         `# Sprint Playbook: ${sprint.name}`,
         `**Phase:** ${sprint.status} → next: ${nextPhase}`,
         `**Progress:** ${donePts}/${totalPts}pt | ${doneCount}/${tickets.length} tickets done | ${qaVerified} QA verified`,
@@ -1188,8 +1285,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         story_points: z.number().optional(),
       })).describe("Tickets to create and assign to this sprint"),
       acknowledge_open_items: z.boolean().optional().describe("Override the planning gate (untriaged try_next / escalated discoveries) — the items stay open and re-surface next planning"),
+      format: z.enum(["text", "card"]).optional().describe("card = diff-fence launch card above the ticket list"),
     },
-    async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets, acknowledge_open_items }) => {
+    async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets, acknowledge_open_items, format }) => {
       try {
         // A1+A2 planning gate: no sprint starts over untriaged retro/discovery items
         const gate = checkPlanningGate(db);
@@ -1242,7 +1340,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
         notifyDashboard(db);
+        const launch = format === "card"
+          ? fenceCard(launchCard({ sprintName: name, goal, ticketCount: tickets.length, points: totalPts, phase: "planning" })) + "\n"
+          : null;
         return { content: [{ type: "text" as const, text: [
+          launch,
           `# Sprint Created: ${name} (id: ${sprintId})`,
           `Goal: ${goal}`,
           `Velocity: ${totalPts}pt committed`,
@@ -2317,15 +2419,18 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
     "Get burndown data for a sprint — daily snapshots of remaining vs completed points",
     {
       sprint_id: z.number().describe("Sprint ID"),
+      format: z.enum(["text", "card"]).optional().describe("card = diff-fence pulse card (sparkline) above the daily rows"),
     },
-    async ({ sprint_id }) => {
+    async ({ sprint_id, format }) => {
       try {
         const sprint = db.prepare(`SELECT name, velocity_committed FROM sprints WHERE id = ?`).get(sprint_id) as any;
         if (!sprint) return { content: [{ type: "text" as const, text: "Sprint not found" }], isError: true };
         const rows = db.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprint_id) as any[];
         if (rows.length === 0) return { content: [{ type: "text" as const, text: `No burndown data for ${sprint.name}. Use snapshot_sprint_metrics to capture data points.` }] };
         const lines = rows.map((r: any) => `${r.date}: ${r.completed_points}pts done, ${r.remaining_points}pts remaining${r.added_points ? ` (+${r.added_points} added)` : ""}${r.removed_points ? ` (-${r.removed_points} removed)` : ""}`);
-        return { content: [{ type: "text" as const, text: `# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
+        const pulse = format === "card" ? buildSprintPulseData(db, sprint_id) : null;
+        const cardBlock = pulse ? fenceCard(sprintPulse(pulse)) + "\n" : "";
+        return { content: [{ type: "text" as const, text: `${cardBlock}# Burndown: ${sprint.name}\nCommitted: ${sprint.velocity_committed}pts\n\n${lines.join("\n")}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
