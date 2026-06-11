@@ -13,11 +13,10 @@
 ```bash
 npm install vlm-code-context-mcp
 npx code-context-mcp setup .
-claude mcp add code-context
-npx vlm-code-context-mcp ./context.db
+npx code-context-dashboard ./context.db   # optional — live dashboard on :3333
 ```
 
-Three commands. Zero API keys. One `context.db` file.
+Two commands, then restart Claude Code — `setup` writes `.mcp.json`, so the server loads automatically. Zero API keys. One `context.db` file.
 
 </div>
 
@@ -78,11 +77,14 @@ npm install vlm-code-context-mcp
 npx code-context-mcp setup .
 ```
 
-Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, writes `.mcp.json`, and offers to wire the sprint statusline into `.claude/settings.json`. Run it again later and it switches to **update mode** — migrate (with automatic backup) + config repair, never touching your data; `--force` renames the old database instead of deleting it.
+Creates `context.db`, indexes your codebase, seeds a 9-agent team, seeds the frontend skill library into the project database, writes `.mcp.json`, and offers to wire the sprint statusline into `.claude/settings.json` (pass `--defaults` to skip the prompts). Run it again later and it switches to **update mode** — migrate (with automatic backup) + config repair, never touching your data; `--force` renames the old database instead of deleting it.
 
 **3 · Restart your AI client**
 
-Restart Claude Code (or any MCP client). Verify with `get_project_status`.
+Restart Claude Code (or any MCP client) — it picks the server up from the `.mcp.json` that setup wrote. Verify with `get_project_status`.
+
+> Registering manually instead? The equivalent is
+> `claude mcp add code-context -- node node_modules/vlm-code-context-mcp/dist/server/index.js ./context.db`
 
 **4 · Launch the dashboard**
 
@@ -90,7 +92,7 @@ Restart Claude Code (or any MCP client). Verify with `get_project_status`.
 npx code-context-dashboard ./context.db
 ```
 
-Opens at `http://localhost:3333` with live SSE updates. To also auto-reindex on file save:
+Opens at `http://localhost:3333` with live SSE updates. File watching + auto-reindex on save are on by default (derived from the indexed files); pass a directory as the 4th argument only to override it — e.g. on a database that has nothing indexed yet:
 
 ```bash
 npx code-context-dashboard ./context.db 3333 .
@@ -145,19 +147,20 @@ Type these directly in Claude Code.
 
 ---
 
-## Frontend Skills (server-provided)
+## Skill Sets (server-provided)
 
-The server ships a curated library of **22 frontend skills** — state-of-the-art practices for building scalable React 19 / Vue 3 frontends (scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, and more) — plus an editable **house-style primer**.
+The server ships three predefined skill libraries — **Frontend** (22 skills: React 19 / Vue 3 scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, plus an editable **house-style primer**), **Landing pages** (structure, SEO, lead capture, content audits), and **Workflow** (write-pull-requests, write-commit-messages).
 
-Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. When you run `/kickoff` and a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and an index of available skills; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
+Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. `/kickoff` asks once which sets to enable (frontend is on by default; `update_skill_sets` changes it any time). When a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and the enabled skill indexes — workflow skills inject for every implementer; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
 
 | | |
 |---|---|
 | Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored under `vendor/skills/` (build input) |
-| Storage | seeded into the project DB `skills` table (`owner_role: fe-engineer`); **edit them to make them yours** — re-seeds never overwrite your edits |
-| Trigger | automatic on `fe-engineer` tickets during `/kickoff` |
+| Storage | seeded into the project DB `skills` table (`fe:*`, `la:*`, `wf:*`); **edit them to make them yours** — re-seeds never overwrite your edits |
+| Opt-in | `/kickoff` Phase 1b asks once; `update_skill_sets({ landing: true, ... })` any time |
+| Trigger | fe/la on `fe-engineer` tickets, wf on any implementation work during `/kickoff` |
 | Load | index + primer up front; full body via `get_skill({ name })` |
-| Update | `npm run sync:skills` (re-vendors + recompiles), or the daily `sync-skills` workflow |
+| Update | boot-time auto-sync from the latest upstream release; `npm run sync:skills` re-vendors the offline fallback |
 
 ---
 

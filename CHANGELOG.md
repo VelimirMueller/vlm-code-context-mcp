@@ -5,6 +5,11 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Landing + workflow skill sets, served & opt-in (discovery #21)** — the vendored `landing/` (build-landing-page, set-up-seo, set-up-lead-capture, audit-content-quality, audit-copy-compliance) and `workflow/` (write-pull-requests, write-commit-messages) categories are now compiled, seeded, and boot-synced alongside frontend, as `la:*` / `wf:*` skills. Serving is **per-project opt-in**: new **`update_skill_sets`** tool (partial update; missing config = frontend-only, so existing projects are unchanged), `get_skill` refuses disabled sets with an enable hint, `/kickoff` gains **Phase 1b** asking which predefined sets to enable (AskUserQuestion, resume-aware via the new `skill_sets` line in `get_resume_state`). Enabled sets index into implementation phase context: landing rides the Frontend Playbook; workflow injects once per sprint for every implementer.
+
 ## [2.0.0] - 2026-06-11
 
 **Process 2.0** — one consolidated release for Sprints 22–24 plus the skill auto-sync and infrastructure work landed the same day (the 1.4.0–1.6.0 entries that briefly existed here were PR-stage versions, never tagged or published).
