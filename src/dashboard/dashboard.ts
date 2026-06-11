@@ -62,22 +62,6 @@ initSchema(writeDb);
 initScrumSchema(writeDb);
 runMigrations(writeDb, { freshDb: isFreshDb });
 
-// Soft-delete migration: add deleted_at columns if missing
-for (const table of ['milestones', 'sprints', 'epics', 'tickets'] as const) {
-  const cols = writeDb.pragma(`table_info(${table})`) as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === 'deleted_at')) {
-    writeDb.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT DEFAULT NULL`);
-  }
-}
-
-// M13-038: add review_status column to tickets if missing
-{
-  const ticketCols = writeDb.pragma("table_info(tickets)") as Array<{ name: string }>;
-  if (!ticketCols.some((c) => c.name === 'review_status')) {
-    writeDb.exec("ALTER TABLE tickets ADD COLUMN review_status TEXT DEFAULT NULL CHECK(review_status IS NULL OR review_status IN ('pending','approved','rejected'))");
-  }
-}
-
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(writeDb);
 if (seeded.agents + seeded.skills > 0) {
