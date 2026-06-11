@@ -9,6 +9,7 @@ import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
+import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
@@ -24,6 +25,19 @@ runMigrations(db);
 const seeded = seedDefaults(db);
 if (seeded.agents + seeded.skills > 0) {
   console.error(`[seed] Seeded ${seeded.agents} agents, ${seeded.skills} skills from factory defaults`);
+}
+
+// Best-effort refresh of fe:* skills from the latest upstream release.
+// Non-blocking and offline-safe; baked defaults remain the fallback.
+// Disable with CODE_CONTEXT_SKILLS_AUTOSYNC=0.
+if (process.env.CODE_CONTEXT_SKILLS_AUTOSYNC !== "0") {
+  void syncSkillsFromUpstream(db).then((r) => {
+    if (r.ok && !r.skipped) {
+      console.error(
+        `[skills] Synced to ${r.tag}: ${r.inserted} new, ${r.updated} updated, ${r.preserved} user-edited preserved`,
+      );
+    }
+  });
 }
 
 const server = new McpServer({ name: "code-context", version: "1.0.0" });
