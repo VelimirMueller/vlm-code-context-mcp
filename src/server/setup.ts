@@ -7,6 +7,7 @@ import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
+import { applyStatuslineSetting } from "./statusline.js";
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,7 +63,7 @@ console.log(`  Database         : ${DB_PATH}`);
 console.log(`  MCP server       : ${SERVER_ENTRY}\n`);
 
 // 1. Initialize database (code-context + scrum schemas)
-console.log("[1/6] Initializing database...");
+console.log("[1/7] Initializing database...");
 
 if (FORCE && fs.existsSync(DB_PATH)) {
   fs.unlinkSync(DB_PATH);
@@ -79,12 +80,12 @@ console.log("  Code-context schema ready.");
 console.log("  Scrum schema ready.\n");
 
 // 2. Index the target directory
-console.log("[2/6] Indexing target directory...");
+console.log("[2/7] Indexing target directory...");
 const stats = indexDirectory(db, TARGET_DIR);
 console.log(`  Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies.\n`);
 
 // 3. Seed factory defaults into database
-console.log("[3/6] Seeding factory defaults...");
+console.log("[3/7] Seeding factory defaults...");
 const seeded = seedDefaults(db);
 if (seeded.agents + seeded.skills > 0) {
   console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills`);
@@ -132,7 +133,7 @@ console.log("");
 db.close();
 
 // 4. Configure MCP client (.mcp.json)
-console.log("[4/6] Configuring MCP client...");
+console.log("[4/7] Configuring MCP client...");
 const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
 const relServer = "./" + path.relative(TARGET_DIR, SERVER_ENTRY).split(path.sep).join("/");
 const serverEntry = {
@@ -154,7 +155,7 @@ fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`  Wrote ${mcpConfigPath}\n`);
 
 // 5. Configure bridge hook (.claude/settings.json)
-console.log("[5/6] Configuring bridge hook...");
+console.log("[5/7] Configuring bridge hook...");
 const hookScript = "./" + path.relative(TARGET_DIR, path.resolve(__dirname, "../bridge/hook.js")).split(path.sep).join("/");
 const claudeSettingsDir = path.resolve(TARGET_DIR, ".claude");
 const claudeSettingsPath = path.join(claudeSettingsDir, "settings.json");
@@ -190,7 +191,7 @@ console.log(`  Bridge hook configured in ${claudeSettingsPath}`);
 console.log("");
 
 // 6. Copy .claude/commands into target project
-console.log("[6/6] Installing Claude commands...");
+console.log("[6/7] Installing Claude commands...");
 const pkgCommandsDir = path.resolve(__dirname, "../../.claude/commands");
 const targetCommandsDir = path.resolve(TARGET_DIR, ".claude/commands");
 if (fs.existsSync(pkgCommandsDir)) {
@@ -208,6 +209,16 @@ if (fs.existsSync(pkgCommandsDir)) {
   console.log(`  Commands installed to ${targetCommandsDir}`);
 } else {
   console.log("  No commands directory found in package, skipping.");
+}
+console.log("");
+
+// 7. Statusline HUD (opt-in: only written when no statusLine is configured yet)
+console.log("[7/7] Configuring statusline HUD...");
+const statuslineResult = applyStatuslineSetting(TARGET_DIR);
+if (statuslineResult === "written") {
+  console.log(`  Statusline HUD configured in ${claudeSettingsPath} (command: code-context-statusline)`);
+} else {
+  console.log(`  Existing statusLine found in ${claudeSettingsPath} — left untouched.`);
 }
 console.log("");
 
