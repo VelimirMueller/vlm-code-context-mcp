@@ -1,9 +1,25 @@
 import { create } from 'zustand';
-import { get, post } from '@/lib/api';
+import { get, post, patch } from '@/lib/api';
 import { useToastStore } from '@/stores/toastStore';
-import type { Sprint, Ticket, RetroFinding, MilestoneSprintGroup, BurndownData, Blocker, Bug } from '@/types';
+import type { Sprint, Ticket, TicketAssignment, RetroFinding, MilestoneSprintGroup, BurndownData, Blocker, Bug } from '@/types';
 
 export type TicketFilter = 'all' | 'mine' | 'blocked' | 'qaPending' | 'unassigned';
+
+// Request shape of PATCH /api/ticket/:id (all fields optional).
+export interface AssignmentInput {
+  role: string;
+  model?: string | null;
+  lead?: boolean;
+}
+
+export interface TicketUpdatePayload {
+  title?: string;
+  description?: string | null;
+  story_points?: number | null;
+  priority?: string;
+  status?: string;
+  assignments?: AssignmentInput[];
+}
 
 export interface SprintDetail extends Sprint {
   goal: string | null;
@@ -46,6 +62,7 @@ export interface SprintStore {
   archiveAllCompleted: () => Promise<void>;
   selectSprint: (id: number) => Promise<void>;
   fetchTickets: (sprintId: number) => Promise<void>;
+  updateTicket: (ticketId: number, payload: TicketUpdatePayload) => Promise<Ticket | null>;
   fetchRetro: (sprintId: number) => Promise<void>;
   fetchAllRetro: () => Promise<void>;
   fetchBurndown: (sprintId: number) => Promise<void>;
@@ -174,6 +191,48 @@ export const useSprintStore = create<SprintStore>((set, getState) => ({
       set({ tickets: Array.isArray(tickets) ? tickets : [] });
     } catch (e) {
       console.warn("[sprintStore] fetchTickets failed:", e);
+    }
+  },
+
+  // PATCH /api/ticket/:id — optimistic update, reconciled from the response
+  // ticket (which carries the new change_seq/pending_change/assignments, so no
+  // follow-up fetch is needed). On failure the optimistic state is reverted
+  // and the server's error message is surfaced as a toast.
+  updateTicket: async (ticketId: number, payload: TicketUpdatePayload) => {
+    const prevTickets = getState().tickets;
+    const toAssignment = (a: AssignmentInput): TicketAssignment => ({
+      role: a.role,
+      model: a.model ?? null,
+      is_lead: a.lead ? 1 : 0,
+    });
+    set({
+      tickets: prevTickets.map((t) => {
+        if (t.id !== ticketId) return t;
+        const next: Ticket = { ...t };
+        if (payload.title !== undefined) next.title = payload.title;
+        if (payload.description !== undefined) next.description = payload.description;
+        if (payload.story_points !== undefined) next.story_points = payload.story_points;
+        if (payload.priority !== undefined) next.priority = payload.priority;
+        if (payload.status !== undefined) next.status = payload.status;
+        if (payload.assignments !== undefined) {
+          next.assignments = payload.assignments.map(toAssignment);
+          next.assigned_to = payload.assignments.find((a) => a.lead)?.role ?? null;
+        }
+        return next;
+      }),
+    });
+    try {
+      const res = await patch<{ ok: boolean; ticket: Ticket }>(`/api/ticket/${ticketId}`, payload);
+      if (res?.ticket) {
+        // Merge so list-only computed fields (epic_name, milestone_name, …)
+        // survive if the response row omits them.
+        set((s) => ({ tickets: s.tickets.map((t) => (t.id === ticketId ? { ...t, ...res.ticket } : t)) }));
+      }
+      return getState().tickets.find((t) => t.id === ticketId) ?? null;
+    } catch (e) {
+      set({ tickets: prevTickets });
+      useToastStore.getState().addToast((e as Error).message, 'error');
+      return null;
     }
   },
 

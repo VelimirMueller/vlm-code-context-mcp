@@ -22,6 +22,19 @@ function fetchWithTimeout(path: string, init: RequestInit): Promise<Response> {
     .finally(() => clearTimeout(timer));
 }
 
+// Build an Error from a non-ok response, preferring the server's
+// JSON `{ error }` message (e.g. PATCH /api/ticket/:id 400s) over statusText.
+async function responseError(r: Response): Promise<Error> {
+  let detail = '';
+  try {
+    const body = (await r.json()) as { error?: unknown };
+    if (body && typeof body.error === 'string') detail = body.error;
+  } catch {
+    // Body is not JSON — fall back to status line below
+  }
+  return new Error(detail || `API ${r.status}: ${r.statusText}`);
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const key = `${options?.method || 'GET'}:${path}`;
   const isGet = !options?.method || options.method === 'GET';
@@ -41,14 +54,14 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const promise = (async () => {
     try {
       const r = await fetchWithTimeout(path, init);
-      if (!r.ok) throw new Error(`API ${r.status}: ${r.statusText}`);
+      if (!r.ok) throw await responseError(r);
       return (await r.json()) as T;
     } catch (err) {
       // Retry once on network error for GET requests only
       if (isGet && err instanceof TypeError) {
         await delay(RETRY_DELAY_MS);
         const r = await fetchWithTimeout(path, init);
-        if (!r.ok) throw new Error(`API ${r.status}: ${r.statusText}`);
+        if (!r.ok) throw await responseError(r);
         return (await r.json()) as T;
       }
       throw err;
