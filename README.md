@@ -13,7 +13,8 @@
 ```bash
 npm install vlm-code-context-mcp
 npx code-context-mcp setup .
-claude mcp add code-context npx -y vlm-code-context-mcp ./context.db
+claude mcp add code-context
+npx vlm-code-context-mcp ./context.db
 ```
 
 Three commands. Zero API keys. One `context.db` file.
