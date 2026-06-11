@@ -13,8 +13,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "lts/*"
       - name: Re-vendor skills from upstream main + recompile defaults
@@ -22,7 +22,7 @@ jobs:
           node scripts/sync-skills.mjs
           node scripts/compile-skills.mjs
       - name: Open or update sync PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/sync-skills
           add-paths: |
