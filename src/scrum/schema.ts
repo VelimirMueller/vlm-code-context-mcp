@@ -304,7 +304,14 @@ export function initScrumSchema(db: Database.Database): void {
   )`);
 }
 
-export function runMigrations(db: Database.Database): void {
+/** Single source of truth for the schema version. Must equal the max version in
+ *  runMigrations' array — runMigrations asserts this at every call. */
+export const LATEST_SCHEMA_VERSION = 23;
+
+export function runMigrations(
+  db: Database.Database,
+  opts: { freshDb?: boolean } = {},
+): void {
   const current = (db.prepare("SELECT MAX(version) as v FROM schema_versions").get() as any)?.v ?? 0;
   const migrations = [
     { version: 1, name: 'add_epic_id_to_tickets', sql: "SELECT 1" }, // already done
@@ -459,6 +466,19 @@ export function runMigrations(db: Database.Database): void {
     // idempotent post-migration section below.
     { version: 23, name: 'add_ticket_revisions_and_assignments', sql: `SELECT 1` },
   ];
+
+  const maxDefined = Math.max(...migrations.map((m) => m.version));
+  if (maxDefined !== LATEST_SCHEMA_VERSION) {
+    throw new Error(
+      `LATEST_SCHEMA_VERSION (${LATEST_SCHEMA_VERSION}) is out of sync with the migrations array (max ${maxDefined}) — update the constant when adding a migration.`,
+    );
+  }
+  if (current > LATEST_SCHEMA_VERSION) {
+    throw new Error(
+      `context.db schema is v${current}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}. ` +
+        `It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest) or open it with a matching version.`,
+    );
+  }
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
   const migrate = db.transaction(() => {
