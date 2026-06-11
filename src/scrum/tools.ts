@@ -801,7 +801,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (status && status !== oldStatus) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(sprint_id, oldStatus, status);
-        } catch {}
+        } catch (e: any) {
+          console.error(`[audit] update_sprint sprint #${sprint_id} status ${oldStatus}→${status}: ` + (e?.message ?? String(e)));
+        }
       }
 
       // M12-015: Auto-generate retro analysis when sprint is done or closed
@@ -1159,12 +1161,16 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (status && status !== oldStatus) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'status_changed', 'status', ?, ?, 'mcp')`).run(ticket_id, oldStatus, status);
-        } catch {}
+        } catch (e: any) {
+          console.error(`[audit] update_ticket ticket #${ticket_id} status ${oldStatus}→${status}: ` + (e?.message ?? String(e)));
+        }
       }
       if (qa_verified !== undefined) {
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', 'qa_verified', ?, ?, 'mcp')`).run(ticket_id, ticket.qa_verified ? 'true' : 'false', qa_verified ? 'true' : 'false');
-        } catch {}
+        } catch (e: any) {
+          console.error(`[audit] update_ticket ticket #${ticket_id} qa_verified→${qa_verified}: ` + (e?.message ?? String(e)));
+        }
       }
 
       notifyDashboard(db);
@@ -1348,7 +1354,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           db.prepare(`UPDATE sprints SET status = 'implementation', updated_at = datetime('now') WHERE id = ? AND status = 'qa'`).run(sprint_id);
           try {
             db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', 'qa', 'implementation', 'mcp')`).run(sprint_id);
-          } catch {}
+          } catch (e: any) {
+            console.error(`[audit] log_bug sprint #${sprint_id} regression qa→implementation: ` + (e?.message ?? String(e)));
+          }
           regressionNote = " Sprint regressed to implementation due to CRITICAL bug.";
         }
       }
@@ -1654,7 +1662,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         // Log event
         try {
           db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'created', 'status', NULL, 'planning', 'mcp')`).run(sprintId);
-        } catch {}
+        } catch (e: any) {
+          console.error(`[audit] create_sprint sprint #${sprintId} created: ` + (e?.message ?? String(e)));
+        }
 
         const totalPts = tickets.reduce((s, t) => s + (t.story_points || 0), 0);
 
