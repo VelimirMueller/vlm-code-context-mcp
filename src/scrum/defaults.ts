@@ -5,7 +5,11 @@
  * They are never read at runtime — the DB is the sole source of truth.
  * Use reset_* MCP tools to re-seed from these defaults.
  */
-import { FRONTEND_SKILL_DEFAULTS } from "./frontend-skill-defaults.generated.js";
+import {
+  FRONTEND_SKILL_DEFAULTS,
+  LANDING_SKILL_DEFAULTS,
+  WORKFLOW_SKILL_DEFAULTS,
+} from "./frontend-skill-defaults.generated.js";
 
 // ─── Agent Defaults ─────────────────────────────────────────────────────────
 
@@ -206,6 +210,22 @@ export function seedFrontendSkills(db: Database.Database): number {
 }
 
 /**
+ * Idempotently insert any missing skills from EVERY vendored set (frontend
+ * incl. primer, landing, workflow). Content is always present in the DB;
+ * whether a set is served is the separate enablement flag in skill-sets.ts.
+ */
+export function seedSkillSets(db: Database.Database): number {
+  let inserted = seedFrontendSkills(db);
+  const insert = db.prepare(
+    `INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING`,
+  );
+  for (const s of [...LANDING_SKILL_DEFAULTS, ...WORKFLOW_SKILL_DEFAULTS]) {
+    if (insert.run(s.name, s.content, s.owner_role).changes > 0) inserted++;
+  }
+  return inserted;
+}
+
+/**
  * Seed factory defaults into empty tables. Never overwrites existing data.
  * Call this on startup to seed empty tables.
  */
@@ -254,8 +274,8 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
     }
   }
 
-  // Frontend skills: additive, idempotent (independent of the structural-skills guard)
-  skillCount += seedFrontendSkills(db);
+  // Vendored skill sets (fe/la/wf): additive, idempotent (independent of the structural-skills guard)
+  skillCount += seedSkillSets(db);
 
   // Seed mood data if table is empty and agents + sprints exist
   try {
@@ -333,15 +353,16 @@ export function resetSkills(db: Database.Database): number {
   }
 
   // Validation: exactly 5 structural skills (frontend skills are seeded separately)
-  const structural = (db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number }).c;
+  const structural = (db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%' AND name NOT LIKE 'la:%' AND name NOT LIKE 'wf:%'").get() as { c: number }).c;
   if (structural !== 5) {
     throw new Error(`Skill validation failed: expected 5 structural skills, got ${structural}`);
   }
 
-  // Factory reset restores frontend skills too (the DELETE above cleared them).
-  const feRestored = seedFrontendSkills(db);
+  // Factory reset restores every vendored skill set too (the DELETE above cleared
+  // them) — including the enablement row, so the project returns to fe-only defaults.
+  const setsRestored = seedSkillSets(db);
 
-  return SKILL_DEFAULTS.length + feRestored;
+  return SKILL_DEFAULTS.length + setsRestored;
 }
 
 /**
