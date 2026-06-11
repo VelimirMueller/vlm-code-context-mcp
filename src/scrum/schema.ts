@@ -259,8 +259,6 @@ export function initScrumSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_mood_history_sprint ON agent_mood_history(sprint_id);
     CREATE INDEX IF NOT EXISTS idx_event_log_entity ON event_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
-    CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);
-    CREATE INDEX IF NOT EXISTS idx_sprints_status_deleted ON sprints(status, deleted_at);
 
     CREATE TABLE IF NOT EXISTS token_usage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -408,6 +406,19 @@ export function initScrumSchema(db: Database.Database): void {
   }
   if (sprintCols.some((c) => c.name === "archived_at")) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
+  }
+
+  // idx_tickets_sprint_deleted and idx_sprints_status_deleted reference deleted_at columns
+  // that may not exist on legacy DBs — create them only when the columns are present.
+  // For fresh DBs the columns exist in the canonical CREATE TABLE above; for legacy DBs
+  // runMigrations' idempotent section ALTERs them in before creating these indexes.
+  const ticketColsNow = db.pragma("table_info(tickets)") as Array<{ name: string }>;
+  if (ticketColsNow.some((c) => c.name === "deleted_at")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);");
+  }
+  const sprintColsNow = db.pragma("table_info(sprints)") as Array<{ name: string }>;
+  if (sprintColsNow.some((c) => c.name === "deleted_at")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_status_deleted ON sprints(status, deleted_at);");
   }
 
   // Schema version tracking table
@@ -563,9 +574,8 @@ export function runMigrations(
       UPDATE agents SET department = 'quality' WHERE role IN ('qa', 'security-specialist', 'scrum-master');
       UPDATE agents SET department = 'business' WHERE role IN ('product-owner', 'team-lead', 'manager', 'marketing-lead', 'growth-strategist', 'ux-designer');
     ` },
-    { version: 19, name: 'add_ticket_composite_index', sql: `
-      CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);
-    ` },
+    // Index creation is deferred to the idempotent section below (after deleted_at is guaranteed)
+    { version: 19, name: 'add_ticket_composite_index', sql: `SELECT 1` },
     // archived_at column + index are applied in the idempotent post-rebuild section below
     // (the v17 sprints rebuild copies a fixed column list and would otherwise drop a column
     // added here on legacy DBs). This entry only records the version.
@@ -654,6 +664,9 @@ export function runMigrations(
       db.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT DEFAULT NULL`);
     }
   }
+  // Composite soft-delete indexes — created here (not in migrations) so deleted_at is
+  // guaranteed to exist on both legacy and fresh paths before the index is built.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tickets_sprint_deleted ON tickets(sprint_id, deleted_at);`);
 
   // v23 (D1): field-level revision trail for UI/MCP ticket edits
   db.exec(`
