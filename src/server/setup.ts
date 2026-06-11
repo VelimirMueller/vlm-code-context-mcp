@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema, runMigrations } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { applyStatuslineSetting } from "./statusline.js";
 
@@ -57,84 +57,199 @@ const PROJECT_NAME = nameIdx >= 0 && args[nameIdx + 1] ? args[nameIdx + 1] : pat
 const DB_PATH = path.resolve(TARGET_DIR, "context.db");
 const SERVER_ENTRY = path.resolve(SERVER_DIR, "index.js");
 
-console.log(`=== Code Context MCP — Setup (${PROJECT_NAME}) ===\n`);
+// ─── Detect mode: fresh vs update ────────────────────────────────────────────
+const dbExisted = fs.existsSync(DB_PATH);
+const UPDATE_MODE = dbExisted && !FORCE;
+
+if (UPDATE_MODE) {
+  console.log(`=== Code Context MCP — Update (${PROJECT_NAME}) ===\n`);
+} else {
+  console.log(`=== Code Context MCP — Setup (${PROJECT_NAME}) ===\n`);
+}
 console.log(`  Target directory : ${TARGET_DIR}`);
 console.log(`  Database         : ${DB_PATH}`);
 console.log(`  MCP server       : ${SERVER_ENTRY}\n`);
 
-// 1. Initialize database (code-context + scrum schemas)
-console.log("[1/7] Initializing database...");
-
-if (FORCE && fs.existsSync(DB_PATH)) {
-  fs.unlinkSync(DB_PATH);
-  console.log("  Removed existing database (--force).\n");
+if (UPDATE_MODE) {
+  console.log("  Existing database detected → migration mode (use --force for a full reset)\n");
 }
 
-const isFreshDb = !fs.existsSync(DB_PATH);
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-initSchema(db);
-initScrumSchema(db);
-runMigrations(db, { freshDb: isFreshDb });
-console.log("  Code-context schema ready.");
-console.log("  Scrum schema ready.\n");
-
-// 2. Index the target directory
-console.log("[2/7] Indexing target directory...");
-const stats = indexDirectory(db, TARGET_DIR);
-console.log(`  Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies.\n`);
-
-// 3. Seed factory defaults into database
-console.log("[3/7] Seeding factory defaults...");
-const seeded = seedDefaults(db);
-if (seeded.agents + seeded.skills > 0) {
-  console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills`);
-} else {
-  console.log("  Defaults already present, skipping.");
+// ─── Step counter ─────────────────────────────────────────────────────────────
+const totalSteps = UPDATE_MODE ? 2 : 7;
+let stepNo = 1;
+function step(label: string): void {
+  console.log(`[${stepNo++}/${totalSteps}] ${label}`);
 }
-console.log("");
 
-// ─── First-startup wizard: auto-create PRODUCT_VISION and first milestone ────
-{
-  const visionRow = db.prepare(`SELECT id FROM skills WHERE name = 'PRODUCT_VISION'`).get() as { id: number } | undefined;
-  if (!visionRow) {
-    const defaultVision = [
-      `# Product Vision — ${PROJECT_NAME}`,
-      "",
-      "## Mission",
-      `Build and ship ${PROJECT_NAME} as a high-quality, well-documented project.`,
-      "",
-      "## Target Users",
-      "Developers and teams who need a structured, AI-assisted development workflow.",
-      "",
-      "## Success Metrics",
-      "- All milestones completed on schedule",
-      "- Test coverage above 80%",
-      "- Comprehensive documentation",
-      "",
-      "> Update this vision at any time with the `update_vision` MCP tool or via the dashboard.",
-    ].join("\n");
+// ─── --force: rename existing DB (instead of deleting) ───────────────────────
+if (FORCE && dbExisted) {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const bakSuffix = `.bak-${ts}`;
+  const bakPath = DB_PATH + bakSuffix;
+  fs.renameSync(DB_PATH, bakPath);
+  console.log(`  Renamed existing database to ${path.basename(bakPath)}`);
+  // Rename WAL/SHM siblings if present
+  for (const ext of ["-wal", "-shm"]) {
+    const sib = DB_PATH + ext;
+    if (fs.existsSync(sib)) {
+      fs.renameSync(sib, DB_PATH + ext + bakSuffix);
+    }
+  }
+  console.log(`  Backup location: ${bakPath}\n`);
+}
 
-    db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?)`)
-      .run("PRODUCT_VISION", defaultVision, "product-owner");
-    console.log("  Created default PRODUCT_VISION skill (update via MCP tools or dashboard).");
-  } else {
-    console.log("  PRODUCT_VISION skill already exists, skipping.");
+if (UPDATE_MODE) {
+  // ─── UPDATE MODE ──────────────────────────────────────────────────────────
+
+  // [1/2] Migrate
+  step("Migrating database schema...");
+
+  // Peek current schema version (pre-versioning DBs lack the table → current=0)
+  let currentVersion = 0;
+  let peekDb: Database.Database | null = null;
+  try {
+    peekDb = new Database(DB_PATH, { readonly: true });
+    const row = peekDb.prepare("SELECT MAX(version) v FROM schema_versions").get() as any;
+    currentVersion = row?.v ?? 0;
+  } catch {
+    currentVersion = 0;
+  } finally {
+    if (peekDb) {
+      try { peekDb.close(); } catch { /* ignore */ }
+      peekDb = null;
+    }
   }
 
-  // Milestones are created via /kickoff or MCP tools — not auto-seeded during setup.
+  if (currentVersion > LATEST_SCHEMA_VERSION) {
+    console.error(
+      `  ERROR: Database is at schema v${currentVersion}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.` +
+      `\n  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`
+    );
+    process.exit(1);
+  }
 
-  if (!USE_DEFAULTS) {
-    console.log("\n  Tip: Run with --defaults to suppress this output on re-runs.");
+  if (currentVersion < LATEST_SCHEMA_VERSION) {
+    // Backup before migrating: checkpoint the WAL so context.db alone holds all data.
+    // better-sqlite3 returns [{ busy, log, checkpointed }] for this pragma.
+    const checkpointDb = new Database(DB_PATH);
+    const ckptResult = checkpointDb.pragma("wal_checkpoint(TRUNCATE)") as
+      Array<{ busy: number; log: number; checkpointed: number }>;
+    checkpointDb.close();
+    const ckpt = Array.isArray(ckptResult) ? ckptResult[0] : ckptResult;
+    if (ckpt && (ckpt.busy === 1 || ckpt.checkpointed < ckpt.log)) {
+      console.warn(
+        `  Warning: WAL checkpoint incomplete (${ckpt.checkpointed}/${ckpt.log} pages) — ` +
+        `another process may be writing to this database (running dashboard or MCP server?). ` +
+        `The backup may lag the latest writes.`
+      );
+    }
+
+    fs.copyFileSync(DB_PATH, DB_PATH + ".bak");
+    console.log(`  Backup created: context.db.bak`);
+
+    // Open for migration
+    const db = new Database(DB_PATH);
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    try {
+      initSchema(db);
+      initScrumSchema(db);
+      runMigrations(db, { freshDb: false });
+    } catch (err) {
+      console.error(`  Migration failed — your original database is backed up at context.db.bak`);
+      console.error(`  ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    db.close();
+
+    console.log(`  Migrated v${currentVersion} → v${LATEST_SCHEMA_VERSION} (${LATEST_SCHEMA_VERSION - currentVersion} migrations). Backup: context.db.bak`);
+  } else {
+    console.log(`  Schema up to date (v${LATEST_SCHEMA_VERSION}).`);
   }
   console.log("");
+
+  // [2/2] Config repair (mcp.json, bridge hook, commands, statusline)
+  step("Refreshing client config...");
+  console.log("");
+
+} else {
+  // ─── FRESH SETUP MODE ─────────────────────────────────────────────────────
+
+  // [1/7] Initialize database
+  step("Initializing database...");
+
+  const isFreshDb = !fs.existsSync(DB_PATH);
+  const db = new Database(DB_PATH);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  initSchema(db);
+  initScrumSchema(db);
+  runMigrations(db, { freshDb: isFreshDb });
+  console.log("  Code-context schema ready.");
+  console.log("  Scrum schema ready.\n");
+
+  // [2/7] Index the target directory
+  step("Indexing target directory...");
+  const stats = indexDirectory(db, TARGET_DIR);
+  console.log(`  Indexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies.\n`);
+
+  // [3/7] Seed factory defaults
+  step("Seeding factory defaults...");
+  const seeded = seedDefaults(db);
+  if (seeded.agents + seeded.skills > 0) {
+    console.log(`  Seeded ${seeded.agents} agents, ${seeded.skills} skills`);
+  } else {
+    console.log("  Defaults already present, skipping.");
+  }
+  console.log("");
+
+  // ─── First-startup wizard: auto-create PRODUCT_VISION ────────────────────
+  {
+    const visionRow = db.prepare(`SELECT id FROM skills WHERE name = 'PRODUCT_VISION'`).get() as { id: number } | undefined;
+    if (!visionRow) {
+      const defaultVision = [
+        `# Product Vision — ${PROJECT_NAME}`,
+        "",
+        "## Mission",
+        `Build and ship ${PROJECT_NAME} as a high-quality, well-documented project.`,
+        "",
+        "## Target Users",
+        "Developers and teams who need a structured, AI-assisted development workflow.",
+        "",
+        "## Success Metrics",
+        "- All milestones completed on schedule",
+        "- Test coverage above 80%",
+        "- Comprehensive documentation",
+        "",
+        "> Update this vision at any time with the `update_vision` MCP tool or via the dashboard.",
+      ].join("\n");
+
+      db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?)`)
+        .run("PRODUCT_VISION", defaultVision, "product-owner");
+      console.log("  Created default PRODUCT_VISION skill (update via MCP tools or dashboard).");
+    } else {
+      console.log("  PRODUCT_VISION skill already exists, skipping.");
+    }
+
+    // Milestones are created via /kickoff or MCP tools — not auto-seeded during setup.
+
+    if (!USE_DEFAULTS) {
+      console.log("\n  Tip: Run with --defaults to suppress this output on re-runs.");
+    }
+    console.log("");
+  }
+
+  db.close();
+
+  // Advance the step counter past steps 4-7 (they come below, shared with update mode)
+  // Steps 4-7 will be printed with their own headings in fresh mode
+  stepNo = 4; // reset to 4 so [4/7], [5/7], [6/7], [7/7] print correctly
 }
 
-db.close();
+// ─── Config steps (shared: fresh mode = [4/7]..[7/7], update mode already stepped ─
+// In update mode these run under the [2/2] heading already printed.
+// In fresh mode we use individual step() calls.
 
-// 4. Configure MCP client (.mcp.json)
-console.log("[4/7] Configuring MCP client...");
 const mcpConfigPath = path.resolve(TARGET_DIR, ".mcp.json");
 const relServer = "./" + path.relative(TARGET_DIR, SERVER_ENTRY).split(path.sep).join("/");
 const serverEntry = {
@@ -142,6 +257,8 @@ const serverEntry = {
   args: [relServer, DB_PATH],
 };
 
+// Configure MCP client (.mcp.json)
+if (!UPDATE_MODE) step("Configuring MCP client...");
 let mcpConfig: Record<string, any> = { mcpServers: {} };
 if (fs.existsSync(mcpConfigPath)) {
   try {
@@ -155,8 +272,8 @@ mcpConfig.mcpServers["code-context"] = serverEntry;
 fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`  Wrote ${mcpConfigPath}\n`);
 
-// 5. Configure bridge hook (.claude/settings.json)
-console.log("[5/7] Configuring bridge hook...");
+// Configure bridge hook (.claude/settings.json)
+if (!UPDATE_MODE) step("Configuring bridge hook...");
 const hookScript = "./" + path.relative(TARGET_DIR, path.resolve(__dirname, "../bridge/hook.js")).split(path.sep).join("/");
 const claudeSettingsDir = path.resolve(TARGET_DIR, ".claude");
 const claudeSettingsPath = path.join(claudeSettingsDir, "settings.json");
@@ -191,8 +308,8 @@ fs.writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2) + "
 console.log(`  Bridge hook configured in ${claudeSettingsPath}`);
 console.log("");
 
-// 6. Copy .claude/commands into target project
-console.log("[6/7] Installing Claude commands...");
+// Copy .claude/commands into target project
+if (!UPDATE_MODE) step("Installing Claude commands...");
 const pkgCommandsDir = path.resolve(__dirname, "../../.claude/commands");
 const targetCommandsDir = path.resolve(TARGET_DIR, ".claude/commands");
 if (fs.existsSync(pkgCommandsDir)) {
@@ -213,8 +330,8 @@ if (fs.existsSync(pkgCommandsDir)) {
 }
 console.log("");
 
-// 7. Statusline HUD (opt-in: only written when no statusLine is configured yet)
-console.log("[7/7] Configuring statusline HUD...");
+// Statusline HUD
+if (!UPDATE_MODE) step("Configuring statusline HUD...");
 const statuslineResult = applyStatuslineSetting(TARGET_DIR);
 if (statuslineResult === "written") {
   console.log(`  Statusline HUD configured in ${claudeSettingsPath} (command: code-context-statusline)`);
@@ -223,7 +340,11 @@ if (statuslineResult === "written") {
 }
 console.log("");
 
-console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
+if (UPDATE_MODE) {
+  console.log(`=== Update complete! ===\n`);
+} else {
+  console.log(`=== Setup complete! (${PROJECT_NAME}) ===\n`);
+}
 const dashPort = process.env.DASHBOARD_PORT || "3333";
 console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ${DB_PATH}  — Open at http://localhost:${dashPort}`);

@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema, runMigrations } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION } from "../scrum/schema.js";
 import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
@@ -23,6 +23,7 @@ db.pragma("foreign_keys = ON");
 initSchema(db);
 initScrumSchema(db);
 runMigrations(db, { freshDb: isFreshDb });
+console.error(`[schema] v${LATEST_SCHEMA_VERSION}${isFreshDb ? " (new database)" : ""}`);
 
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(db);

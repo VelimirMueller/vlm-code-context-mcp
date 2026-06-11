@@ -152,6 +152,7 @@ describe.each([...FIXTURES])("legacy fixture: %s", (name) => {
 
   it("preserves the seeded data", () => {
     const db = loadFixture(name);
+    db.pragma("foreign_keys = ON"); // production FK config — v5 rebuild must not cascade-delete
     initSchema(db);
     initScrumSchema(db);
     runMigrations(db);
@@ -172,6 +173,7 @@ describe.each([...FIXTURES])("legacy fixture: %s", (name) => {
 
   it("reaches structural parity with a fresh baseline DB", () => {
     const db = loadFixture(name);
+    db.pragma("foreign_keys = ON");
     initSchema(db);
     initScrumSchema(db);
     runMigrations(db);
@@ -181,6 +183,7 @@ describe.each([...FIXTURES])("legacy fixture: %s", (name) => {
 
   it("is idempotent — second runMigrations changes nothing", () => {
     const db = loadFixture(name);
+    db.pragma("foreign_keys = ON");
     initSchema(db);
     initScrumSchema(db);
     runMigrations(db);

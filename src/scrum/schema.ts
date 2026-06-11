@@ -804,5 +804,17 @@ export function runMigrations(
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
   });
-  migrate();
+
+  // SQLite table rebuilds (DROP + RENAME) under FK enforcement fire ON DELETE CASCADE
+  // into referencing tables — e.g. the v5 sprints rebuild would silently delete all
+  // tickets and retro_findings on pre-versioning DBs. FK must be OFF during migration
+  // (PRAGMA foreign_keys is a no-op inside an open transaction, so toggle outside)
+  // and restored afterwards. Canonical pattern from the SQLite docs.
+  const fkWasOn = (db.pragma("foreign_keys", { simple: true }) as number) === 1;
+  if (fkWasOn) db.pragma("foreign_keys = OFF");
+  try {
+    migrate();
+  } finally {
+    if (fkWasOn) db.pragma("foreign_keys = ON");
+  }
 }
