@@ -6,6 +6,9 @@
  *  - canonical initScrumSchema == full migration replay (schema parity)
  *  - legacy fixtures (pre-versioning / v1.2.1 / v1.3.1) migrate with data intact
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "../src/server/schema.js";
@@ -80,8 +83,7 @@ describe("fresh-DB baseline", () => {
     expect(count).toBe(LATEST_SCHEMA_VERSION);
     const v = (baseline.prepare("SELECT MAX(version) v FROM schema_versions").get() as any).v;
     expect(v).toBe(LATEST_SCHEMA_VERSION);
-    const allVersions = (baseline.prepare("SELECT COUNT(*) c FROM schema_versions WHERE version BETWEEN 1 AND 23").get() as any).c;
-    expect(allVersions).toBe(LATEST_SCHEMA_VERSION);
+    // count + MAX already cover completeness — no redundant hardcoded range check needed
     expect(schemaSnapshot(baseline)).toEqual(schemaSnapshot(replayed));
   });
 
@@ -117,5 +119,75 @@ describe("canonical schema parity", () => {
     initScrumSchema(initOnly);
     const names = (initOnly.prepare("SELECT name FROM tags ORDER BY name").all() as any[]).map((r) => r.name);
     expect(names).toEqual(["bug", "documentation", "performance", "security", "tech-debt", "ux"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy fixture migration suite
+// ---------------------------------------------------------------------------
+
+const FIXTURE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "fixtures/legacy-dbs",
+);
+const FIXTURES = ["pre-versioning", "v1.2.1", "v1.3.1"] as const;
+
+function loadFixture(name: string): Database.Database {
+  const sql = fs.readFileSync(path.join(FIXTURE_DIR, `${name}.sql`), "utf-8");
+  const db = new Database(":memory:");
+  db.exec(sql); // dump sets PRAGMA foreign_keys=OFF internally
+  return db;
+}
+
+describe.each([...FIXTURES])("legacy fixture: %s", (name) => {
+  it("migrates to LATEST_SCHEMA_VERSION without errors", () => {
+    const db = loadFixture(name);
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    initScrumSchema(db);
+    expect(() => runMigrations(db)).not.toThrow();
+    const v = (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as any).v;
+    expect(v).toBe(LATEST_SCHEMA_VERSION);
+  });
+
+  it("preserves the seeded data", () => {
+    const db = loadFixture(name);
+    initSchema(db);
+    initScrumSchema(db);
+    runMigrations(db);
+    const sprint = db.prepare("SELECT name, goal FROM sprints WHERE id = 1").get() as any;
+    expect(sprint).toMatchObject({ name: "Fixture Sprint 1", goal: "Legacy fixture goal" });
+    const tickets = db
+      .prepare("SELECT ticket_ref, title, status, story_points FROM tickets ORDER BY id")
+      .all() as any[];
+    expect(tickets).toEqual([
+      { ticket_ref: "T-1", title: "Legacy ticket one", status: "DONE", story_points: 3 },
+      { ticket_ref: "T-2", title: "Legacy ticket two", status: "TODO", story_points: 5 },
+    ]);
+    const finding = db.prepare("SELECT finding, status FROM retro_findings WHERE sprint_id = 1").get() as any;
+    expect(finding.finding).toBe("Legacy try-next finding");
+    expect(finding.status).toBe("open"); // v21 default applied to legacy rows
+    expect((db.prepare("SELECT name FROM skills WHERE name='LEGACY_SKILL'").get() as any).name).toBe("LEGACY_SKILL");
+  });
+
+  it("reaches structural parity with a fresh baseline DB", () => {
+    const db = loadFixture(name);
+    initSchema(db);
+    initScrumSchema(db);
+    runMigrations(db);
+    const baseline = freshDb({ freshDb: true });
+    expect(schemaSnapshot(db)).toEqual(schemaSnapshot(baseline));
+  });
+
+  it("is idempotent — second runMigrations changes nothing", () => {
+    const db = loadFixture(name);
+    initSchema(db);
+    initScrumSchema(db);
+    runMigrations(db);
+    const before = schemaSnapshot(db);
+    const rowsBefore = (db.prepare("SELECT COUNT(*) c FROM tickets").get() as any).c;
+    runMigrations(db);
+    expect(schemaSnapshot(db)).toEqual(before);
+    expect((db.prepare("SELECT COUNT(*) c FROM tickets").get() as any).c).toBe(rowsBefore);
   });
 });
