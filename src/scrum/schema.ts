@@ -79,6 +79,9 @@ export function initScrumSchema(db: Database.Database): void {
       action_owner TEXT,
       action_applied INTEGER NOT NULL DEFAULT 0,
       linked_ticket_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'adopted', 'dropped')),
+      dropped_reason TEXT,
+      deferred_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
       FOREIGN KEY (linked_ticket_id) REFERENCES tickets(id) ON DELETE SET NULL
@@ -446,6 +449,9 @@ export function runMigrations(db: Database.Database): void {
     // (the v17 sprints rebuild copies a fixed column list and would otherwise drop a column
     // added here on legacy DBs). This entry only records the version.
     { version: 20, name: 'add_sprint_archived_at', sql: `SELECT 1` },
+    // try_next lifecycle columns (status/dropped_reason/deferred_at) are applied in the
+    // idempotent post-migration section below — same pattern as v14/v20.
+    { version: 21, name: 'add_retro_finding_lifecycle', sql: `SELECT 1` },
   ];
 
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
@@ -467,6 +473,16 @@ export function runMigrations(db: Database.Database): void {
   const retroCols = db.pragma("table_info(retro_findings)") as Array<{ name: string }>;
   if (!retroCols.some((c) => c.name === "linked_ticket_id")) {
     db.exec("ALTER TABLE retro_findings ADD COLUMN linked_ticket_id INTEGER REFERENCES tickets(id)");
+  }
+  // v21: try_next lifecycle — existing rows default to 'open' (the un-triaged state)
+  if (!retroCols.some((c) => c.name === "status")) {
+    db.exec("ALTER TABLE retro_findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'adopted', 'dropped'))");
+  }
+  if (!retroCols.some((c) => c.name === "dropped_reason")) {
+    db.exec("ALTER TABLE retro_findings ADD COLUMN dropped_reason TEXT");
+  }
+  if (!retroCols.some((c) => c.name === "deferred_at")) {
+    db.exec("ALTER TABLE retro_findings ADD COLUMN deferred_at TEXT");
   }
 
   const discoveryCols = db.pragma("table_info(discoveries)") as Array<{ name: string }>;

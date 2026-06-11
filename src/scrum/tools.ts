@@ -122,6 +122,116 @@ export function checkSprintGates(db: Database.Database, sprint: any, nextPhase: 
   return { warnings, canProceed: true };
 }
 
+/** Truncate a string for compact gate listings. */
+function truncateFinding(s: string, max = 140): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/**
+ * A1: auto-apply — flip action_applied on adopted try_next findings whose linked ticket
+ * reached DONE (same pattern as get_discovery_coverage's auto-promote). Returns rows changed.
+ */
+export function autoApplyRetroActions(db: Database.Database): number {
+  const r = db.prepare(`
+    UPDATE retro_findings SET action_applied = 1
+    WHERE category = 'try_next' AND status = 'adopted' AND action_applied = 0
+      AND linked_ticket_id IN (SELECT id FROM tickets WHERE status = 'DONE')
+  `).run();
+  return r.changes;
+}
+
+/**
+ * A1: try_next findings that still demand a planning decision — status 'open' and not
+ * deferred within the last 24h (a planning session fits in a day; the next planning
+ * re-surfaces deferred items).
+ */
+export function getUntriagedTryNext(db: Database.Database): any[] {
+  return db.prepare(`
+    SELECT rf.id, rf.finding, rf.role, rf.action_owner, s.name as origin_sprint,
+      (SELECT COUNT(*) FROM sprints s2 WHERE s2.id > rf.sprint_id AND s2.deleted_at IS NULL) as age_sprints
+    FROM retro_findings rf JOIN sprints s ON rf.sprint_id = s.id
+    WHERE rf.category = 'try_next' AND rf.status = 'open'
+      AND (rf.deferred_at IS NULL OR rf.deferred_at < datetime('now', '-24 hours'))
+    ORDER BY rf.sprint_id ASC, rf.id ASC
+  `).all() as any[];
+}
+
+/**
+ * A2: open discoveries with sprint-age annotation. P0/P1 items older than 3 sprints
+ * are flagged escalated and block the planning gate.
+ */
+export function getOpenDiscoveries(db: Database.Database): any[] {
+  const rows = db.prepare(`
+    SELECT d.id, d.finding, d.priority, d.category, s.name as origin_sprint,
+      (SELECT COUNT(*) FROM sprints s2 WHERE s2.id > d.discovery_sprint_id AND s2.deleted_at IS NULL) as age_sprints
+    FROM discoveries d JOIN sprints s ON d.discovery_sprint_id = s.id
+    WHERE d.status = 'discovered'
+    ORDER BY d.priority ASC, age_sprints DESC, d.id ASC
+  `).all() as any[];
+  return rows.map((d: any) => ({ ...d, escalated: (d.priority === "P0" || d.priority === "P1") && d.age_sprints > 3 }));
+}
+
+/**
+ * A1+A2: planning gate evaluated by start_sprint. Blocks when untriaged try_next
+ * findings or escalated open discoveries exist.
+ */
+export function checkPlanningGate(db: Database.Database): { blocked: boolean; sections: string[] } {
+  autoApplyRetroActions(db);
+  const sections: string[] = [];
+  const untriaged = getUntriagedTryNext(db);
+  if (untriaged.length > 0) {
+    sections.push(`## Untriaged try_next findings (${untriaged.length})`);
+    sections.push(`Triage each with triage_retro_finding — adopt (requires ticket_id), drop (requires dropped_reason), or defer:`);
+    untriaged.slice(0, 10).forEach((f: any) =>
+      sections.push(`- #${f.id} [${f.origin_sprint}, ${f.age_sprints} sprint(s) old${f.action_owner ? `, owner: ${f.action_owner}` : ""}] ${truncateFinding(f.finding)}`));
+    if (untriaged.length > 10) sections.push(`- …and ${untriaged.length - 10} more — list_retro_findings({ category: "try_next" })`);
+  }
+  const escalated = getOpenDiscoveries(db).filter((d: any) => d.escalated);
+  if (escalated.length > 0) {
+    sections.push(`## Escalated open discoveries (${escalated.length}) — P0/P1 older than 3 sprints`);
+    sections.push(`Pull each into the sprint (link_discovery_to_ticket) or defer/drop it (update_discovery):`);
+    escalated.forEach((d: any) =>
+      sections.push(`- ⚠ ${d.priority} #${d.id} [open ${d.age_sprints} sprints] ${truncateFinding(d.finding)}`));
+  }
+  return { blocked: sections.length > 0, sections };
+}
+
+/**
+ * A1+A2: planning context block injected by load_phase_context({ phase: "tickets" }).
+ * Lists ALL open try_next findings (deferred ones marked) and open discoveries, plus
+ * the triage directive the planning gate will enforce.
+ */
+export function buildPlanningGateContext(db: Database.Database): string {
+  autoApplyRetroActions(db);
+  const sections: string[] = [];
+
+  const tryNext = db.prepare(`
+    SELECT rf.id, rf.finding, rf.action_owner, s.name as origin_sprint,
+      (SELECT COUNT(*) FROM sprints s2 WHERE s2.id > rf.sprint_id AND s2.deleted_at IS NULL) as age_sprints,
+      CASE WHEN rf.deferred_at IS NOT NULL AND rf.deferred_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END as recently_deferred
+    FROM retro_findings rf JOIN sprints s ON rf.sprint_id = s.id
+    WHERE rf.category = 'try_next' AND rf.status = 'open'
+    ORDER BY rf.sprint_id ASC, rf.id ASC
+  `).all() as any[];
+  sections.push(`## Open try_next (${tryNext.length})`);
+  if (tryNext.length === 0) sections.push("None — all triaged. ✓");
+  else {
+    tryNext.forEach((f: any) =>
+      sections.push(`- #${f.id} [${f.age_sprints} sprint(s) old${f.action_owner ? `, owner: ${f.action_owner}` : ""}]${f.recently_deferred ? " (deferred)" : ""} ${truncateFinding(f.finding)}`));
+  }
+
+  const discoveries = getOpenDiscoveries(db);
+  sections.push(`\n## Open discoveries (${discoveries.length})`);
+  if (discoveries.length === 0) sections.push("None ✓");
+  else discoveries.forEach((d: any) =>
+    sections.push(`- ${d.escalated ? "⚠ ESCALATED " : ""}${d.priority} #${d.id} [open ${d.age_sprints} sprint(s)] ${truncateFinding(d.finding)}`));
+
+  if (tryNext.length > 0 || discoveries.length > 0) {
+    sections.push(`\n**Triage directive:** before start_sprint, resolve every open try_next (triage_retro_finding: adopt ≥1 as a ticket when feasible, else drop with reason or defer) and address escalated discoveries (pull in via link_discovery_to_ticket, or defer/drop via update_discovery). The start_sprint gate enforces this; acknowledge_open_items=true overrides.`);
+  }
+  return sections.join("\n");
+}
+
 /**
  * Register read-only MCP tools for the Scrum system.
  */
@@ -682,6 +792,57 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
   );
 
   server.tool(
+    "triage_retro_finding",
+    "Triage an open try_next retro finding at sprint planning: adopt it as a ticket, drop it with a reason, or defer it to the next planning. The start_sprint planning gate requires every open try_next to be triaged (deferrals satisfy it for 24h).",
+    {
+      finding_id: z.number().describe("Retro finding ID (category must be try_next)"),
+      resolution: z.enum(["adopt", "drop", "defer"]).describe("adopt = becomes a ticket (ticket_id required), drop = will not do (dropped_reason required), defer = decide at next planning"),
+      ticket_id: z.number().optional().describe("Ticket that implements this finding (required for adopt)"),
+      dropped_reason: z.string().optional().describe("Why this will not be done (required for drop)"),
+    },
+    async ({ finding_id, resolution, ticket_id, dropped_reason }) => {
+      try {
+        const f = db.prepare(`SELECT id, category, status, finding FROM retro_findings WHERE id = ?`).get(finding_id) as any;
+        if (!f) return { content: [{ type: "text" as const, text: `Retro finding #${finding_id} not found.` }], isError: true };
+        if (f.category !== "try_next") return { content: [{ type: "text" as const, text: `Finding #${finding_id} is '${f.category}' — only try_next findings are triaged.` }], isError: true };
+
+        if (resolution === "adopt") {
+          if (!ticket_id) return { content: [{ type: "text" as const, text: `adopt requires ticket_id — create the ticket first, then link it here.` }], isError: true };
+          const t = db.prepare(`SELECT id, ticket_ref, title, status FROM tickets WHERE id = ?`).get(ticket_id) as any;
+          if (!t) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
+          db.prepare(`UPDATE retro_findings SET status = 'adopted', linked_ticket_id = ?, dropped_reason = NULL, deferred_at = NULL WHERE id = ?`).run(ticket_id, finding_id);
+          autoApplyRetroActions(db);
+          try {
+            db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'adopted', 'mcp')`).run(finding_id, f.status);
+          } catch {}
+          notifyDashboard(db);
+          return { content: [{ type: "text" as const, text: `Finding #${finding_id} adopted → ${t.ticket_ref || "#" + t.id}: ${t.title}. action_applied flips automatically when the ticket reaches DONE.` }] };
+        }
+
+        if (resolution === "drop") {
+          if (!dropped_reason || !dropped_reason.trim()) return { content: [{ type: "text" as const, text: `drop requires dropped_reason — say why this will not be done.` }], isError: true };
+          db.prepare(`UPDATE retro_findings SET status = 'dropped', dropped_reason = ?, deferred_at = NULL WHERE id = ?`).run(dropped_reason.trim(), finding_id);
+          try {
+            db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'status', ?, 'dropped', 'mcp')`).run(finding_id, f.status);
+          } catch {}
+          notifyDashboard(db);
+          return { content: [{ type: "text" as const, text: `Finding #${finding_id} dropped: ${dropped_reason.trim()}` }] };
+        }
+
+        // defer
+        db.prepare(`UPDATE retro_findings SET deferred_at = datetime('now') WHERE id = ?`).run(finding_id);
+        try {
+          db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'deferred', NULL, datetime('now'), 'mcp')`).run(finding_id);
+        } catch {}
+        notifyDashboard(db);
+        return { content: [{ type: "text" as const, text: `Finding #${finding_id} deferred — gate satisfied for 24h; it re-surfaces at the next planning.` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
     "create_blocker",
     "Report a blocker on a sprint",
     {
@@ -1026,9 +1187,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         assigned_to: z.string().optional(),
         story_points: z.number().optional(),
       })).describe("Tickets to create and assign to this sprint"),
+      acknowledge_open_items: z.boolean().optional().describe("Override the planning gate (untriaged try_next / escalated discoveries) — the items stay open and re-surface next planning"),
     },
-    async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets }) => {
+    async ({ name, goal, milestone_id, epic_id, velocity, start_date, end_date, tickets, acknowledge_open_items }) => {
       try {
+        // A1+A2 planning gate: no sprint starts over untriaged retro/discovery items
+        const gate = checkPlanningGate(db);
+        if (gate.blocked && !acknowledge_open_items) {
+          return { content: [{ type: "text" as const, text: [
+            `⛔ SPRINT START BLOCKED — planning gate`,
+            ``,
+            ...gate.sections,
+            ``,
+            `Triage the items above, then call start_sprint again. To start anyway, pass acknowledge_open_items: true (defers the decisions — they re-surface at the next planning).`,
+          ].join("\n") }] };
+        }
+
         // Validate assigned_to values against real agents
         const validRoles = new Set((db.prepare("SELECT role FROM agents").all() as { role: string }[]).map(a => a.role));
         const invalidAssignments = tickets.filter(t => t.assigned_to && !validRoles.has(t.assigned_to)).map(t => `"${t.assigned_to}" (${t.title})`);
@@ -1536,6 +1710,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           const epics = db.prepare(`SELECT id, name, status FROM epics WHERE status IN ('planned', 'active') ORDER BY priority DESC`).all() as any[];
           sections.push(`\n## Active Epics (${epics.length})`);
           epics.forEach((e: any) => sections.push(`- #${e.id} ${e.name} [${e.status}]`));
+
+          // A1+A2: planning gate context — open try_next + open discoveries + triage directive
+          sections.push("");
+          sections.push(buildPlanningGateContext(db));
         }
 
         else if (phase === "implementation") {
@@ -1609,12 +1787,20 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           }
 
           // Retro patterns
+          autoApplyRetroActions(db);
           const categories = db.prepare(`SELECT category, COUNT(*) as count FROM retro_findings GROUP BY category ORDER BY count DESC`).all() as any[];
-          const actionStats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN action_applied = 1 THEN 1 ELSE 0 END) as applied FROM retro_findings WHERE action_owner IS NOT NULL`).get() as any;
+          const lifecycle = db.prepare(`
+            SELECT
+              SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open,
+              SUM(CASE WHEN status = 'adopted' THEN 1 ELSE 0 END) as adopted,
+              SUM(CASE WHEN status = 'adopted' AND action_applied = 1 THEN 1 ELSE 0 END) as applied,
+              SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) as dropped
+            FROM retro_findings WHERE category = 'try_next'
+          `).get() as any;
           if (categories.length > 0) {
             sections.push(`\n## Retro Patterns`);
             categories.forEach((c: any) => sections.push(`- ${c.category}: ${c.count}`));
-            sections.push(`Action follow-through: ${actionStats.applied || 0}/${actionStats.total || 0}`);
+            sections.push(`try_next lifecycle: ${lifecycle.open || 0} open | ${lifecycle.adopted || 0} adopted (${lifecycle.applied || 0} applied) | ${lifecycle.dropped || 0} dropped`);
           }
 
           // Recent velocity for comparison
@@ -1999,9 +2185,23 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         // Category breakdown
         const categories = db.prepare(`SELECT category, COUNT(*) as count FROM retro_findings GROUP BY category ORDER BY count DESC`).all() as any[];
 
-        // Action applied rate
-        const actionStats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN action_applied = 1 THEN 1 ELSE 0 END) as applied FROM retro_findings WHERE action_owner IS NOT NULL`).get() as any;
-        const actionRate = actionStats.total > 0 ? Math.round((actionStats.applied / actionStats.total) * 100) : 0;
+        // A1: auto-apply adopted findings whose ticket landed, then compute lifecycle stats
+        autoApplyRetroActions(db);
+        const lc = db.prepare(`
+          SELECT
+            SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open,
+            SUM(CASE WHEN status = 'adopted' THEN 1 ELSE 0 END) as adopted,
+            SUM(CASE WHEN status = 'adopted' AND action_applied = 1 THEN 1 ELSE 0 END) as applied,
+            SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) as dropped,
+            COUNT(*) as total
+          FROM retro_findings WHERE category = 'try_next'
+        `).get() as any;
+        const oldestOpen = db.prepare(`
+          SELECT MAX((SELECT COUNT(*) FROM sprints s2 WHERE s2.id > rf.sprint_id AND s2.deleted_at IS NULL)) as age
+          FROM retro_findings rf WHERE rf.category = 'try_next' AND rf.status = 'open'
+        `).get() as any;
+        const triageRate = lc.total > 0 ? Math.round(((lc.adopted + lc.dropped) / lc.total) * 100) : 0;
+        const appliedRate = lc.total > 0 ? Math.round((lc.applied / lc.total) * 100) : 0;
 
         // Top recurring went_wrong findings — simple word-frequency approach
         const wrongFindings = db.prepare(`SELECT finding FROM retro_findings WHERE category = 'went_wrong'`).all() as any[];
@@ -2032,10 +2232,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           `## Category Breakdown`,
           ...categories.map((c: any) => `- **${c.category}**: ${c.count} (${Math.round((c.count / total) * 100)}%)`),
           ``,
-          `## Action Follow-Through`,
-          `- Actions with owners: ${actionStats.total}`,
-          `- Actions applied: ${actionStats.applied}`,
-          `- Follow-through rate: ${actionRate}%`,
+          `## Action Follow-Through (try_next lifecycle)`,
+          `- open: ${lc.open || 0}${lc.open > 0 && oldestOpen?.age != null ? ` (oldest: ${oldestOpen.age} sprints)` : ""} | adopted: ${lc.adopted || 0} (${lc.applied || 0} applied) | dropped: ${lc.dropped || 0}`,
+          `- Triage rate (decided): ${triageRate}%`,
+          `- Applied rate (adopted & shipped): ${appliedRate}%`,
           ``,
           `## Top Recurring Issues (went_wrong)`,
           wrongFindings.length === 0 ? "No went_wrong findings yet." : (topWords.length > 0 ? topWords.map((t, i) => `${i + 1}. ${t}`).join("\n") : "Not enough data for patterns."),
