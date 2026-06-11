@@ -5,7 +5,15 @@ import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
-import { buildFrontendPlaybook, getSkillContent } from "./frontend-playbook.js";
+import { buildFrontendPlaybook, buildWorkflowPlaybook, getSkillContent } from "./frontend-playbook.js";
+import {
+  SKILL_SETS,
+  formatEnablement,
+  getEnabledSkillSets,
+  setEnabledSkillSets,
+  skillSetForName,
+  skillSetsConfigured,
+} from "./skill-sets.js";
 import { sprintPulse, ticketDoneCard, launchCard, sprintCompleteCard, type SprintPulseData } from "./cards.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
@@ -680,12 +688,45 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "get_skill",
-    "Fetch the full content of a single skill by name (e.g. 'fe:set-up-auth', the primer 'fe:_house-style', or a shared/companion ref like 'fe:_shared/<file>' or 'fe:set-up-auth/auth-patterns.md'). Use after load_phase_context surfaces the frontend index.",
-    { name: z.string().describe("Skill name, e.g. 'fe:set-up-auth'") },
+    "Fetch the full content of a single skill by name (e.g. 'fe:set-up-auth', 'la:build-landing-page', 'wf:write-pull-requests', the primer 'fe:_house-style', or a shared/companion ref like 'fe:_shared/<file>'). Use after load_phase_context surfaces a skill index.",
+    { name: z.string().describe("Skill name, e.g. 'fe:set-up-auth' or 'wf:write-pull-requests'") },
     async ({ name }) => {
+      const set = skillSetForName(name);
+      if (set && !getEnabledSkillSets(db)[set.id]) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Skill set '${set.id}' (${set.prefix}:*) is disabled for this project. Enable it with update_skill_sets({ ${set.id}: true }) — /kickoff also asks on its first run.`,
+          }],
+        };
+      }
       const content = getSkillContent(db, name);
       if (content === null) return { content: [{ type: "text" as const, text: `Skill '${name}' not found.` }] };
       return { content: [{ type: "text" as const, text: content }] };
+    },
+  );
+
+  server.tool(
+    "update_skill_sets",
+    "Enable or disable predefined skill sets (frontend fe:*, landing la:*, workflow wf:*) for this project. Partial update — omitted sets keep their current state. Enabled sets are indexed into phase context and served by get_skill.",
+    {
+      frontend: z.boolean().optional().describe("Serve fe:* skills (default: enabled)"),
+      landing: z.boolean().optional().describe("Serve la:* landing-page skills (default: disabled)"),
+      workflow: z.boolean().optional().describe("Serve wf:* PR/commit skills (default: disabled)"),
+    },
+    async ({ frontend, landing, workflow }) => {
+      if (frontend === undefined && landing === undefined && workflow === undefined) {
+        const current = formatEnablement(getEnabledSkillSets(db), skillSetsConfigured(db));
+        return { content: [{ type: "text" as const, text: `Skill sets: ${current}\nPass at least one of { frontend, landing, workflow } to change.` }] };
+      }
+      const map = setEnabledSkillSets(db, { frontend, landing, workflow });
+      const hints = SKILL_SETS.filter((s) => map[s.id]).map((s) => `${s.prefix}:*`);
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Skill sets updated: ${formatEnablement(map, true)}\nEnabled sets (${hints.join(", ") || "none"}) are indexed into load_phase_context and pullable via get_skill.`,
+        }],
+      };
     },
   );
 
@@ -2107,6 +2148,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         `discoveries: ${activeDiscoveries} active`,
         `milestone: ${activeMilestone ? `#${activeMilestone.id} ${activeMilestone.name} [${activeMilestone.status}] ${activeMilestone.progress}%` : "none"}`,
         `epics: ${activeEpics} active, ${completedEpics} completed`,
+        `skill_sets: ${formatEnablement(getEnabledSkillSets(db), skillSetsConfigured(db))}`,
         `next_phase: ${nextPhase}`,
       ].filter((l): l is string => l !== null);
 
@@ -2243,6 +2285,18 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
               if (playbook) sections.push(playbook);
             } else {
               sections.push(`\n**Frontend Playbook:** already injected earlier this sprint — pull specific skills with get_skill({ name: "fe:<slug>" }).`);
+            }
+          }
+
+          // Workflow skills (wf:*) are role-agnostic — same first-load/pointer split,
+          // keyed on any ticket having started rather than fe assignment.
+          const wfPlaybook = buildWorkflowPlaybook(db);
+          if (wfPlaybook) {
+            const anyPrior = tickets.some((t: any) => ["IN_PROGRESS", "DONE"].includes(t.status) && t.id !== ticket_id);
+            if (!anyPrior) {
+              sections.push(wfPlaybook);
+            } else {
+              sections.push(`\n**Workflow skills:** enabled — pull with get_skill({ name: "wf:<slug>" }) when writing commits/PRs.`);
             }
           }
         }

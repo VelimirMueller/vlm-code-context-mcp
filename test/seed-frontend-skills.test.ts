@@ -38,7 +38,7 @@ describe("seedFrontendSkills", () => {
 
   it("coexists with the 5 structural skills via seedDefaults", () => {
     seedDefaults(db);
-    const structural = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'").get() as { c: number };
+    const structural = db.prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%' AND name NOT LIKE 'la:%' AND name NOT LIKE 'wf:%'").get() as { c: number };
     expect(structural.c).toBe(5);
     expect(feCount()).toBeGreaterThan(0);
   });

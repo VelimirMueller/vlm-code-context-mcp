@@ -32,6 +32,7 @@ vision:      set                  # from get_resume_state()
 sprints:     21 completed · none active
 discoveries: 9 active
 milestone:   "#21 Process 2.0"    # [active] 40%
+skill_sets:  fe ✓ · la ✗ · wf ✗   # "(defaults — not configured yet)" → Phase 1b will ask
 next_phase:  tickets
 ```
 
@@ -64,6 +65,7 @@ Priority order for asking the user anything:
 Using the data already loaded in Step 0, determine where to pick up:
 
 - If a vision already exists (non-empty) → skip Phase 1, confirm the existing vision to the user
+- If `skill_sets` carries no "(defaults — not configured yet)" marker → skip Phase 1b (the project already chose)
 - If active/planned discoveries exist → skip Phase 2, show them and ask if more are needed
 - If an active milestone exists → skip Phase 3, show it
 - If epics already linked to the milestone → skip Phase 4, show them
@@ -87,6 +89,18 @@ milestone: none yet     # ← picking up here
 Plain-text question (free-form input). Explain: the vision anchors every sprint, ticket, and priority decision. Ask for: what are you building, who is it for, what does success look like. Give one short example.
 
 → `update_vision({ vision: "<cleaned up response>" })`
+
+---
+
+## Phase 1b — Skill Sets
+
+Only when the resume state marks skill sets "(defaults — not configured yet)". Explain in one line: the server ships predefined skill libraries it can inject into sprints. Then **AskUserQuestion (multiSelect)** — "Enable predefined skill sets for this project?":
+
+- **Frontend (Recommended)** — 22 React/Vue skills + editable house-style primer (`fe:*`)
+- **Landing pages** — landing structure, SEO, lead capture, content audits (`la:*`)
+- **Workflow: PRs & commits** — write-pull-requests, write-commit-messages (`wf:*`)
+
+→ `update_skill_sets({ frontend, landing, workflow })` with the booleans the user chose. Confirm with the returned one-liner. Enabled sets index into Phase 7 context automatically; any skill is pullable via `get_skill`.
 
 ---
 
@@ -183,7 +197,9 @@ This returns sprint progress, ticket detail, open blockers, and a **Model routin
 
 **Multi-agent tickets:** when the directive says `Model routing (multi-agent)`, the **lead** assignment implements first (one subagent at its resolved model); then spawn the **supporting** assignments as parallel reviewer/verifier subagents at their resolved models, each judging the lead's diff from its role's perspective. Every supporting verdict must pass before `qa_verified: true` — a failed verdict means `log_bug()` and back to the lead.
 
-**Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` also injects the Frontend Playbook (house-style primer + skill index). Give delegated frontend tickets that guidance — pull specific skills with `get_skill({ name: "fe:<slug>" })`.
+**Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` also injects the Frontend Playbook (house-style primer + skill index; the landing-page index too when that set is enabled). Give delegated frontend tickets that guidance — pull specific skills with `get_skill({ name: "fe:<slug>" })`.
+
+**Workflow skills:** when the workflow set is enabled, `load_phase_context` injects the `wf:*` index once per sprint — use `wf:write-commit-messages` / `wf:write-pull-requests` when committing or opening PRs for ticket work.
 
 For each completed ticket:
 

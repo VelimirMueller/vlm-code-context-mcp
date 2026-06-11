@@ -137,7 +137,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
     it("creates exactly 5 structural skills from defaults", () => {
       seedDefaults(db);
       const result = db
-        .prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%'")
+        .prepare("SELECT COUNT(*) as c FROM skills WHERE name NOT LIKE 'fe:%' AND name NOT LIKE 'la:%' AND name NOT LIKE 'wf:%'")
         .get() as { c: number };
       expect(result.c).toBe(5);
     });
