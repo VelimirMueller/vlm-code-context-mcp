@@ -28,6 +28,7 @@ export function initScrumSchema(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('preparation', 'kickoff', 'planning', 'implementation', 'qa', 'refactoring', 'retro', 'review', 'closed', 'rest', 'done')),
       velocity_committed INTEGER DEFAULT 0,
       velocity_completed INTEGER DEFAULT 0,
+      milestone_id INTEGER REFERENCES milestones(id),
       deleted_at TEXT DEFAULT NULL,
       archived_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -46,6 +47,12 @@ export function initScrumSchema(db: Database.Database): void {
       story_points INTEGER,
       milestone TEXT,
       milestone_id INTEGER,
+      epic_id INTEGER REFERENCES epics(id) ON DELETE SET NULL,
+      estimated_hours REAL,
+      actual_hours REAL,
+      review_status TEXT DEFAULT NULL CHECK(review_status IS NULL OR review_status IN ('pending','approved','rejected')),
+      change_seq INTEGER NOT NULL DEFAULT 0,
+      pending_change INTEGER NOT NULL DEFAULT 0,
       qa_verified INTEGER NOT NULL DEFAULT 0,
       verified_by TEXT,
       acceptance_criteria TEXT,
@@ -270,6 +277,110 @@ export function initScrumSchema(db: Database.Database): void {
       FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL,
       FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS discoveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discovery_sprint_id INTEGER NOT NULL REFERENCES sprints(id),
+      finding TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'general' CHECK (category IN ('architecture', 'ux', 'performance', 'testing', 'integration', 'general')),
+      status TEXT NOT NULL DEFAULT 'discovered' CHECK (status IN ('discovered', 'planned', 'implemented', 'dropped')),
+      priority TEXT DEFAULT 'P1' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+      implementation_ticket_id INTEGER REFERENCES tickets(id),
+      resolution_plan TEXT,
+      drop_reason TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_discoveries_sprint ON discoveries(discovery_sprint_id);
+    CREATE INDEX IF NOT EXISTS idx_discoveries_status ON discoveries(status);
+
+    CREATE TABLE IF NOT EXISTS pending_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      payload TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'expired')),
+      source TEXT NOT NULL DEFAULT 'dashboard',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      claimed_at TEXT,
+      completed_at TEXT,
+      result TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions(status, created_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      steps TEXT NOT NULL,
+      current_step INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'awaiting_agent', 'paused', 'completed', 'failed')),
+      context TEXT,
+      trigger_action_id INTEGER REFERENCES pending_actions(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+
+    CREATE TABLE IF NOT EXISTS workflow_step_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id INTEGER NOT NULL REFERENCES workflow_runs(id),
+      step_index INTEGER NOT NULL,
+      agent_role TEXT,
+      action TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped')),
+      input TEXT,
+      output TEXT,
+      started_at TEXT,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_step_log_workflow ON workflow_step_log(workflow_id);
+
+    CREATE TABLE IF NOT EXISTS ticket_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('ui', 'mcp')),
+      changed_fields TEXT NOT NULL,
+      old_values TEXT NOT NULL,
+      new_values TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticket_revisions_ticket ON ticket_revisions(ticket_id);
+
+    CREATE TABLE IF NOT EXISTS ticket_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      model TEXT,
+      is_lead INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (ticket_id, role),
+      FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticket_assignments_ticket ON ticket_assignments(ticket_id);
+
+    CREATE VIEW IF NOT EXISTS velocity_trends AS
+    SELECT
+      s.id as sprint_id, s.name as sprint_name, s.status,
+      s.velocity_committed as committed, s.velocity_completed as completed,
+      CASE WHEN s.velocity_committed > 0 THEN ROUND(CAST(s.velocity_completed AS REAL) / s.velocity_committed * 100, 1) ELSE 0 END as completion_rate,
+      (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as tickets_done,
+      (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as tickets_total,
+      (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id) as bugs_found,
+      (SELECT COUNT(*) FROM bugs WHERE sprint_id = s.id AND status = 'fixed') as bugs_fixed,
+      s.start_date, s.end_date, s.created_at
+    FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC;
+
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('tech-debt', '#ef4444');
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('security', '#f59e0b');
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('ux', '#8b5cf6');
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('bug', '#dc2626');
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('performance', '#10b981');
+    INSERT OR IGNORE INTO tags (name, color) VALUES ('documentation', '#6366f1');
   `);
 
   // Migrate existing databases: add milestone_id column if missing
@@ -290,10 +401,13 @@ export function initScrumSchema(db: Database.Database): void {
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_tickets_epic_id ON tickets(epic_id);");
 
-  // Migrate: add milestone_id to sprints if missing
+  // Migrate: add milestone_id and archived_at to sprints if missing (legacy DBs)
   const sprintCols = db.pragma("table_info(sprints)") as Array<{ name: string }>;
   if (!sprintCols.some((c) => c.name === "milestone_id")) {
     db.exec("ALTER TABLE sprints ADD COLUMN milestone_id INTEGER REFERENCES milestones(id)");
+  }
+  if (sprintCols.some((c) => c.name === "archived_at")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
   }
 
   // Schema version tracking table
@@ -304,7 +418,14 @@ export function initScrumSchema(db: Database.Database): void {
   )`);
 }
 
-export function runMigrations(db: Database.Database): void {
+/** Single source of truth for the schema version. Must equal the max version in
+ *  runMigrations' array — runMigrations asserts this at every call. */
+export const LATEST_SCHEMA_VERSION = 23;
+
+export function runMigrations(
+  db: Database.Database,
+  opts: { freshDb?: boolean } = {},
+): void {
   const current = (db.prepare("SELECT MAX(version) as v FROM schema_versions").get() as any)?.v ?? 0;
   const migrations = [
     { version: 1, name: 'add_epic_id_to_tickets', sql: "SELECT 1" }, // already done
@@ -326,17 +447,16 @@ export function runMigrations(db: Database.Database): void {
         milestone_id INTEGER REFERENCES milestones(id)
       );
       INSERT OR IGNORE INTO sprints_new SELECT id, name, goal, start_date, end_date, status, velocity_committed, velocity_completed, created_at, updated_at, milestone_id FROM sprints;
+      DROP VIEW IF EXISTS velocity_trends;
       DROP TABLE sprints;
       ALTER TABLE sprints_new RENAME TO sprints;
       CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
     ` },
-    { version: 6, name: 'add_time_tracking_to_tickets', sql: `
-      ALTER TABLE tickets ADD COLUMN estimated_hours REAL;
-      ALTER TABLE tickets ADD COLUMN actual_hours REAL;
-    ` },
+    // estimated/actual_hours now canonical in initScrumSchema + idempotent patch below
+    { version: 6, name: 'add_time_tracking_to_tickets', sql: `SELECT 1` },
     { version: 7, name: 'add_review_status_to_tickets', sql: `
       SELECT 1
-    ` }, // review_status already exists from earlier migration
+    ` }, // review_status applied in the idempotent section below (was dashboard-only before 2026-06-11)
     { version: 8, name: 'seed_default_tags', sql: `
       INSERT OR IGNORE INTO tags (name, color) VALUES ('tech-debt', '#ef4444');
       INSERT OR IGNORE INTO tags (name, color) VALUES ('security', '#f59e0b');
@@ -460,6 +580,19 @@ export function runMigrations(db: Database.Database): void {
     { version: 23, name: 'add_ticket_revisions_and_assignments', sql: `SELECT 1` },
   ];
 
+  const maxDefined = Math.max(...migrations.map((m) => m.version));
+  if (maxDefined !== LATEST_SCHEMA_VERSION) {
+    throw new Error(
+      `LATEST_SCHEMA_VERSION (${LATEST_SCHEMA_VERSION}) is out of sync with the migrations array (max ${maxDefined}) — update the constant when adding a migration.`,
+    );
+  }
+  if (current > LATEST_SCHEMA_VERSION) {
+    throw new Error(
+      `context.db schema is v${current}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}. ` +
+        `It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest) or open it with a matching version.`,
+    );
+  }
+
   // Wrap all migrations in a single transaction — partial failure rolls back cleanly
   const migrate = db.transaction(() => {
   // Safe column additions that migrations depend on (must run before versioned migrations)
@@ -486,12 +619,32 @@ export function runMigrations(db: Database.Database): void {
   }
 
   // v23 (D1): ticket change flags — UI edits set pending_change, sessions acknowledge
+  // Absorbed from dashboard.ts ad-hoc patches + v6 (legacy DBs created before these
+  // columns were canonical). Fresh DBs get them via initScrumSchema's CREATE TABLE.
   const ticketCols = db.pragma("table_info(tickets)") as Array<{ name: string }>;
+  if (!ticketCols.some((c) => c.name === "estimated_hours")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN estimated_hours REAL");
+  }
+  if (!ticketCols.some((c) => c.name === "actual_hours")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN actual_hours REAL");
+  }
+  if (!ticketCols.some((c) => c.name === "review_status")) {
+    db.exec(
+      "ALTER TABLE tickets ADD COLUMN review_status TEXT DEFAULT NULL CHECK(review_status IS NULL OR review_status IN ('pending','approved','rejected'))",
+    );
+  }
   if (!ticketCols.some((c) => c.name === "change_seq")) {
     db.exec("ALTER TABLE tickets ADD COLUMN change_seq INTEGER NOT NULL DEFAULT 0");
   }
   if (!ticketCols.some((c) => c.name === "pending_change")) {
     db.exec("ALTER TABLE tickets ADD COLUMN pending_change INTEGER NOT NULL DEFAULT 0");
+  }
+  // deleted_at safety net for all four soft-delete tables (was dashboard-only)
+  for (const table of ["milestones", "sprints", "epics", "tickets"]) {
+    const cols = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "deleted_at")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+    }
   }
 
   // v23 (D1): field-level revision trail for UI/MCP ticket edits
