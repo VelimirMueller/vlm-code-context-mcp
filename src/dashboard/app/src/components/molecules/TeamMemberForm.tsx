@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Agent } from '@/types';
-
-const MODEL_OPTIONS = [
-  { value: 'claude-opus-4-8', label: 'Opus 4.8 \u2014 Most capable' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 \u2014 Balanced' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5 \u2014 Fast' },
-] as const;
+import { MODEL_OPTIONS } from '@/lib/constants';
 
 interface TeamMemberFormProps {
   agent?: Agent;

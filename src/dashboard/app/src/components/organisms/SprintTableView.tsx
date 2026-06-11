@@ -8,6 +8,7 @@ import { usePlanningStore } from '@/stores/planningStore';
 import { get } from '@/lib/api';
 import { mapLegacyPhase, getPhaseStyle } from '@/lib/phases';
 import { StatusBadge } from '@/components/atoms/StatusBadge';
+import { AssignmentChips } from '@/components/molecules/AssignmentChips';
 import type { Sprint, Ticket } from '@/types';
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
@@ -292,9 +293,13 @@ export function SprintTableView() {
       filterable: true,
       width: 140,
       cell: (row: Ticket) => (
-        <span style={{ fontSize: 12, color: row.assigned_to ? 'var(--text)' : 'var(--text3)', fontStyle: row.assigned_to ? 'normal' : 'italic' }}>
-          {row.assigned_to || 'Unassigned'}
-        </span>
+        row.assignments && row.assignments.length > 0 ? (
+          <AssignmentChips assignments={row.assignments} />
+        ) : (
+          <span style={{ fontSize: 12, color: row.assigned_to ? 'var(--text)' : 'var(--text3)', fontStyle: row.assigned_to ? 'normal' : 'italic' }}>
+            {row.assigned_to || 'Unassigned'}
+          </span>
+        )
       ),
     },
     {

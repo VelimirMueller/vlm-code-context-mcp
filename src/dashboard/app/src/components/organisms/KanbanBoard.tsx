@@ -201,7 +201,11 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
                   onDragEnd={() => { setDraggingId(null); setDragOverCol(null); }}
                   style={{ cursor: 'grab', opacity: draggingId === ticket.id ? 0.4 : 1 }}
                 >
-                  <TicketCard ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                  <TicketCard
+                    ticket={ticket}
+                    onClick={() => setSelectedTicket(ticket)}
+                    onEdit={() => setSelectedTicket(ticket)}
+                  />
                 </div>
               ))}
               {colTickets.length === 0 && (

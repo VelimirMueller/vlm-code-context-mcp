@@ -49,6 +49,12 @@ export interface Sprint {
   open_blockers: number;
 }
 
+export interface TicketAssignment {
+  role: string;
+  model: string | null;
+  is_lead: number;
+}
+
 export interface Ticket {
   id: number;
   ticket_ref: string | null;
@@ -67,6 +73,9 @@ export interface Ticket {
   verified_by: string | null;
   acceptance_criteria: string | null;
   notes: string | null;
+  change_seq?: number;
+  pending_change?: number;
+  assignments?: TicketAssignment[];
 }
 
 export interface Agent {
