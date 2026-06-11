@@ -35,4 +35,4 @@ document.title = title;
 
 ## When to deviate
 - **App behind auth** (no public SEO): titles for a11y + tabs are what matter; skip OG/canonical and prerendering.
-- **Marketing/content pages need SEO:** they likely want SSG/SSR (TanStack Start, Nuxt, Astro) rather than this SPA approach — head management alone won't make a client-rendered page reliably indexable.
+- **Marketing/content pages need SEO:** they likely want SSG/SSR (TanStack Start, Nuxt, Astro) rather than this SPA approach — head management alone won't make a client-rendered page reliably indexable (see `../../landing/set-up-seo/SKILL.md`).
