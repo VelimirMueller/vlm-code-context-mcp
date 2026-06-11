@@ -135,6 +135,104 @@ function fenceCard(card: string): string {
   return "```diff\n" + card + "\n```";
 }
 
+/**
+ * D2: model routing section for a ticket — single-assignment tickets keep the classic
+ * directive (with per-assignment override resolution); multi-agent tickets get the
+ * lead-implements / supporters-verify block (decision #4).
+ */
+export function buildModelRoutingSection(db: Database.Database, ticket: { id: number; assigned_to?: string | null }): string | null {
+  let assignments: any[] = [];
+  try {
+    assignments = db.prepare(`
+      SELECT ta.role, ta.model as override, ta.is_lead, a.model as agent_default
+      FROM ticket_assignments ta LEFT JOIN agents a ON a.role = ta.role
+      WHERE ta.ticket_id = ? ORDER BY ta.is_lead DESC, ta.role ASC
+    `).all(ticket.id) as any[];
+  } catch { /* pre-v23 DB — fall through to single-agent path */ }
+
+  if (assignments.length > 1) {
+    const lines = [`**Model routing (multi-agent):**`];
+    for (const a of assignments) {
+      const resolved = a.override ?? a.agent_default ?? "inherit";
+      lines.push(a.is_lead
+        ? `- LEAD ${a.role} — implements via subagent at \`${resolved}\``
+        : `- support ${a.role} — verifies/reviews the diff via parallel subagent at \`${resolved}\``);
+    }
+    lines.push(`Run the lead first; spawn supporting reviewers in parallel afterward. The QA gate requires every supporting verdict to pass before qa_verified.`);
+    return lines.join("\n");
+  }
+
+  const single = assignments[0];
+  const role = single?.role ?? ticket.assigned_to;
+  if (!role) return null;
+  const agentDefault = (db.prepare(`SELECT model FROM agents WHERE role = ?`).get(role) as { model: string } | undefined)?.model ?? null;
+  return formatModelRouting(role, single?.override ?? agentDefault);
+}
+
+/**
+ * D2: replace-set a ticket's assignments. Validates roles against the agents table and
+ * the exactly-one-lead invariant; mirrors the lead role into tickets.assigned_to.
+ * Throws Error with a user-facing message on invalid input.
+ */
+export function applyTicketAssignments(
+  db: Database.Database,
+  ticketId: number,
+  agents: Array<{ role: string; model?: string | null; lead?: boolean }>
+): void {
+  if (agents.length === 0) throw new Error("agents[] must not be empty — omit the param to leave assignments unchanged.");
+  const validRoles = new Set((db.prepare("SELECT role FROM agents").all() as { role: string }[]).map((a) => a.role));
+  const unknown = agents.filter((a) => !validRoles.has(a.role)).map((a) => a.role);
+  if (unknown.length > 0) throw new Error(`Unknown agent role(s): ${unknown.join(", ")}. Valid: ${[...validRoles].join(", ")}.`);
+  const seen = new Set<string>();
+  for (const a of agents) {
+    if (seen.has(a.role)) throw new Error(`Duplicate role in agents[]: ${a.role}`);
+    seen.add(a.role);
+  }
+  const leads = agents.filter((a) => a.lead);
+  if (agents.length === 1 && leads.length === 0) agents[0].lead = true; // single assignment is implicitly the lead
+  else if (leads.length !== 1) throw new Error(`Exactly one lead required — got ${leads.length}.`);
+
+  const lead = agents.find((a) => a.lead)!;
+  db.transaction(() => {
+    db.prepare(`DELETE FROM ticket_assignments WHERE ticket_id = ?`).run(ticketId);
+    const ins = db.prepare(`INSERT INTO ticket_assignments (ticket_id, role, model, is_lead) VALUES (?, ?, ?, ?)`);
+    for (const a of agents) ins.run(ticketId, a.role, a.model ?? null, a.lead ? 1 : 0);
+    db.prepare(`UPDATE tickets SET assigned_to = ? WHERE id = ?`).run(lead.role, ticketId);
+  })();
+}
+
+/**
+ * D1: board edits awaiting session acknowledgment — pending_change tickets with their
+ * latest field-level revision diff. Returns null when the board is quiet.
+ */
+export function buildChangedTicketsBlock(db: Database.Database, sprintId?: number): string | null {
+  let rows: any[] = [];
+  try {
+    rows = db.prepare(`
+      SELECT id, ticket_ref, title, status FROM tickets
+      WHERE pending_change = 1 AND deleted_at IS NULL ${sprintId ? "AND sprint_id = ?" : ""}
+      ORDER BY id ASC
+    `).all(...(sprintId ? [sprintId] : [])) as any[];
+  } catch { return null; /* pre-v23 DB */ }
+  if (rows.length === 0) return null;
+
+  const lines = [`## ⚠ CHANGED TICKETS (${rows.length}) — board edits awaiting acknowledgment`];
+  for (const t of rows) {
+    lines.push(`- ${t.ticket_ref || "#" + t.id} [${t.status}] ${t.title}`);
+    const rev = db.prepare(`SELECT changed_fields, old_values, new_values FROM ticket_revisions WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`).get(t.id) as any;
+    if (rev) {
+      try {
+        const fields: string[] = JSON.parse(rev.changed_fields);
+        const oldV = JSON.parse(rev.old_values);
+        const newV = JSON.parse(rev.new_values);
+        fields.forEach((f) => lines.push(`    ${f}: ${JSON.stringify(oldV[f])} → ${JSON.stringify(newV[f])}`));
+      } catch { /* unparseable revision — list without diff */ }
+    }
+  }
+  lines.push(`**Directive:** re-read each ticket, state the plan adjustment (or that none is needed), then acknowledge_ticket_changes({ ticket_ids: [...] }).`);
+  return lines.join("\n");
+}
+
 /** Newest mtime of files with the given extensions under dir (shallow recursion, skips dot-dirs/node_modules). */
 function newestMtime(dir: string, exts: string[], depth = 0): number {
   if (depth > 4) return 0;
@@ -574,10 +672,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (t.acceptance_criteria) { sections.push("## Acceptance Criteria"); try { JSON.parse(t.acceptance_criteria).forEach((c: string) => sections.push(`- ${c}`)); } catch { sections.push(t.acceptance_criteria); } sections.push(""); }
       if (subtasks.length) { sections.push(`## Subtasks (${subtasks.length})`); subtasks.forEach(s => sections.push(`- [${s.status}] ${s.description} @${s.assigned_to || "?"}`)); sections.push(""); }
       if (bugs.length) { sections.push(`## Bugs (${bugs.length})`); bugs.forEach(b => sections.push(`- [${b.status}] ${b.severity}: ${b.description}`)); }
-      if (t.assigned_to) {
-        const ag = db.prepare(`SELECT model FROM agents WHERE role = ?`).get(t.assigned_to) as { model: string } | undefined;
-        sections.push("", formatModelRouting(t.assigned_to, ag?.model ?? null));
-      }
+      const routing = buildModelRoutingSection(db, t);
+      if (routing) sections.push("", routing);
       return { content: [{ type: "text" as const, text: sections.join("\n") }] };
     }
   );
@@ -924,8 +1020,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       milestone: z.string().optional(),
       milestone_id: z.number().optional().describe("Milestone ID to link to"),
       epic_id: z.number().optional().describe("Epic ID to link to"),
+      agents: z.array(z.object({
+        role: z.string().describe("Agent role"),
+        model: z.string().nullable().optional().describe("Per-assignment model override (null/omit = agent default)"),
+        lead: z.boolean().optional().describe("Exactly one assignment must be the lead"),
+      })).optional().describe("D2: multi-agent assignments (overrides assigned_to; lead mirrors into it)"),
     },
-    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id }) => {
+    async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id, agents }) => {
       try {
         // Resolve milestone name from milestone_id if not provided directly
         let milestoneName = milestone || null;
@@ -934,9 +1035,22 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           if (ms) milestoneName = ms.name;
         }
         const result = db.prepare(`INSERT INTO tickets (sprint_id, ticket_ref, title, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(sprint_id, ticket_ref || null, title, description || null, priority, assigned_to || null, story_points || null, milestoneName, milestone_id || null, epic_id || null);
+        const newTicketId = Number(result.lastInsertRowid);
+        // D2: explicit assignments win; otherwise assigned_to seeds the lead row (backfill pattern)
+        if (agents) {
+          try {
+            applyTicketAssignments(db, newTicketId, agents);
+          } catch (e: any) {
+            return { content: [{ type: "text" as const, text: `Ticket created (#${newTicketId}) but assignments failed: ${e.message}` }], isError: true };
+          }
+        } else if (assigned_to) {
+          try {
+            db.prepare(`INSERT OR IGNORE INTO ticket_assignments (ticket_id, role, is_lead) VALUES (?, ?, 1)`).run(newTicketId, assigned_to);
+          } catch { /* pre-v23 DB */ }
+        }
         notifyDashboard(db);
-        notifyDashboard(db, { type: "entity_changed", entityType: "ticket", entityId: Number(result.lastInsertRowid) }); // B4
-        return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+result.lastInsertRowid} — ${title}` }] };
+        notifyDashboard(db, { type: "entity_changed", entityType: "ticket", entityId: newTicketId }); // B4
+        return { content: [{ type: "text" as const, text: `Ticket created: ${ticket_ref || '#'+newTicketId} — ${title}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -955,9 +1069,14 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       notes: z.string().optional(),
       milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
       epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
+      agents: z.array(z.object({
+        role: z.string().describe("Agent role"),
+        model: z.string().nullable().optional().describe("Per-assignment model override (null/omit = agent default)"),
+        lead: z.boolean().optional().describe("Exactly one assignment must be the lead (implements; others verify)"),
+      })).optional().describe("D2: replace-set multi-agent assignments for this ticket"),
       format: z.enum(["text", "card"]).optional().describe("card = diff-fence sprint card + compact state in one response (no follow-up get_ticket needed)"),
     },
-    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id, format }) => {
+    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id, agents, format }) => {
       const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
       if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
 
@@ -994,12 +1113,33 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           sets.push("milestone=?"); vals.push(null);
         }
       }
-      if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
+      if (sets.length === 0 && !agents) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
+
+      // D2: replace-set assignments (validates roles + exactly-one-lead; mirrors lead to assigned_to)
+      if (agents) {
+        try {
+          applyTicketAssignments(db, ticket_id, agents);
+        } catch (e: any) {
+          return { content: [{ type: "text" as const, text: `Assignment error: ${e.message}` }], isError: true };
+        }
+      }
+      if (sets.length === 0) {
+        notifyDashboard(db);
+        return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} assignments updated (${agents!.length} agent(s), lead: ${agents!.find(a => a.lead)?.role ?? agents![0].role}).` }] };
+      }
       sets.push("updated_at=datetime('now')");
       vals.push(ticket_id);
       // Update ticket + auto-promote discoveries atomically
       db.transaction(() => {
         db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+
+        // D2: legacy single-agent updates keep the assignments table in sync (new lead, supporters kept)
+        if (assigned_to && !agents) {
+          try {
+            db.prepare(`DELETE FROM ticket_assignments WHERE ticket_id = ? AND (is_lead = 1 OR role = ?)`).run(ticket_id, assigned_to);
+            db.prepare(`INSERT INTO ticket_assignments (ticket_id, role, is_lead) VALUES (?, ?, 1)`).run(ticket_id, assigned_to);
+          } catch { /* pre-v23 DB */ }
+        }
 
         if (status === 'DONE') {
           db.prepare(`
@@ -1121,6 +1261,30 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('retro_finding', ?, 'triaged', 'deferred', NULL, datetime('now'), 'mcp')`).run(finding_id);
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Finding #${finding_id} deferred — gate satisfied for 24h; it re-surfaces at the next planning.` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "acknowledge_ticket_changes",
+    "Acknowledge board-edited tickets after reacting to their changes: clears pending_change flags and completes the corresponding ticket_changed bridge actions. Call after re-reading the tickets listed in a ⚠ CHANGED TICKETS block.",
+    {
+      ticket_ids: z.array(z.number()).min(1).describe("Ticket IDs from the changed-tickets block"),
+    },
+    async ({ ticket_ids }) => {
+      try {
+        const placeholders = ticket_ids.map(() => "?").join(",");
+        let cleared = 0;
+        db.transaction(() => {
+          cleared = db.prepare(`UPDATE tickets SET pending_change = 0 WHERE id IN (${placeholders}) AND pending_change = 1`).run(...ticket_ids).changes;
+          db.prepare(`UPDATE pending_actions SET status = 'completed' WHERE action = 'ticket_changed' AND entity_id IN (${placeholders}) AND status IN ('pending', 'claimed')`).run(...ticket_ids);
+          const log = db.prepare(`INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', 'pending_change', '1', '0', 'mcp')`);
+          for (const id of ticket_ids) log.run(id);
+        })();
+        notifyDashboard(db);
+        return { content: [{ type: "text" as const, text: `Acknowledged ${cleared} changed ticket(s) — flags cleared, bridge actions completed.` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
       }
@@ -1441,8 +1605,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const experienced = sprintCount > 3;
 
       const pulseCard = format === "card" ? buildSprintPulseData(db, sprint.id) : null;
+      const changedBlock = buildChangedTicketsBlock(db, sprint.id); // D1: board edits first
       const lines = [
         pulseCard ? fenceCard(sprintPulse(pulseCard)) : null,
+        changedBlock,
         `# Sprint Playbook: ${sprint.name}`,
         `**Phase:** ${sprint.status} → next: ${nextPhase}`,
         `**Progress:** ${donePts}/${totalPts}pt | ${doneCount}/${tickets.length} tickets done | ${qaVerified} QA verified`,
@@ -2032,6 +2198,10 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
           const sid = sprint_id || (db.prepare(`SELECT id FROM sprints WHERE status NOT IN ('rest', 'done', 'closed') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`).get() as any)?.id;
           if (!sid) { return { content: [{ type: "text" as const, text: "No active sprint found." }] }; }
 
+          // D1: board edits surface before anything else
+          const changed = buildChangedTicketsBlock(db, sid);
+          if (changed) sections.push(changed, "");
+
           const tickets = db.prepare(`SELECT id, ticket_ref, title, status, story_points, assigned_to, qa_verified FROM tickets WHERE sprint_id = ? ORDER BY priority, status`).all(sid) as any[];
           const done = tickets.filter((t: any) => t.status === "DONE").length;
           const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
@@ -2052,10 +2222,8 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
                 sections.push(`Acceptance Criteria:`);
                 try { JSON.parse(t.acceptance_criteria).forEach((c: string) => sections.push(`  - ${c}`)); } catch { sections.push(`  ${t.acceptance_criteria}`); }
               }
-              if (t.assigned_to) {
-                const ag = db.prepare(`SELECT model FROM agents WHERE role = ?`).get(t.assigned_to) as { model: string } | undefined;
-                sections.push("", formatModelRouting(t.assigned_to, ag?.model ?? null));
-              }
+              const routing = buildModelRoutingSection(db, t);
+              if (routing) sections.push("", routing);
             }
           }
 

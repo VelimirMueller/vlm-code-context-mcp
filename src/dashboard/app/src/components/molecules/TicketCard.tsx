@@ -1,11 +1,14 @@
 import { motion } from 'framer-motion';
 import { cardHover } from '@/lib/motion';
 import { useBridgeStore } from '@/stores/bridgeStore';
+import { AssignmentChips } from '@/components/molecules/AssignmentChips';
 import type { Ticket } from '@/types';
 
 interface TicketCardProps {
   ticket: Ticket;
   onClick?: () => void;
+  /** Quick-edit affordance — opens the inline ticket editor. */
+  onEdit?: () => void;
 }
 
 const priorityColor: Record<string, string> = {
@@ -15,9 +18,10 @@ const priorityColor: Record<string, string> = {
   P3: '#6b7280',
 };
 
-export function TicketCard({ ticket, onClick }: TicketCardProps) {
+export function TicketCard({ ticket, onClick, onEdit }: TicketCardProps) {
   const queueAction = useBridgeStore((s) => s.queueAction);
   const pColor = priorityColor[ticket.priority] ?? '#6b7280';
+  const assignments = ticket.assignments ?? [];
 
   return (
     <motion.div
@@ -86,7 +90,11 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           color: 'var(--text3)',
         }}
       >
-        <span>{ticket.assigned_to ?? '—'}</span>
+        {assignments.length > 0 ? (
+          <AssignmentChips assignments={assignments} />
+        ) : (
+          <span>{ticket.assigned_to ?? '—'}</span>
+        )}
         <span style={{ fontFamily: 'var(--mono)' }}>
           {ticket.story_points ?? 0}sp
         </span>
@@ -118,6 +126,16 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           paddingTop: 6,
         }}
       >
+        {onEdit && (
+          <button
+            aria-label="Edit ticket"
+            title="Edit ticket"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer' }}
+          >
+            ✎ Edit
+          </button>
+        )}
         {ticket.status === 'TODO' && !ticket.assigned_to && (
           <button
             onClick={(e) => { e.stopPropagation(); queueAction('assign_ticket', 'ticket', ticket.id, { ticket_ref: ticket.ticket_ref }); }}
