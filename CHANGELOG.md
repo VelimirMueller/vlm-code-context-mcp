@@ -5,6 +5,17 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-11
+
+### Added
+- **Planning gates that close the retro loop** — try_next retro findings now have a lifecycle (`open`/`adopted`/`dropped`, migration v21). The new **`triage_retro_finding`** tool adopts a finding into a ticket (auto-flagged applied when that ticket lands), drops it with a reason, or defers it for one planning cycle. `start_sprint` **refuses to start** while untriaged try_next findings or escalated open discoveries (P0/P1 older than 3 sprints) exist — `acknowledge_open_items: true` overrides, explicitly. `load_phase_context({ phase: "tickets" })` injects the open-items blocks with a triage directive, and `analyze_retro_patterns` now reports real triage/applied rates instead of the always-0% owner metric.
+- **Design Language 2.0 — server-rendered terminal cards** (`src/scrum/cards.ts`): `update_ticket`, `advance_sprint`, `start_sprint`, `get_sprint_playbook`, and `get_burndown` accept `format: "card"` and return a pre-rendered, width-locked card (progress bar, burndown sparkline, ticket counts, warning lines) inside a ready-to-print ```diff fence — `+` lines render green, `-` warnings red in Claude Code. Cards include compact state inline, eliminating the follow-up `get_ticket` round-trip (discovery #12).
+- **`code-context-statusline`** — new bin for Claude Code's `statusLine`: reads the session payload from stdin, finds `context.db` upward from the workspace, and prints a one-line ANSI sprint HUD (phase, day, points bar, ticket counts, blockers, mood) with zero token cost. Setup gains a merge-safe `[7/7]` step that wires it into `.claude/settings.json` without clobbering an existing statusline. Honors `NO_COLOR`; never breaks the host UI (all failures exit 0, silent).
+- **AskUserQuestion-native `/kickoff`** — the command now drives every enumerable choice (discovery type, backlog confirmation, gate triage, archive decisions) through Claude Code's native question UI with a wizard → AskUserQuestion → plain-text fallback chain, renders server cards verbatim, and adds **Phase 5b — Planning Gate Triage**. All hand-drawn ASCII boxes removed (441 → 243 lines).
+
+### Changed
+- `/retro` documents the try_next lifecycle: capture happens at retro, the adopt/drop/defer decision happens at the next planning (and the gate enforces it).
+
 ## [1.3.1] - 2026-06-10
 
 ### Added
