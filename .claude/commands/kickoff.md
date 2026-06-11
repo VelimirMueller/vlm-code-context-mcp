@@ -181,6 +181,8 @@ This returns sprint progress, ticket detail, open blockers, and a **Model routin
 
 **Delegate by model.** Implement every ticket by spawning a subagent via the **Task tool with the `model` tier from the routing directive** (`opus`/`sonnet`/`haiku`) — pass the ticket's title, description, and acceptance criteria. Let the subagent implement and report back; then run the QA gate and mark the ticket DONE.
 
+**Multi-agent tickets:** when the directive says `Model routing (multi-agent)`, the **lead** assignment implements first (one subagent at its resolved model); then spawn the **supporting** assignments as parallel reviewer/verifier subagents at their resolved models, each judging the lead's diff from its role's perspective. Every supporting verdict must pass before `qa_verified: true` — a failed verdict means `log_bug()` and back to the lead.
+
 **Frontend work:** if the sprint has `fe-engineer` tickets, `load_phase_context` also injects the Frontend Playbook (house-style primer + skill index). Give delegated frontend tickets that guidance — pull specific skills with `get_skill({ name: "fe:<slug>" })`.
 
 For each completed ticket:

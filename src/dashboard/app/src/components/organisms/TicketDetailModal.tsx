@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { Ticket, Milestone, Epic } from '@/types';
+import type { Ticket, TicketAssignment, Milestone, Epic } from '@/types';
 import { get, put } from '@/lib/api';
+import { useSprintStore } from '@/stores/sprintStore';
+import { useAgentStore } from '@/stores/agentStore';
+import { AssignmentEditor } from '@/components/molecules/AssignmentEditor';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -20,13 +23,17 @@ const statusColor: Record<string, string> = {
   TODO: 'var(--text3)', IN_PROGRESS: 'var(--blue)', DONE: 'var(--accent)', BLOCKED: 'var(--red)',
 };
 
-function MetaField({ label, value, mono, color }: { label: string; value: string; mono?: boolean; color?: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 500, color: color ?? 'var(--text)', fontFamily: mono ? 'var(--mono)' : 'var(--font)' }}>{value}</div>
-    </div>
-  );
+// Status transitions allowed from the UI. DONE stays process-controlled
+// (QA gate) and is rendered as a disabled option with an explanatory tooltip.
+const UI_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
+export const DONE_TOOLTIP = 'Completed by the Claude session after QA';
+
+// Display shape of a ticket's assignments, falling back to the legacy
+// single-agent field (which mirrors the lead) for tickets predating D2.
+export function deriveAssignments(ticket: Ticket): TicketAssignment[] {
+  if (ticket.assignments && ticket.assignments.length > 0) return ticket.assignments;
+  if (ticket.assigned_to) return [{ role: ticket.assigned_to, model: null, is_lead: 1 }];
+  return [];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -41,7 +48,20 @@ const fieldStyle: React.CSSProperties = {
   outline: 'none',
 };
 
+function FieldLabel({ label, field, fieldSaved }: { label: string; field: string; fieldSaved: string | null }) {
+  return (
+    <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 4, display: 'flex', gap: 6 }}>
+      {label}
+      {fieldSaved === field && <span style={{ color: 'var(--accent)' }}>✓</span>}
+    </div>
+  );
+}
+
 export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChange, onEpicChange, onTicketUpdate }: TicketDetailModalProps) {
+  const updateTicket = useSprintStore((s) => s.updateTicket);
+  const agents = useAgentStore((s) => s.agents);
+  const fetchAgents = useAgentStore((s) => s.fetchAgents);
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(false);
@@ -52,33 +72,74 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
   const [epicError, setEpicError] = useState(false);
 
   // Inline editable fields
+  const [editTitle, setEditTitle] = useState('');
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [editDescription, setEditDescription] = useState('');
+  const [descEditing, setDescEditing] = useState(false);
   const [editStatus, setEditStatus] = useState('');
   const [editPriority, setEditPriority] = useState('');
-  const [editAssignee, setEditAssignee] = useState('');
   const [editPoints, setEditPoints] = useState('');
+  const [editAssignments, setEditAssignments] = useState<TicketAssignment[]>([]);
   const [editNotes, setEditNotes] = useState('');
   const [fieldSaving, setFieldSaving] = useState<string | null>(null);
   const [fieldSaved, setFieldSaved] = useState<string | null>(null);
 
+  const syncFromTicket = (t: Ticket) => {
+    setEditTitle(t.title);
+    setEditDescription(t.description ?? '');
+    setEditStatus(t.status ?? 'TODO');
+    setEditPriority(t.priority ?? 'P2');
+    setEditPoints(String(t.story_points ?? ''));
+    setEditAssignments(deriveAssignments(t));
+    setEditNotes(t.notes ?? '');
+  };
+
   useEffect(() => {
     if (ticket) {
-      setEditStatus(ticket.status ?? 'TODO');
-      setEditPriority(ticket.priority ?? 'P2');
-      setEditAssignee(ticket.assigned_to ?? '');
-      setEditPoints(String(ticket.story_points ?? ''));
-      setEditNotes(ticket.notes ?? '');
+      syncFromTicket(ticket);
+      setTitleEditing(false);
+      setDescEditing(false);
       get<Epic[]>('/api/epics').then(setEpics).catch(() => setEpics([]));
+      if (agents.length === 0) fetchAgents();
     }
   }, [ticket?.id]);
 
-  const saveField = async (field: string, value: unknown) => {
+  // PATCH one field set, optimistic via the store; reconcile the editor from
+  // the response ticket (success) or the reverted store ticket (failure —
+  // updateTicket already reverted and toasted the server error).
+  const commit = async (field: string, payload: Parameters<typeof updateTicket>[1]) => {
     if (!ticket) return;
     setFieldSaving(field);
-    try {
-      await put(`/api/ticket/${ticket.id}`, { [field]: value });
+    const updated = await updateTicket(ticket.id, payload);
+    setFieldSaving(null);
+    if (updated) {
+      syncFromTicket(updated);
       setFieldSaved(field);
       setTimeout(() => setFieldSaved(null), 1500);
-      onTicketUpdate?.(ticket.id, { [field]: value } as Partial<Ticket>);
+      onTicketUpdate?.(ticket.id, updated);
+    } else {
+      const reverted = useSprintStore.getState().tickets.find((t) => t.id === ticket.id) ?? ticket;
+      syncFromTicket(reverted);
+      onTicketUpdate?.(ticket.id, reverted);
+    }
+  };
+
+  const commitAssignments = (next: TicketAssignment[]) => {
+    setEditAssignments(next);
+    commit('assignments', {
+      assignments: next.map((a) => ({ role: a.role, model: a.model, lead: a.is_lead === 1 })),
+    });
+  };
+
+  // Notes are not part of the PATCH contract — keep the existing PUT path.
+  const saveNotes = async () => {
+    if (!ticket) return;
+    setFieldSaving('notes');
+    try {
+      await put(`/api/ticket/${ticket.id}`, { notes: editNotes || null });
+      setFieldSaved('notes');
+      setTimeout(() => setFieldSaved(null), 1500);
+      onTicketUpdate?.(ticket.id, { notes: editNotes || null });
     } catch {
       // silent
     } finally {
@@ -126,6 +187,8 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
     }
   };
 
+  const agentRoles = agents.map((a) => a.role);
+
   return (
     <AnimatePresence>
       {ticket && (
@@ -160,61 +223,109 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
                   {ticket.ticket_ref ?? `#${ticket.id}`}
                 </span>
-                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: priorityColor[ticket.priority] ?? '#6b7280', color: 'white' }}>
-                  {ticket.priority}
+                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: priorityColor[editPriority] ?? '#6b7280', color: 'white' }}>
+                  {editPriority}
                 </span>
                 <span style={{
                   padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-                  background: `${statusColor[ticket.status] ?? 'var(--text3)'}20`,
-                  color: statusColor[ticket.status] ?? 'var(--text3)',
-                  border: `1px solid ${statusColor[ticket.status] ?? 'var(--text3)'}40`,
+                  background: `${statusColor[editStatus] ?? 'var(--text3)'}20`,
+                  color: statusColor[editStatus] ?? 'var(--text3)',
+                  border: `1px solid ${statusColor[editStatus] ?? 'var(--text3)'}40`,
                 }}>
-                  {ticket.status}
+                  {editStatus}
                 </span>
               </div>
               <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>✕</button>
             </div>
 
-            {/* Title */}
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 16px' }}>{ticket.title}</h3>
+            {/* Title (click to edit) */}
+            {titleEditing ? (
+              <input
+                value={editTitle}
+                autoFocus
+                aria-label="Ticket title"
+                onChange={(e) => setEditTitle(e.target.value)}
+                onBlur={() => {
+                  setTitleEditing(false);
+                  const next = editTitle.trim();
+                  if (next && next !== ticket.title) commit('title', { title: next });
+                  else setEditTitle(ticket.title);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') { setEditTitle(ticket.title); setTitleEditing(false); }
+                }}
+                disabled={fieldSaving === 'title'}
+                style={{ ...fieldStyle, fontSize: 16, fontWeight: 700, marginBottom: 16 }}
+              />
+            ) : (
+              <h3
+                onClick={() => setTitleEditing(true)}
+                title="Click to edit title"
+                style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 16px', cursor: 'text' }}
+              >
+                {editTitle}
+                {fieldSaved === 'title' && <span style={{ color: 'var(--accent)', fontSize: 12, marginLeft: 6 }}>✓</span>}
+              </h3>
+            )}
 
-            {/* Description */}
-            {ticket.description && (
-              <div style={{ padding: '10px 14px', background: 'var(--bg)', borderRadius: 8, borderLeft: '3px solid var(--accent)', fontSize: 13, color: 'var(--text2)', marginBottom: 16, lineHeight: 1.5 }}>
-                {ticket.description}
+            {/* Description (click to edit) */}
+            {descEditing ? (
+              <textarea
+                value={editDescription}
+                autoFocus
+                aria-label="Ticket description"
+                onChange={(e) => setEditDescription(e.target.value)}
+                onBlur={() => {
+                  setDescEditing(false);
+                  const next = editDescription.trim();
+                  if (next !== (ticket.description ?? '').trim()) commit('description', { description: next || null });
+                }}
+                disabled={fieldSaving === 'description'}
+                rows={4}
+                style={{ ...fieldStyle, resize: 'vertical', lineHeight: 1.5, marginBottom: 16 }}
+              />
+            ) : (
+              <div
+                onClick={() => setDescEditing(true)}
+                title="Click to edit description"
+                style={{ padding: '10px 14px', background: 'var(--bg)', borderRadius: 8, borderLeft: '3px solid var(--accent)', fontSize: 13, color: 'var(--text2)', marginBottom: 16, lineHeight: 1.5, cursor: 'text', whiteSpace: 'pre-wrap' as const }}
+              >
+                {editDescription || <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Add description…</span>}
+                {fieldSaved === 'description' && <span style={{ color: 'var(--accent)', fontSize: 12, marginLeft: 6 }}>✓</span>}
               </div>
             )}
 
             {/* Editable fields grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              {/* Status */}
+              {/* Status — DONE is process-controlled and not settable from the UI */}
               <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4, display: 'flex', gap: 6 }}>
-                  Status
-                  {fieldSaved === 'status' && <span style={{ color: 'var(--accent)' }}>✓</span>}
-                </div>
+                <FieldLabel label="Status" field="status" fieldSaved={fieldSaved} />
                 <select
                   value={editStatus}
-                  onChange={(e) => { setEditStatus(e.target.value); saveField('status', e.target.value); }}
+                  onChange={(e) => { setEditStatus(e.target.value); commit('status', { status: e.target.value }); }}
                   disabled={fieldSaving === 'status'}
+                  aria-label="Ticket status"
                   style={{ ...fieldStyle, cursor: 'pointer', color: statusColor[editStatus] ?? 'var(--text)' }}
                 >
-                  {['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'PARTIAL', 'NOT_DONE'].map(s => (
+                  {UI_STATUSES.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
+                  <option value="DONE" disabled title={DONE_TOOLTIP}>DONE</option>
+                  {![...UI_STATUSES, 'DONE'].includes(editStatus) && (
+                    <option value={editStatus} disabled>{editStatus}</option>
+                  )}
                 </select>
               </div>
 
               {/* Priority */}
               <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4, display: 'flex', gap: 6 }}>
-                  Priority
-                  {fieldSaved === 'priority' && <span style={{ color: 'var(--accent)' }}>✓</span>}
-                </div>
+                <FieldLabel label="Priority" field="priority" fieldSaved={fieldSaved} />
                 <select
                   value={editPriority}
-                  onChange={(e) => { setEditPriority(e.target.value); saveField('priority', e.target.value); }}
+                  onChange={(e) => { setEditPriority(e.target.value); commit('priority', { priority: e.target.value }); }}
                   disabled={fieldSaving === 'priority'}
+                  aria-label="Ticket priority"
                   style={{ ...fieldStyle, cursor: 'pointer' }}
                 >
                   {['P0', 'P1', 'P2', 'P3'].map(p => (
@@ -223,38 +334,34 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                 </select>
               </div>
 
-              {/* Assigned To */}
-              <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4, display: 'flex', gap: 6 }}>
-                  Assigned To
-                  {fieldSaved === 'assigned_to' && <span style={{ color: 'var(--accent)' }}>✓</span>}
-                </div>
-                <input
-                  value={editAssignee}
-                  onChange={(e) => setEditAssignee(e.target.value)}
-                  onBlur={() => saveField('assigned_to', editAssignee || null)}
-                  disabled={fieldSaving === 'assigned_to'}
-                  placeholder="agent role"
-                  style={fieldStyle}
-                />
-              </div>
-
               {/* Story Points */}
               <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4, display: 'flex', gap: 6 }}>
-                  Story Points
-                  {fieldSaved === 'story_points' && <span style={{ color: 'var(--accent)' }}>✓</span>}
-                </div>
+                <FieldLabel label="Story Points" field="story_points" fieldSaved={fieldSaved} />
                 <input
                   type="number"
                   value={editPoints}
                   onChange={(e) => setEditPoints(e.target.value)}
-                  onBlur={() => saveField('story_points', editPoints ? Number(editPoints) : null)}
+                  onBlur={() => {
+                    const next = editPoints === '' ? null : Number(editPoints);
+                    if (next !== (ticket.story_points ?? null)) commit('story_points', { story_points: next });
+                  }}
                   disabled={fieldSaving === 'story_points'}
+                  aria-label="Story points"
                   min={0}
                   style={{ ...fieldStyle, fontFamily: 'var(--mono)' }}
                 />
               </div>
+            </div>
+
+            {/* Agents — multi-assignment with lead + per-assignment model (D2) */}
+            <div style={{ marginBottom: 16 }}>
+              <FieldLabel label="Agents" field="assignments" fieldSaved={fieldSaved} />
+              <AssignmentEditor
+                roles={agentRoles}
+                value={editAssignments}
+                onChange={commitAssignments}
+                disabled={fieldSaving === 'assignments'}
+              />
             </div>
 
             {/* QA status (read-only) */}
@@ -359,14 +466,11 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
 
             {/* Notes (editable) */}
             <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 6, display: 'flex', gap: 6 }}>
-                Notes
-                {fieldSaved === 'notes' && <span style={{ color: 'var(--accent)' }}>✓</span>}
-              </div>
+              <FieldLabel label="Notes" field="notes" fieldSaved={fieldSaved} />
               <textarea
                 value={editNotes}
                 onChange={(e) => setEditNotes(e.target.value)}
-                onBlur={() => saveField('notes', editNotes || null)}
+                onBlur={saveNotes}
                 disabled={fieldSaving === 'notes'}
                 placeholder="Add notes for Claude's context…"
                 rows={3}

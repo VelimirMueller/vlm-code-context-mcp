@@ -526,8 +526,12 @@ function apiAllRetroFindings() {
 
 // ─── Agent CRUD ────────────────────────────────────────────────────────────
 
+// Single allowed-model list shared by the /api/agent routes and per-assignment
+// model overrides on PATCH /api/ticket/:id (D2).
+const ALLOWED_AGENT_MODELS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+
 function apiCreateAgent(body: any) {
-  if (body.model) validateEnum(body.model, ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  if (body.model) validateEnum(body.model, ALLOWED_AGENT_MODELS, 'model');
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
   if (existing) throw Object.assign(new Error("agent with this role already exists"), { status: 409 });
   writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
@@ -537,7 +541,7 @@ function apiCreateAgent(body: any) {
 }
 
 function apiUpdateAgent(role: string, body: any) {
-  if (body.model) validateEnum(body.model, ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'], 'model');
+  if (body.model) validateEnum(body.model, ALLOWED_AGENT_MODELS, 'model');
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(role);
   if (!existing) throw Object.assign(new Error("agent not found"), { status: 404 });
   const sets: string[] = []; const vals: any[] = [];
@@ -1418,6 +1422,190 @@ function apiUpdateTicket(id: number, body: any) {
   return { id, updated: true };
 }
 
+// ─── D1b (T-248): dashboard full-field ticket PATCH ─────────────────────────
+// UI-editable surface only. DONE/PARTIAL/NOT_DONE and qa_verified stay
+// process-controlled (QA gate integrity — spec "Risks" #6): this endpoint can
+// never produce them. Sprint-scope edits (sprint_id) are also out of surface.
+const UI_TICKET_PATCH_FIELDS = ['title', 'description', 'story_points', 'priority', 'status', 'assignments'];
+const UI_TICKET_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
+const PROCESS_CONTROLLED_TICKET_STATUSES = ['DONE', 'PARTIAL', 'NOT_DONE'];
+
+interface TicketAssignmentRow { role: string; model: string | null; is_lead: number }
+
+function badRequest(message: string): Error {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+/** Validate + normalize the request's assignments array (D2 replace-set input). */
+function normalizeTicketAssignments(raw: any): TicketAssignmentRow[] {
+  if (!Array.isArray(raw)) throw badRequest('assignments must be an array of { role, model?, lead? }');
+  const seen = new Set<string>();
+  const out: TicketAssignmentRow[] = [];
+  let leadCount = 0;
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw badRequest('each assignment must be an object { role, model?, lead? }');
+    }
+    const { role, model, lead } = entry as { role?: unknown; model?: unknown; lead?: unknown };
+    if (typeof role !== 'string' || !role.trim()) throw badRequest('assignment role must be a non-empty string');
+    if (seen.has(role)) throw badRequest(`duplicate assignment role '${role}'`);
+    seen.add(role);
+    if (!writeDb.prepare('SELECT role FROM agents WHERE role = ?').get(role)) {
+      throw badRequest(`unknown role '${role}': no such agent`);
+    }
+    if (model !== undefined && model !== null) {
+      if (typeof model !== 'string') throw badRequest('assignment model must be a string or null');
+      validateEnum(model, ALLOWED_AGENT_MODELS, 'model');
+    }
+    if (lead !== undefined && typeof lead !== 'boolean') throw badRequest('assignment lead must be a boolean');
+    if (lead === true) leadCount++;
+    out.push({ role, model: (model as string | null | undefined) ?? null, is_lead: lead === true ? 1 : 0 });
+  }
+  if (leadCount !== 1) {
+    throw badRequest(`exactly one assignment must have lead=true (got ${leadCount})`);
+  }
+  // Lead first, then alphabetical — same deterministic order the response uses.
+  return out.sort((a, b) => b.is_lead - a.is_lead || a.role.localeCompare(b.role));
+}
+
+function getTicketAssignments(ticketId: number): TicketAssignmentRow[] {
+  return writeDb.prepare(
+    'SELECT role, model, is_lead FROM ticket_assignments WHERE ticket_id = ? ORDER BY is_lead DESC, role'
+  ).all(ticketId) as TicketAssignmentRow[];
+}
+
+/** Full ticket row (incl. change_seq / pending_change) + its assignments. */
+function getTicketWithAssignments(ticketId: number): any {
+  const ticket = writeDb.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId) as any;
+  return { ...ticket, assignments: getTicketAssignments(ticketId) };
+}
+
+function assignmentSetsEqual(a: TicketAssignmentRow[], b: TicketAssignmentRow[]): boolean {
+  const key = (rows: TicketAssignmentRow[]) =>
+    JSON.stringify([...rows].sort((x, y) => x.role.localeCompare(y.role)));
+  return key(a) === key(b);
+}
+
+function apiPatchTicket(id: number, body: any): { result: { ok: true; ticket: any }; changedFields: string[] } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw badRequest('request body must be a JSON object');
+  }
+  for (const key of Object.keys(body)) {
+    if (!UI_TICKET_PATCH_FIELDS.includes(key)) {
+      const hint = key === 'qa_verified'
+        ? " — qa_verified is process-controlled (QA gate) and can never be set from the UI"
+        : '';
+      throw badRequest(`unknown field '${key}'${hint}. UI-editable fields: ${UI_TICKET_PATCH_FIELDS.join(', ')}`);
+    }
+  }
+  if (Object.keys(body).length === 0) {
+    throw badRequest(`nothing to update — provide at least one of: ${UI_TICKET_PATCH_FIELDS.join(', ')}`);
+  }
+
+  const existing = writeDb.prepare('SELECT * FROM tickets WHERE id = ? AND deleted_at IS NULL').get(id) as any;
+  if (!existing) throw Object.assign(new Error('ticket not found'), { status: 404 });
+
+  // Validate every provided field, recording only actual value changes.
+  const changedFields: string[] = [];
+  const oldValues: Record<string, any> = {};
+  const newValues: Record<string, any> = {};
+  const sets: string[] = [];
+  const vals: any[] = [];
+  const recordScalar = (field: string, oldVal: any, newVal: any) => {
+    changedFields.push(field);
+    oldValues[field] = oldVal;
+    newValues[field] = newVal;
+    sets.push(`${field}=?`);
+    vals.push(newVal);
+  };
+
+  if (body.title !== undefined) {
+    if (typeof body.title !== 'string' || !body.title.trim()) throw badRequest('title must be a non-empty string');
+    if (body.title !== existing.title) recordScalar('title', existing.title, body.title);
+  }
+  if (body.description !== undefined) {
+    if (typeof body.description !== 'string') throw badRequest('description must be a string');
+    if (body.description !== existing.description) recordScalar('description', existing.description, body.description);
+  }
+  if (body.story_points !== undefined) {
+    if (typeof body.story_points !== 'number' || !Number.isInteger(body.story_points) || body.story_points < 0) {
+      throw badRequest('story_points must be a non-negative integer');
+    }
+    if (body.story_points !== existing.story_points) recordScalar('story_points', existing.story_points, body.story_points);
+  }
+  if (body.priority !== undefined) {
+    validateEnum(body.priority, ['P0', 'P1', 'P2', 'P3'], 'priority');
+    if (body.priority !== existing.priority) recordScalar('priority', existing.priority, body.priority);
+  }
+  if (body.status !== undefined) {
+    if (!UI_TICKET_STATUSES.includes(body.status)) {
+      const hint = PROCESS_CONTROLLED_TICKET_STATUSES.includes(body.status)
+        ? ` — '${body.status}' is process-controlled (QA gate) and can never be set from the UI`
+        : '';
+      throw badRequest(`invalid status '${body.status}'${hint}. Allowed from the UI: ${UI_TICKET_STATUSES.join(', ')}`);
+    }
+    if (body.status !== existing.status) {
+      if (!UI_TICKET_STATUSES.includes(existing.status)) {
+        throw badRequest(`illegal status transition ${existing.status} → ${body.status}: UI transitions are limited to TODO ↔ IN_PROGRESS ↔ BLOCKED`);
+      }
+      recordScalar('status', existing.status, body.status);
+    }
+  }
+
+  // Assignments: replace-set semantics — the array replaces all rows for the ticket.
+  let newAssignments: TicketAssignmentRow[] | null = null;
+  if (body.assignments !== undefined) {
+    const normalized = normalizeTicketAssignments(body.assignments);
+    const current = getTicketAssignments(id);
+    if (!assignmentSetsEqual(current, normalized)) {
+      newAssignments = normalized;
+      changedFields.push('assignments');
+      oldValues.assignments = current;
+      newValues.assignments = normalized;
+      // Mirror the lead role into tickets.assigned_to (compat for existing queries/UI).
+      const leadRole = normalized.find((a) => a.is_lead === 1)!.role;
+      if (leadRole !== existing.assigned_to) { sets.push('assigned_to=?'); vals.push(leadRole); }
+    }
+  }
+
+  // Nothing actually changed → succeed without bumping change_seq or writing
+  // a revision (an empty diff would only make sessions chase a no-op).
+  if (changedFields.length === 0) {
+    return { result: { ok: true, ticket: getTicketWithAssignments(id) }, changedFields: [] };
+  }
+
+  // One transaction: field updates + change flags + revision + pending_action + events.
+  const apply = writeDb.transaction(() => {
+    if (newAssignments) {
+      writeDb.prepare('DELETE FROM ticket_assignments WHERE ticket_id = ?').run(id);
+      const ins = writeDb.prepare('INSERT INTO ticket_assignments (ticket_id, role, model, is_lead) VALUES (?, ?, ?, ?)');
+      for (const a of newAssignments) ins.run(id, a.role, a.model, a.is_lead);
+    }
+
+    sets.push('change_seq = change_seq + 1', 'pending_change = 1', "updated_at = datetime('now')");
+    writeDb.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+
+    writeDb.prepare(
+      "INSERT INTO ticket_revisions (ticket_id, source, changed_fields, old_values, new_values) VALUES (?, 'ui', ?, ?, ?)"
+    ).run(id, JSON.stringify(changedFields), JSON.stringify(oldValues), JSON.stringify(newValues));
+
+    writeDb.prepare(
+      "INSERT INTO pending_actions (action, entity_type, entity_id, source, status, payload) VALUES ('ticket_changed', 'ticket', ?, 'dashboard', 'pending', ?)"
+    ).run(id, JSON.stringify({ changed_fields: changedFields, old_values: oldValues, new_values: newValues }));
+
+    const logEvent = writeDb.prepare(
+      "INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', ?, ?, ?, 'dashboard')"
+    );
+    for (const field of changedFields) {
+      if (field === 'assignments') continue; // not scalar — captured in the revision diff
+      logEvent.run(id, field, oldValues[field] == null ? null : String(oldValues[field]), String(newValues[field]));
+    }
+  });
+  apply();
+
+  return { result: { ok: true, ticket: getTicketWithAssignments(id) }, changedFields };
+}
+
 function rebuildMarketingStats() {
   try {
     const closedSprints = (writeDb.prepare("SELECT COUNT(*) as c FROM sprints WHERE status IN ('closed','rest') AND deleted_at IS NULL").get() as any).c;
@@ -1983,6 +2171,16 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         data = apiUpdateTicket(tid, body);
         notifyClients();
+      }
+      // D1b (T-248): full-field UI ticket edit with revision trail + change flags
+      else if (url.pathname.match(/^\/api\/ticket\/\d+$/) && req.method === "PATCH") {
+        const tid = Number(url.pathname.split("/")[3]);
+        const body = await readBody(req);
+        const { result, changedFields } = apiPatchTicket(tid, body);
+        data = result;
+        if (changedFields.length > 0) {
+          notifyClients({ type: "ticket_changed", entityType: "ticket", entityId: tid, change: { changed_fields: changedFields } });
+        }
       }
       // ── DELETE endpoints ─────────────────────────────────────────────
       else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "DELETE") {

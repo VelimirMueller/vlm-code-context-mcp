@@ -1,5 +1,7 @@
 export { AgentCard } from './AgentCard';
 export { AlertDialog } from './AlertDialog';
+export { AssignmentChips } from './AssignmentChips';
+export { AssignmentEditor } from './AssignmentEditor';
 export { BentoCard } from './BentoCard';
 export { Breadcrumb } from './Breadcrumb';
 export { DiscoveryRow } from './DiscoveryRow';

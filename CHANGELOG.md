@@ -5,6 +5,16 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-11
+
+### Added
+- **Live-editable board tickets with session reaction** — tickets are now fully editable from the dashboard (`PATCH /api/ticket/:id`: title, description, points, priority, status within TODO ↔ IN_PROGRESS ↔ BLOCKED, assignments). Every UI edit transactionally bumps `change_seq`, sets the **`pending_change` flag**, writes a field-level `ticket_revisions` diff, queues a `ticket_changed` bridge action, and emits SSE (migration v23). The Claude session reacts: `load_phase_context(implementation)` and `get_sprint_playbook` prepend a **`⚠ CHANGED TICKETS`** block with per-field diffs, and the new **`acknowledge_ticket_changes`** tool clears the flags once the session has adjusted. The UI can never set DONE or `qa_verified` — completion stays process-controlled behind the QA gate (server-enforced).
+- **Multi-agent ticket assignments with per-assignment model selection** — `ticket_assignments` (role, optional model override, lead flag; existing `assigned_to` backfilled as lead). `create_ticket`/`update_ticket` accept `agents: [{ role, model?, lead? }]` (exactly one lead, validated roles/models, replace-set; the single-agent path keeps working and re-points the lead). The routing directive becomes **`Model routing (multi-agent)`**: the lead implements via a subagent at its resolved model, supporting assignments verify in parallel at theirs, and the QA gate requires every supporting verdict (decision #4). Dashboard ticket editor gains agent chips with star-to-lead and a per-assignment model dropdown (incl. `claude-opus-4-8`); board cards render assignment chips lead-first.
+- Inline ticket editing UI: click-to-edit title/description in the detail modal, quick-edit from board cards and table rows, optimistic updates reconciled from the PATCH response, server 400s reverted and surfaced.
+
+### Changed
+- `/kickoff` Phase 7 documents multi-agent delegation: lead implements first, supporters review the diff in parallel, failed verdicts mean `log_bug()` and back to the lead.
+
 ## [1.5.0] - 2026-06-11
 
 ### Added
