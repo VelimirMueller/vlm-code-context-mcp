@@ -11,14 +11,20 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const VENDOR_ROOT = path.join(REPO_ROOT, "vendor", "skills");
 const OUT_FILE = path.join(REPO_ROOT, "src", "scrum", "frontend-skill-defaults.generated.ts");
+const REGISTRY_FILE = path.join(REPO_ROOT, "src", "scrum", "skill-set-registry.json");
 
-// Mirrors src/scrum/skill-sets.ts (the script stays dependency-free JS, so the
-// dir → prefix/owner mapping is duplicated here; keep the two in sync).
-export const VENDORED_SETS = [
-  { dir: "frontend", prefix: "fe", ownerRole: "fe-engineer", varName: "FRONTEND_SKILL_DEFAULTS" },
-  { dir: "landing", prefix: "la", ownerRole: "fe-engineer", varName: "LANDING_SKILL_DEFAULTS" },
-  { dir: "workflow", prefix: "wf", ownerRole: null, varName: "WORKFLOW_SKILL_DEFAULTS" },
-];
+// Single source of truth shared with src/scrum/skill-sets.ts. This script runs
+// before tsc in `npm run build`, so it cannot import compiled output — it reads
+// the registry JSON directly with fs. The vendored dir is the last segment of
+// each set's upstreamDir (e.g. "skills/frontend/" -> "frontend"). A parity test
+// in test/skill-sets.test.ts asserts this derivation matches SKILL_SETS so the
+// two readers can never drift.
+export const VENDORED_SETS = JSON.parse(fs.readFileSync(REGISTRY_FILE, "utf-8")).map((s) => ({
+  dir: s.upstreamDir.replace(/\/+$/, "").split("/").pop(),
+  prefix: s.prefix,
+  ownerRole: s.ownerRole,
+  varName: s.varName,
+}));
 
 export function walkFiles(dir) {
   const files = [];

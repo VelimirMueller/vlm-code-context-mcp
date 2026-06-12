@@ -17,6 +17,7 @@ import {
   buildSkillSetIndex,
   buildWorkflowPlaybook,
 } from "../src/scrum/frontend-playbook";
+import { VENDORED_SETS } from "../scripts/compile-skills.mjs";
 
 let db: Database.Database;
 
@@ -133,5 +134,29 @@ describe("playbook composition", () => {
     const wf = buildWorkflowPlaybook(db);
     expect(wf).toContain("Workflow Skills");
     expect(wf).toContain("wf:write-commit-messages");
+  });
+});
+
+// Guards the single-source registry (src/scrum/skill-set-registry.json): the
+// runtime SKILL_SETS (skill-sets.ts) and the build-time VENDORED_SETS
+// (compile-skills.mjs) must derive from it identically, so a future upstream
+// category added to one reader can never silently drift from the other.
+describe("registry parity (SKILL_SETS ↔ VENDORED_SETS)", () => {
+  it("is one-to-one in the same order with aligned id/prefix/ownerRole/dir", () => {
+    expect(VENDORED_SETS).toHaveLength(SKILL_SETS.length);
+    for (const [i, set] of SKILL_SETS.entries()) {
+      const vendored = VENDORED_SETS[i];
+      // dir is the last path segment of upstreamDir, e.g. "skills/frontend/" → "frontend"
+      const expectedDir = set.upstreamDir.replace(/\/+$/, "").split("/").pop();
+      expect(vendored.dir).toBe(expectedDir);
+      expect(vendored.prefix).toBe(set.prefix);
+      expect(vendored.ownerRole).toBe(set.ownerRole);
+    }
+  });
+
+  it("every vendored prefix resolves back to its registry set", () => {
+    for (const vendored of VENDORED_SETS) {
+      expect(SKILL_SETS.find((s) => s.prefix === vendored.prefix)).toBeDefined();
+    }
   });
 });
