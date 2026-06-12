@@ -10,33 +10,10 @@ import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized } from "./auth.js";
-
-
-
-// ─── Input validation helpers ─────────────────────────────────────────────
-function validateEnum(value: string, allowed: string[], name: string) {
-  if (!allowed.includes(value)) throw Object.assign(new Error(`Invalid ${name}: ${value}. Allowed: ${allowed.join(', ')}`), { status: 400 });
-}
-function validateColor(hex: string) {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw Object.assign(new Error('Invalid hex color'), { status: 400 });
-}
-function validateSprintTransition(current: string, next: string) {
-  const allowed: Record<string, string[]> = {
-    planning: ['implementation'],
-    implementation: ['done', 'qa'],
-    done: ['rest'],
-    rest: ['planning'],
-    // Legacy phases — map to nearest simplified transition
-    preparation: ['kickoff', 'implementation', 'planning'],
-    kickoff: ['planning', 'implementation'],
-    qa: ['refactoring', 'implementation', 'done', 'retro'],
-    refactoring: ['retro', 'done'],
-    retro: ['review', 'done', 'rest'],
-    review: ['closed', 'rest', 'done'],
-    closed: ['rest'],
-  };
-  if (!allowed[current]?.includes(next)) throw Object.assign(new Error(`Cannot transition ${current} → ${next}`), { status: 400 });
-}
+import { codeHandlers, sprintHandlers } from "./handlers/index.js";
+// Shared validators live in handlers/validation.ts so the migrated scrum
+// handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
+import { validateEnum, validateColor, ALLOWED_AGENT_MODELS } from "./handlers/validation.js";
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
@@ -144,40 +121,8 @@ function startWatcher(dir: string) {
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────
-function apiFiles() {
-  return db.prepare(`
-    SELECT f.id, f.path, f.language, f.extension, f.size_bytes, f.line_count,
-      f.summary, f.external_imports, f.created_at, f.modified_at, f.indexed_at,
-      (SELECT COUNT(*) FROM exports WHERE file_id = f.id) as export_count,
-      (SELECT COUNT(*) FROM dependencies WHERE source_id = f.id) as imports_count,
-      (SELECT COUNT(*) FROM dependencies WHERE target_id = f.id) as imported_by_count
-    FROM files f ORDER BY f.path
-  `).all();
-}
-
-function apiFileContext(id: number) {
-  const file = db.prepare(`SELECT id, path, language, extension, size_bytes, line_count, summary, description, external_imports, created_at, modified_at, indexed_at FROM files WHERE id = ?`).get(id) as any;
-  if (!file) return null;
-  const exports = db.prepare(`SELECT name, kind, description FROM exports WHERE file_id = ?`).all(id);
-  const imports = db.prepare(`
-    SELECT f.id, f.path, f.summary, d.symbols
-    FROM dependencies d JOIN files f ON d.target_id = f.id WHERE d.source_id = ?
-  `).all(id);
-  const importedBy = db.prepare(`
-    SELECT f.id, f.path, f.summary, d.symbols
-    FROM dependencies d JOIN files f ON d.source_id = f.id WHERE d.target_id = ?
-  `).all(id);
-  return { ...file, exports, imports, importedBy };
-}
-
-function apiGraph() {
-  const files = db.prepare(`SELECT id, path FROM files`).all() as any[];
-  const deps = db.prepare(`SELECT source_id, target_id, symbols FROM dependencies`).all() as any[];
-  return {
-    nodes: files.map(f => ({ id: f.id, label: f.path.split("/").slice(-2).join("/") })),
-    edges: deps.map(d => ({ source: d.source_id, target: d.target_id, symbols: d.symbols })),
-  };
-}
+// Code-intel handlers (files, file-context, graph, changes, directories) live in
+// ./handlers/code.ts (T-277) and are called via codeHandlers.* in the router.
 
 function apiStats() {
   const files = (db.prepare(`SELECT COUNT(*) as c FROM files`).get() as any).c;
@@ -188,35 +133,6 @@ function apiStats() {
   const languages = db.prepare(`SELECT language, COUNT(*) as c FROM files GROUP BY language ORDER BY c DESC`).all();
   const extensions = db.prepare(`SELECT extension, COUNT(*) as c FROM files GROUP BY extension ORDER BY c DESC LIMIT 15`).all();
   return { files, exports, deps, totalLines, totalSize, languages, extensions };
-}
-
-function apiDirectories() {
-  return db.prepare(`SELECT * FROM directories ORDER BY path`).all();
-}
-
-function apiChanges(limit: number) {
-  return db.prepare(`
-    SELECT id, file_path, event, timestamp,
-      old_summary, new_summary,
-      old_line_count, new_line_count,
-      old_size_bytes, new_size_bytes,
-      old_exports, new_exports
-    FROM changes ORDER BY timestamp DESC, id DESC LIMIT ?
-  `).all(limit);
-}
-
-function apiFileChanges(id: number, limit: number) {
-  const file = db.prepare(`SELECT path FROM files WHERE id = ?`).get(id) as { path: string } | undefined;
-  if (!file) return null;
-  return db.prepare(`
-    SELECT id, file_path, event, timestamp,
-      old_summary, new_summary,
-      old_line_count, new_line_count,
-      old_size_bytes, new_size_bytes,
-      old_exports, new_exports,
-      diff_text, reason
-    FROM changes WHERE file_path = ? ORDER BY timestamp DESC, id DESC LIMIT ?
-  `).all(file.path, limit);
 }
 
 // ─── Skills & Agents API ────────────────────────────────────────────────────
@@ -355,165 +271,12 @@ function apiAgentsHealth() {
   } catch { return []; }
 }
 
-// ─── Scrum API (uses writeDb since it owns the scrum schema + data) ─────────
-function apiSprints() {
-  try {
-    return writeDb.prepare(`
-      SELECT s.*,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND deleted_at IS NULL) as ticket_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND status = 'DONE' AND deleted_at IS NULL) as done_count,
-        (SELECT COUNT(*) FROM tickets WHERE sprint_id = s.id AND qa_verified = 1 AND deleted_at IS NULL) as qa_count,
-        (SELECT COUNT(*) FROM retro_findings WHERE sprint_id = s.id) as retro_count,
-        (SELECT COUNT(*) FROM blockers WHERE sprint_id = s.id AND status = 'open') as open_blockers
-      FROM sprints s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC
-    `).all();
-  } catch (e) { console.error("[api] apiSprints error:", e); return []; }
-}
-
-function apiSprintDetail(id: number) {
-  try {
-    const sprint = writeDb.prepare(`SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(id);
-    if (!sprint) return null;
-    return sprint;
-  } catch (e) { console.error("[api] apiSprintDetail error:", e); return null; }
-}
-
-function apiBurndown(sprintId: number) {
-  try {
-    const sprint = writeDb.prepare(`SELECT name, velocity_committed, start_date, end_date FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprintId) as any;
-    if (!sprint) return null;
-    const metrics = writeDb.prepare(`SELECT date, remaining_points, completed_points, added_points, removed_points FROM sprint_metrics WHERE sprint_id = ? ORDER BY date`).all(sprintId) as any[];
-    // Also compute live snapshot from current tickets if no metrics recorded yet
-    const tickets = writeDb.prepare(`SELECT status, story_points FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprintId) as any[];
-    const totalPts = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-    const donePts = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-    return {
-      sprint_name: sprint.name,
-      committed: sprint.velocity_committed || totalPts,
-      start_date: sprint.start_date,
-      end_date: sprint.end_date,
-      current: { remaining: totalPts - donePts, completed: donePts, total: totalPts },
-      metrics,
-    };
-  } catch { return { metrics: [] }; }
-}
-
-function apiSprintTickets(sprintId: number) {
-  try {
-    return writeDb.prepare(`
-      SELECT t.id, t.ticket_ref, t.title, t.description, t.priority, t.status, t.assigned_to,
-        t.story_points, t.milestone, t.milestone_id, t.epic_id, t.qa_verified, t.verified_by, t.acceptance_criteria, t.notes, t.review_status,
-        m.name as milestone_name,
-        e.name as epic_name
-      FROM tickets t
-      LEFT JOIN milestones m ON t.milestone_id = m.id
-      LEFT JOIN epics e ON t.epic_id = e.id
-      WHERE t.sprint_id = ? AND t.deleted_at IS NULL ORDER BY t.priority, t.status
-    `).all(sprintId);
-  } catch (e) { console.error("[api] apiSprintTickets error:", e); return []; }
-}
-
-function apiSprintRetro(sprintId: number) {
-  try {
-    return writeDb.prepare(`
-      SELECT id, role, category, finding, action_owner, action_applied, linked_ticket_id
-      FROM retro_findings WHERE sprint_id = ? ORDER BY category
-    `).all(sprintId);
-  } catch { return []; }
-}
-
-function createRetroFinding(sprintId: number, body: { role?: string; category: string; finding: string; action_owner?: string }) {
-  writeDb.prepare(
-    `INSERT INTO retro_findings (sprint_id, role, category, finding, action_owner) VALUES (?, ?, ?, ?, ?)`
-  ).run(sprintId, body.role ?? null, body.category, body.finding, body.action_owner ?? null);
-}
-
-function updateRetroFinding(findingId: number, body: { action_applied?: boolean; action_owner?: string; linked_ticket_id?: number | null }) {
-  const updates: string[] = [];
-  const params: any[] = [];
-  if (body.action_applied !== undefined) { updates.push('action_applied = ?'); params.push(body.action_applied ? 1 : 0); }
-  if (body.action_owner) { updates.push('action_owner = ?'); params.push(body.action_owner); }
-  if (body.linked_ticket_id !== undefined) { updates.push('linked_ticket_id = ?'); params.push(body.linked_ticket_id); }
-  if (updates.length > 0) {
-    params.push(findingId);
-    writeDb.prepare(`UPDATE retro_findings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-  }
-}
-
-function generateSprintAutoAnalysis(sprintId: number): { analysis: string; donePoints: number } {
-  const totalTickets = (writeDb.prepare(`SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ?`).get(sprintId) as any).c;
-  const doneTickets = (writeDb.prepare(`SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`).get(sprintId) as any).c;
-  const totalPoints = (writeDb.prepare(`SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ?`).get(sprintId) as any).c;
-  const donePoints = (writeDb.prepare(`SELECT COALESCE(SUM(story_points), 0) as c FROM tickets WHERE sprint_id = ? AND status = 'DONE'`).get(sprintId) as any).c;
-  const committed = (writeDb.prepare(`SELECT velocity_committed FROM sprints WHERE id = ?`).get(sprintId) as any)?.velocity_committed ?? 0;
-  const completionRate = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
-  const velocityDelta = donePoints - committed;
-  const velocityDeltaStr = velocityDelta >= 0 ? `+${velocityDelta}` : `${velocityDelta}`;
-
-  const blockerCount = (writeDb.prepare(`SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ?`).get(sprintId) as any)?.c || 0;
-
-  const avgVelRow = writeDb.prepare(`SELECT AVG(velocity_completed) as avg_vel FROM sprints WHERE status IN ('closed','rest') AND velocity_completed IS NOT NULL`).get() as any;
-  const avgVelocity = avgVelRow?.avg_vel ? Math.round(avgVelRow.avg_vel * 10) / 10 : 0;
-  const vsAvgDelta = donePoints - avgVelocity;
-  const vsAvgStr = vsAvgDelta >= 0 ? `+${Math.round(vsAvgDelta * 10) / 10}` : `${Math.round(vsAvgDelta * 10) / 10}`;
-
-  const analysis = `Auto-analysis: ${doneTickets}/${totalTickets} tickets done (${completionRate}% completion rate). ` +
-    `Velocity: ${donePoints}pt completed of ${committed}pt committed (${velocityDeltaStr}pt delta). ` +
-    `Blockers: ${blockerCount} total. ` +
-    `vs. average velocity ${avgVelocity}pt across all sprints (${vsAvgStr}pt).`;
-
-  writeDb.prepare(
-    `INSERT INTO retro_findings (sprint_id, role, category, finding) VALUES (?, 'auto_analysis', 'auto_analysis', ?)`
-  ).run(sprintId, analysis);
-
-  return { analysis, donePoints };
-}
-
-function apiSprintBlockers(sprintId: number) {
-  try {
-    return writeDb.prepare(`
-      SELECT b.id, b.sprint_id, b.ticket_id, b.description, b.reported_by,
-        b.escalated_to, b.status, b.resolved_at, b.created_at,
-        t.title as ticket_title
-      FROM blockers b
-      LEFT JOIN tickets t ON b.ticket_id = t.id
-      WHERE b.sprint_id = ? ORDER BY b.status DESC, b.created_at DESC
-    `).all(sprintId);
-  } catch { return []; }
-}
-
-function apiSprintBugs(sprintId: number) {
-  try {
-    return writeDb.prepare(`
-      SELECT bg.id, bg.sprint_id, bg.ticket_id, bg.severity, bg.description,
-        bg.steps_to_reproduce, bg.expected, bg.actual, bg.status, bg.created_at,
-        t.title as ticket_title
-      FROM bugs bg
-      LEFT JOIN tickets t ON bg.ticket_id = t.id
-      WHERE bg.sprint_id = ? ORDER BY
-        CASE bg.severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
-        bg.status DESC, bg.created_at DESC
-    `).all(sprintId);
-  } catch { return []; }
-}
-
-function apiAllRetroFindings() {
-  try {
-    return writeDb.prepare(`
-      SELECT rf.id, rf.role, rf.category, rf.finding, rf.action_owner, rf.action_applied,
-        rf.sprint_id, s.name as sprint_name
-      FROM retro_findings rf
-      JOIN sprints s ON rf.sprint_id = s.id AND s.deleted_at IS NULL
-      ORDER BY s.created_at DESC, rf.category
-    `).all();
-  } catch { return []; }
-}
+// ─── Scrum API ──────────────────────────────────────────────────────────────
+// Sprint/ticket/blocker/bug/retro CRUD + burndown live in ./handlers/sprint.ts
+// (T-278) and are called via sprintHandlers.* in the router. They take the shared
+// `db` connection (which owns the scrum schema + data) and return plain data.
 
 // ─── Agent CRUD ────────────────────────────────────────────────────────────
-
-// Single allowed-model list shared by the /api/agent routes and per-assignment
-// model overrides on PATCH /api/ticket/:id (D2).
-const ALLOWED_AGENT_MODELS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
 
 function apiCreateAgent(body: any) {
   if (body.model) validateEnum(body.model, ALLOWED_AGENT_MODELS, 'model');
@@ -574,114 +337,13 @@ function apiUpdateDiscovery(discoveryId: number, body: any) {
 }
 
 // ─── Sprint stuck / Blocker / Bug CRUD ─────────────────────────────────────
-
-function apiReportSprintStuck(sprintId: number, body: any) {
-  const sprint = writeDb.prepare(`SELECT name, status FROM sprints WHERE id = ? AND deleted_at IS NULL`).get(sprintId) as any;
-  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
-  writeDb.prepare(`INSERT INTO blockers (sprint_id, description, reported_by, status) VALUES (?, ?, ?, 'open')`).run(
-    sprintId, `Sprint stuck in ${body.phase || sprint.status} phase for 10+ minutes. Requires intervention.`, 'dashboard-ui'
-  );
-  return { ok: true, message: `Blocker created: sprint ${sprint.name} stuck in ${sprint.status}` };
-}
-
-function apiCreateBlocker(sprintId: number, body: any) {
-  writeDb.prepare(`INSERT INTO blockers (sprint_id, ticket_id, description, reported_by, escalated_to, status) VALUES (?, ?, ?, ?, ?, 'open')`).run(
-    sprintId, body.ticket_id ?? null, body.description, body.reported_by ?? null, body.escalated_to ?? null
-  );
-  return { ok: true };
-}
-
-function apiUpdateBlocker(blockerId: number, body: any) {
-  if (body.status === 'resolved') {
-    writeDb.prepare(`UPDATE blockers SET status = 'resolved', resolved_at = datetime('now') WHERE id = ?`).run(blockerId);
-  } else if (body.status) {
-    writeDb.prepare(`UPDATE blockers SET status = ? WHERE id = ?`).run(body.status, blockerId);
-  }
-  return { ok: true };
-}
-
-function apiCreateBug(sprintId: number, body: any) {
-  writeDb.prepare(`INSERT INTO bugs (sprint_id, ticket_id, severity, description, steps_to_reproduce, expected, actual, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`).run(
-    sprintId, body.ticket_id ?? null, body.severity, body.description, body.steps_to_reproduce ?? null, body.expected ?? null, body.actual ?? null
-  );
-  return { ok: true };
-}
-
-function apiUpdateBug(bugId: number, body: any) {
-  if (body.status) {
-    writeDb.prepare(`UPDATE bugs SET status = ? WHERE id = ?`).run(body.status, bugId);
-  }
-  return { ok: true };
-}
+// Migrated to ./handlers/sprint.ts (T-278): apiReportSprintStuck, apiCreateBlocker,
+// apiUpdateBlocker, apiCreateBug, apiUpdateBug.
 
 // ─── Sprint / Milestone / Epic / Ticket helpers ────────────────────────────
-
-function apiDeleteSprint(sprintId: number) {
-  const existing = writeDb.prepare("SELECT id FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId);
-  if (!existing) throw Object.assign(new Error("sprint not found"), { status: 404 });
-  writeDb.prepare("UPDATE tickets SET deleted_at = datetime('now') WHERE sprint_id = ?").run(sprintId);
-  writeDb.prepare("UPDATE sprints SET deleted_at = datetime('now') WHERE id = ?").run(sprintId);
-  return { ok: true };
-}
-
-// Sprints are archivable only once finished. Eligibility is enforced here (server-side,
-// single source of truth) so a stale frontend can never archive an in-flight sprint.
-const ARCHIVABLE_STATUSES = ['closed', 'rest', 'done'] as const;
-
-function apiArchiveSprint(sprintId: number) {
-  const sprint = writeDb.prepare("SELECT id, status, archived_at FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
-  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
-  if (!ARCHIVABLE_STATUSES.includes(sprint.status)) {
-    throw Object.assign(new Error(`only finished sprints can be archived (status must be one of: ${ARCHIVABLE_STATUSES.join(', ')}); got '${sprint.status}'`), { status: 400 });
-  }
-  writeDb.prepare("UPDATE sprints SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(sprintId);
-  const updated = writeDb.prepare("SELECT archived_at FROM sprints WHERE id = ?").get(sprintId) as any;
-  try {
-    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', ?, ?, 'dashboard')").run(sprintId, sprint.archived_at ?? null, updated.archived_at);
-  } catch (e) { console.error("[api] apiArchiveSprint audit error:", e); }
-  return { ok: true, archived_at: updated.archived_at };
-}
-
-function apiUnarchiveSprint(sprintId: number) {
-  const sprint = writeDb.prepare("SELECT id, archived_at FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
-  if (!sprint) throw Object.assign(new Error("sprint not found"), { status: 404 });
-  writeDb.prepare("UPDATE sprints SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?").run(sprintId);
-  try {
-    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', ?, NULL, 'dashboard')").run(sprintId, sprint.archived_at ?? null);
-  } catch (e) { console.error("[api] apiUnarchiveSprint audit error:", e); }
-  return { ok: true, archived_at: null };
-}
-
-function apiArchiveCompletedSprints() {
-  // One transaction: select the eligible ids, archive them all, audit one event each.
-  const bulk = writeDb.transaction(() => {
-    const rows = writeDb.prepare(
-      `SELECT id FROM sprints WHERE status IN ('closed', 'rest', 'done') AND archived_at IS NULL AND deleted_at IS NULL`,
-    ).all() as Array<{ id: number }>;
-    const update = writeDb.prepare("UPDATE sprints SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?");
-    const audit = writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'updated', 'archived_at', NULL, ?, 'dashboard')");
-    const select = writeDb.prepare("SELECT archived_at FROM sprints WHERE id = ?");
-    for (const { id } of rows) {
-      update.run(id);
-      const { archived_at } = select.get(id) as any;
-      try { audit.run(id, archived_at); } catch (e) { console.error("[api] apiArchiveCompletedSprints audit error:", e); }
-    }
-    return rows.length;
-  });
-  return { archived: bulk() };
-}
-
-function apiUpdateTicketMilestone(ticketId: number, body: any) {
-  const milestoneId = body.milestone_id;
-  if (milestoneId === null || milestoneId === undefined) {
-    writeDb.prepare("UPDATE tickets SET milestone = NULL, milestone_id = NULL WHERE id = ?").run(ticketId);
-  } else {
-    const milestone = writeDb.prepare("SELECT name FROM milestones WHERE id = ?").get(milestoneId) as any;
-    if (!milestone) throw Object.assign(new Error("milestone not found"), { status: 404 });
-    writeDb.prepare("UPDATE tickets SET milestone = ?, milestone_id = ? WHERE id = ?").run(milestone.name, milestoneId, ticketId);
-  }
-  return { ok: true };
-}
+// Sprint lifecycle (apiDeleteSprint, apiArchiveSprint, apiUnarchiveSprint,
+// apiArchiveCompletedSprints) and apiUpdateTicketMilestone migrated to
+// ./handlers/sprint.ts (T-278).
 
 function apiCreateEpic(body: any) {
   if (body.status) validateEnum(body.status, ['planned', 'active', 'completed'], 'epic status');
@@ -1044,552 +706,11 @@ function apiEpics(milestoneId?: number) {
   } catch { return []; }
 }
 
-function apiPlanSprint(body: any) {
-  const name = body.name;
-  const goal = body.goal;
-  const ticketIds = body.ticketIds ?? body.ticket_ids;
-  const velocity = body.targetVelocity ?? body.velocity_committed ?? 0;
-  const startDate = body.startDate ?? body.start_date ?? null;
-  const endDate = body.endDate ?? body.end_date ?? null;
-  if (!name) throw new Error("name is required");
-  if (!ticketIds || !Array.isArray(ticketIds)) throw new Error("ticket_ids array is required");
-  const result = writeDb.prepare(`INSERT INTO sprints (name, goal, status, velocity_committed, start_date, end_date) VALUES (?, ?, 'planning', ?, ?, ?)`).run(name, goal || null, velocity, startDate, endDate);
-  const sprintId = result.lastInsertRowid;
-  const updateStmt = writeDb.prepare(`UPDATE tickets SET sprint_id=?, updated_at=datetime('now') WHERE id=?`);
-  for (const tid of ticketIds) {
-    updateStmt.run(sprintId, tid);
-  }
-  return { id: sprintId, name, tickets_assigned: ticketIds.length };
-}
-
-// ─── Sprint Advance API (direct, no bridge) ────────────────────────────────
-function apiAdvanceSprint(sprintId: number) {
-  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
-  if (!sprint) throw Object.assign(new Error("Sprint not found"), { status: 404 });
-
-  const TRANSITIONS: Record<string, string> = {
-    planning: 'implementation', implementation: 'done', done: 'rest', rest: 'planning',
-    preparation: 'implementation', kickoff: 'implementation', qa: 'done',
-    refactoring: 'done', retro: 'rest', review: 'rest', closed: 'rest',
-  };
-  const nextPhase = TRANSITIONS[sprint.status];
-  if (!nextPhase) throw Object.assign(new Error(`No transition from ${sprint.status}`), { status: 400 });
-
-  const tickets = writeDb.prepare("SELECT * FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").all(sprintId) as any[];
-
-  // Auto-calculate velocity_completed
-  let velocityCompleted = sprint.velocity_completed;
-  if ((nextPhase === 'done' || nextPhase === 'rest') && !velocityCompleted) {
-    velocityCompleted = tickets.filter((t: any) => t.status === 'DONE').reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-  }
-
-  // Auto-set velocity_committed from tickets if not set (planning → implementation)
-  let velocityCommitted = sprint.velocity_committed;
-  if (nextPhase === 'implementation' && !velocityCommitted) {
-    velocityCommitted = tickets.reduce((s: number, t: any) => s + (t.story_points || 0), 0);
-  }
-
-  const sets = ["status=?", "updated_at=datetime('now')"];
-  const vals: any[] = [nextPhase];
-  if (velocityCompleted !== undefined && velocityCompleted !== null) { sets.push("velocity_completed=?"); vals.push(velocityCompleted); }
-  if (velocityCommitted && !sprint.velocity_committed) { sets.push("velocity_committed=?"); vals.push(velocityCommitted); }
-  vals.push(sprintId);
-  writeDb.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
-
-  // Event trail
-  try {
-    writeDb.prepare("INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('sprint', ?, 'status_changed', 'status', ?, ?, 'dashboard')").run(sprintId, sprint.status, nextPhase);
-  } catch {}
-
-  const automations: string[] = [];
-
-  // ── implementation → done: retro analysis + archive discoveries ──
-  if (nextPhase === 'done') {
-    try {
-      const doneCount = tickets.filter((t: any) => t.status === 'DONE').length;
-      const pct = tickets.length > 0 ? Math.round((doneCount / tickets.length) * 100) : 0;
-      const summary = `Auto-analysis: ${doneCount}/${tickets.length} tickets done (${pct}%). Velocity: ${velocityCompleted || 0}pt of ${sprint.velocity_committed || velocityCommitted || 0}pt committed.`;
-      writeDb.prepare("INSERT INTO retro_findings (sprint_id, category, finding, role) VALUES (?, 'auto_analysis', ?, 'system')").run(sprintId, summary);
-      automations.push('retro_generated');
-    } catch {}
-
-    // Archive discoveries: planned → implemented if ticket DONE
-    try {
-      const r = writeDb.prepare(`
-        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
-        WHERE discovery_sprint_id = ? AND status = 'planned'
-          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
-      `).run(sprintId, sprintId);
-      if (r.changes > 0) automations.push(`${r.changes}_discoveries_implemented`);
-    } catch {}
-
-    // Drop discoveries whose tickets weren't completed
-    try {
-      writeDb.prepare(`
-        UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
-        WHERE discovery_sprint_id = ? AND status = 'planned'
-          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
-      `).run(sprintId, sprintId);
-    } catch {}
-  }
-
-  // ── done → rest: complete epics + update milestone progress ──
-  if (nextPhase === 'rest') {
-    // Auto-complete epics where all tickets are DONE
-    try {
-      const epicIds = writeDb.prepare(`
-        SELECT DISTINCT epic_id FROM tickets WHERE sprint_id = ? AND epic_id IS NOT NULL AND deleted_at IS NULL
-      `).all(sprintId) as any[];
-      for (const { epic_id } of epicIds) {
-        const undone = (writeDb.prepare(`
-          SELECT COUNT(*) as c FROM tickets WHERE epic_id = ? AND status != 'DONE' AND deleted_at IS NULL
-        `).get(epic_id) as any).c;
-        if (undone === 0) {
-          writeDb.prepare("UPDATE epics SET status = 'completed', updated_at = datetime('now') WHERE id = ?").run(epic_id);
-          automations.push(`epic_${epic_id}_completed`);
-        }
-      }
-    } catch {}
-
-    // Update milestone progress
-    if (sprint.milestone_id) {
-      try {
-        const ms = writeDb.prepare("SELECT id FROM milestones WHERE id = ?").get(sprint.milestone_id) as any;
-        if (ms) {
-          const totalTickets = (writeDb.prepare(`
-            SELECT COUNT(*) as c FROM tickets t JOIN sprints s ON t.sprint_id = s.id
-            WHERE s.milestone_id = ? AND t.deleted_at IS NULL
-          `).get(sprint.milestone_id) as any).c;
-          const doneTickets = (writeDb.prepare(`
-            SELECT COUNT(*) as c FROM tickets t JOIN sprints s ON t.sprint_id = s.id
-            WHERE s.milestone_id = ? AND t.status = 'DONE' AND t.deleted_at IS NULL
-          `).get(sprint.milestone_id) as any).c;
-          const progress = totalTickets > 0 ? Math.round((doneTickets / totalTickets) * 100) : 0;
-
-          // If all epics in milestone are complete, close milestone
-          const incompleteEpics = (writeDb.prepare(`
-            SELECT COUNT(*) as c FROM epics WHERE milestone_id = ? AND status != 'completed' AND deleted_at IS NULL
-          `).get(sprint.milestone_id) as any).c;
-          const msStatus = incompleteEpics === 0 && progress === 100 ? 'completed' : 'active';
-
-          writeDb.prepare("UPDATE milestones SET progress = ?, status = ?, updated_at = datetime('now') WHERE id = ?").run(progress, msStatus, sprint.milestone_id);
-          automations.push(`milestone_progress_${progress}%`);
-          if (msStatus === 'completed') automations.push('milestone_completed');
-        }
-      } catch {}
-    }
-  }
-
-  return { ok: true, from: sprint.status, to: nextPhase, sprint_id: sprintId, automations };
-}
-
-// ─── Sprint Update API ──────────────────────────────────────────────────────
-const SPRINT_PHASE_ORDER = ['planning', 'implementation', 'done', 'rest', 'preparation', 'kickoff', 'qa', 'refactoring', 'retro', 'review', 'closed'] as const;
-const SPRINT_TRANSITIONS: Record<string, string> = {
-  planning: 'implementation',
-  implementation: 'done',
-  done: 'rest',
-  rest: 'planning',
-  // Legacy phase mappings for backward compat
-  preparation: 'implementation',
-  kickoff: 'implementation',
-  qa: 'done',
-  refactoring: 'done',
-  retro: 'rest',
-  review: 'rest',
-  closed: 'rest',
-};
-
-function verifyPhaseGate(sprintId: number, targetPhase: string): { canTransition: boolean; blockers: string[]; warnings: string[] } {
-  const warnings: string[] = [];
-
-  const sprint = writeDb.prepare("SELECT * FROM sprints WHERE id = ? AND deleted_at IS NULL").get(sprintId) as any;
-  if (!sprint) return { canTransition: false, blockers: ['Sprint not found'], warnings: [] };
-
-  if (targetPhase === 'implementation') {
-    const ticketCount = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (ticketCount === 0) warnings.push('No tickets assigned to this sprint');
-    if (!sprint.velocity_committed) warnings.push('No velocity committed');
-  }
-
-  if (targetPhase === 'done' || targetPhase === 'qa') {
-    const undone = (writeDb.prepare("SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL").get(sprintId) as any).c;
-    if (undone > 0) warnings.push(`${undone} tickets not DONE`);
-    const openBlockers = (writeDb.prepare("SELECT COUNT(*) as c FROM blockers WHERE sprint_id = ? AND status = 'open'").get(sprintId) as any).c;
-    if (openBlockers > 0) warnings.push(`${openBlockers} open blockers`);
-  }
-
-  if (targetPhase === 'rest') {
-    const retroCount = (writeDb.prepare("SELECT COUNT(*) as c FROM retro_findings WHERE sprint_id = ?").get(sprintId) as any).c;
-    if (retroCount === 0) warnings.push('No retro findings recorded');
-    if (!sprint.velocity_completed) warnings.push('Velocity completed not set');
-  }
-
-  // Advisory gates: always allow transition, just warn
-  return { canTransition: true, blockers: [], warnings };
-}
-
-function apiSprintUpdate(id: number, body: any) {
-  // Read current sprint state before updating
-  const current = writeDb.prepare(`SELECT * FROM sprints WHERE id = ?`).get(id) as any;
-  if (!current) throw new Error("sprint not found");
-
-  const sets: string[] = []; const vals: any[] = [];
-
-  // Phase gate verification before transition (advisory — never blocks)
-  const gateWarnings: string[] = [];
-  if (body.status && body.status !== current.status) {
-    const gate = verifyPhaseGate(id, body.status);
-    gateWarnings.push(...gate.warnings);
-    if (gateWarnings.length > 0) {
-      (body as any)._gate_warnings = gateWarnings;
-    }
-  }
-
-  // Phase transition validation when status is changing
-  if (body.status && body.status !== current.status) {
-    const newStatus = body.status;
-    const currentStatus = current.status;
-
-    // Validate transition order
-    validateEnum(newStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
-    validateEnum(currentStatus, [...SPRINT_PHASE_ORDER], 'sprint status');
-    validateSprintTransition(currentStatus, newStatus);
-
-    // When transitioning to 'done' or 'qa': advisory warnings only
-    if (newStatus === 'done' || newStatus === 'qa') {
-      const undone = (writeDb.prepare(
-        `SELECT COUNT(*) as c FROM tickets WHERE sprint_id = ? AND status != 'DONE' AND deleted_at IS NULL`
-      ).get(id) as any).c;
-      if (undone > 0) {
-        gateWarnings.push(`${undone} ticket(s) are not DONE`);
-      }
-
-      // M13-038: Review sign-off warning for senior role tickets
-      const unapproved = writeDb.prepare(
-        `SELECT ticket_ref, title, assigned_to, review_status FROM tickets
-         WHERE sprint_id = ? AND deleted_at IS NULL
-           AND status = 'DONE'
-           AND assigned_to IN ('architect','lead-developer','scrum-master')
-           AND (review_status IS NULL OR review_status != 'approved')`
-      ).all(id) as any[];
-      if (unapproved.length > 0) {
-        (body as any)._review_warnings = unapproved.map((t: any) =>
-          `${t.ticket_ref} (${t.assigned_to}): review_status=${t.review_status ?? 'none'}`
-        );
-      }
-    }
-
-    // When transitioning to 'done' or 'retro': auto-generate retro analysis
-    if (newStatus === 'done' || newStatus === 'retro') {
-      const { donePoints } = generateSprintAutoAnalysis(id);
-      sets.push("velocity_completed=?"); vals.push(donePoints);
-    }
-
-    sets.push("status=?"); vals.push(newStatus);
-  } else if (body.status) {
-    // Status provided but same as current — no-op for status
-  }
-
-  if (body.goal !== undefined) { sets.push("goal=?"); vals.push(body.goal); }
-  if (body.velocity_committed !== undefined) { sets.push("velocity_committed=?"); vals.push(body.velocity_committed); }
-  if (body.velocity_completed !== undefined) { sets.push("velocity_completed=?"); vals.push(body.velocity_completed); }
-  if (sets.length === 0) throw new Error("nothing to update");
-  sets.push("updated_at=datetime('now')");
-  vals.push(id);
-  writeDb.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
-
-  // Auto-rebuild marketing stats when a sprint is closed
-  if (body.status === 'closed') {
-    rebuildMarketingStats();
-
-    // Auto-archive discoveries: promote planned→implemented if ticket DONE, drop if not
-    try {
-      writeDb.prepare(`
-        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
-        WHERE discovery_sprint_id = ? AND status = 'planned'
-          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
-      `).run(id, id);
-      writeDb.prepare(`
-        UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
-        WHERE discovery_sprint_id = ? AND status = 'planned'
-          AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
-      `).run(id, id);
-    } catch {}
-  }
-
-  const result: any = { id, updated: true };
-  if (body._review_warnings) {
-    result.review_warnings = body._review_warnings;
-  }
-  return result;
-}
-
-// ─── Ticket CRUD API ────────────────────────────────────────────────────────
-function apiCreateTicket(body: any) {
-  const { title, description, priority, sprint_id, epic_id, milestone_id, assigned_to, story_points } = body;
-  if (!title) throw new Error("title is required");
-  if (priority) validateEnum(priority, ['P0', 'P1', 'P2', 'P3'], 'priority');
-
-  // Generate ticket_ref: T-<next_id>
-  const maxRef = writeDb.prepare(`SELECT MAX(id) as m FROM tickets WHERE deleted_at IS NULL`).get() as any;
-  const nextNum = (maxRef?.m ?? 0) + 1;
-  const ticket_ref = `T-${nextNum}`;
-
-  // Resolve milestone name if milestone_id provided
-  let milestone: string | null = null;
-  if (milestone_id) {
-    const ms = writeDb.prepare(`SELECT name FROM milestones WHERE id = ?`).get(milestone_id) as any;
-    if (ms) milestone = ms.name;
-  }
-
-  const result = writeDb.prepare(`
-    INSERT INTO tickets (ticket_ref, title, description, priority, sprint_id, epic_id, milestone_id, milestone, assigned_to, story_points)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    ticket_ref,
-    title,
-    description || null,
-    priority ?? 0,
-    sprint_id || null,
-    epic_id || null,
-    milestone_id || null,
-    milestone,
-    assigned_to || null,
-    story_points ?? 0
-  );
-
-  return { id: result.lastInsertRowid, ticket_ref, title };
-}
-
-function apiUpdateTicket(id: number, body: any) {
-  const existing = writeDb.prepare(`SELECT * FROM tickets WHERE id = ?`).get(id) as any;
-  if (!existing) throw new Error("ticket not found");
-
-  const sets: string[] = []; const vals: any[] = [];
-  if (body.title !== undefined) { sets.push("title=?"); vals.push(body.title); }
-  if (body.description !== undefined) { sets.push("description=?"); vals.push(body.description); }
-  if (body.priority !== undefined) { validateEnum(body.priority, ['P0', 'P1', 'P2', 'P3'], 'priority'); sets.push("priority=?"); vals.push(body.priority); }
-  if (body.status !== undefined) { validateEnum(body.status, ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'PARTIAL', 'NOT_DONE'], 'ticket status'); sets.push("status=?"); vals.push(body.status); }
-  if (body.assigned_to !== undefined) { sets.push("assigned_to=?"); vals.push(body.assigned_to); }
-  if (body.story_points !== undefined) { sets.push("story_points=?"); vals.push(body.story_points); }
-  if (body.qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(body.qa_verified ? 1 : 0); }
-  if (body.review_status !== undefined) {
-    if (body.review_status !== null) validateEnum(body.review_status, ['pending', 'approved', 'rejected'], 'review_status');
-    sets.push("review_status=?"); vals.push(body.review_status);
-  }
-  if (body.epic_id !== undefined) { sets.push("epic_id=?"); vals.push(body.epic_id); }
-  if (body.milestone_id !== undefined) {
-    sets.push("milestone_id=?"); vals.push(body.milestone_id);
-    // Also update milestone name
-    if (body.milestone_id) {
-      const ms = writeDb.prepare(`SELECT name FROM milestones WHERE id = ?`).get(body.milestone_id) as any;
-      sets.push("milestone=?"); vals.push(ms?.name || null);
-    } else {
-      sets.push("milestone=?"); vals.push(null);
-    }
-  }
-  if (sets.length === 0) throw new Error("nothing to update");
-  sets.push("updated_at=datetime('now')");
-  vals.push(id);
-  writeDb.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
-
-  // Auto-promote linked discoveries when ticket moves to DONE
-  if (body.status === 'DONE') {
-    try {
-      writeDb.prepare(`
-        UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
-        WHERE status = 'planned' AND implementation_ticket_id = ?
-      `).run(id);
-    } catch {}
-  }
-
-  return { id, updated: true };
-}
-
-// ─── D1b (T-248): dashboard full-field ticket PATCH ─────────────────────────
-// UI-editable surface only. DONE/PARTIAL/NOT_DONE and qa_verified stay
-// process-controlled (QA gate integrity — spec "Risks" #6): this endpoint can
-// never produce them. Sprint-scope edits (sprint_id) are also out of surface.
-const UI_TICKET_PATCH_FIELDS = ['title', 'description', 'story_points', 'priority', 'status', 'assignments'];
-const UI_TICKET_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
-const PROCESS_CONTROLLED_TICKET_STATUSES = ['DONE', 'PARTIAL', 'NOT_DONE'];
-
-interface TicketAssignmentRow { role: string; model: string | null; is_lead: number }
-
-function badRequest(message: string): Error {
-  return Object.assign(new Error(message), { status: 400 });
-}
-
-/** Validate + normalize the request's assignments array (D2 replace-set input). */
-function normalizeTicketAssignments(raw: any): TicketAssignmentRow[] {
-  if (!Array.isArray(raw)) throw badRequest('assignments must be an array of { role, model?, lead? }');
-  const seen = new Set<string>();
-  const out: TicketAssignmentRow[] = [];
-  let leadCount = 0;
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw badRequest('each assignment must be an object { role, model?, lead? }');
-    }
-    const { role, model, lead } = entry as { role?: unknown; model?: unknown; lead?: unknown };
-    if (typeof role !== 'string' || !role.trim()) throw badRequest('assignment role must be a non-empty string');
-    if (seen.has(role)) throw badRequest(`duplicate assignment role '${role}'`);
-    seen.add(role);
-    if (!writeDb.prepare('SELECT role FROM agents WHERE role = ?').get(role)) {
-      throw badRequest(`unknown role '${role}': no such agent`);
-    }
-    if (model !== undefined && model !== null) {
-      if (typeof model !== 'string') throw badRequest('assignment model must be a string or null');
-      validateEnum(model, ALLOWED_AGENT_MODELS, 'model');
-    }
-    if (lead !== undefined && typeof lead !== 'boolean') throw badRequest('assignment lead must be a boolean');
-    if (lead === true) leadCount++;
-    out.push({ role, model: (model as string | null | undefined) ?? null, is_lead: lead === true ? 1 : 0 });
-  }
-  if (leadCount !== 1) {
-    throw badRequest(`exactly one assignment must have lead=true (got ${leadCount})`);
-  }
-  // Lead first, then alphabetical — same deterministic order the response uses.
-  return out.sort((a, b) => b.is_lead - a.is_lead || a.role.localeCompare(b.role));
-}
-
-function getTicketAssignments(ticketId: number): TicketAssignmentRow[] {
-  return writeDb.prepare(
-    'SELECT role, model, is_lead FROM ticket_assignments WHERE ticket_id = ? ORDER BY is_lead DESC, role'
-  ).all(ticketId) as TicketAssignmentRow[];
-}
-
-/** Full ticket row (incl. change_seq / pending_change) + its assignments. */
-function getTicketWithAssignments(ticketId: number): any {
-  const ticket = writeDb.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId) as any;
-  return { ...ticket, assignments: getTicketAssignments(ticketId) };
-}
-
-function assignmentSetsEqual(a: TicketAssignmentRow[], b: TicketAssignmentRow[]): boolean {
-  const key = (rows: TicketAssignmentRow[]) =>
-    JSON.stringify([...rows].sort((x, y) => x.role.localeCompare(y.role)));
-  return key(a) === key(b);
-}
-
-function apiPatchTicket(id: number, body: any): { result: { ok: true; ticket: any }; changedFields: string[] } {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw badRequest('request body must be a JSON object');
-  }
-  for (const key of Object.keys(body)) {
-    if (!UI_TICKET_PATCH_FIELDS.includes(key)) {
-      const hint = key === 'qa_verified'
-        ? " — qa_verified is process-controlled (QA gate) and can never be set from the UI"
-        : '';
-      throw badRequest(`unknown field '${key}'${hint}. UI-editable fields: ${UI_TICKET_PATCH_FIELDS.join(', ')}`);
-    }
-  }
-  if (Object.keys(body).length === 0) {
-    throw badRequest(`nothing to update — provide at least one of: ${UI_TICKET_PATCH_FIELDS.join(', ')}`);
-  }
-
-  const existing = writeDb.prepare('SELECT * FROM tickets WHERE id = ? AND deleted_at IS NULL').get(id) as any;
-  if (!existing) throw Object.assign(new Error('ticket not found'), { status: 404 });
-
-  // Validate every provided field, recording only actual value changes.
-  const changedFields: string[] = [];
-  const oldValues: Record<string, any> = {};
-  const newValues: Record<string, any> = {};
-  const sets: string[] = [];
-  const vals: any[] = [];
-  const recordScalar = (field: string, oldVal: any, newVal: any) => {
-    changedFields.push(field);
-    oldValues[field] = oldVal;
-    newValues[field] = newVal;
-    sets.push(`${field}=?`);
-    vals.push(newVal);
-  };
-
-  if (body.title !== undefined) {
-    if (typeof body.title !== 'string' || !body.title.trim()) throw badRequest('title must be a non-empty string');
-    if (body.title !== existing.title) recordScalar('title', existing.title, body.title);
-  }
-  if (body.description !== undefined) {
-    if (typeof body.description !== 'string') throw badRequest('description must be a string');
-    if (body.description !== existing.description) recordScalar('description', existing.description, body.description);
-  }
-  if (body.story_points !== undefined) {
-    if (typeof body.story_points !== 'number' || !Number.isInteger(body.story_points) || body.story_points < 0) {
-      throw badRequest('story_points must be a non-negative integer');
-    }
-    if (body.story_points !== existing.story_points) recordScalar('story_points', existing.story_points, body.story_points);
-  }
-  if (body.priority !== undefined) {
-    validateEnum(body.priority, ['P0', 'P1', 'P2', 'P3'], 'priority');
-    if (body.priority !== existing.priority) recordScalar('priority', existing.priority, body.priority);
-  }
-  if (body.status !== undefined) {
-    if (!UI_TICKET_STATUSES.includes(body.status)) {
-      const hint = PROCESS_CONTROLLED_TICKET_STATUSES.includes(body.status)
-        ? ` — '${body.status}' is process-controlled (QA gate) and can never be set from the UI`
-        : '';
-      throw badRequest(`invalid status '${body.status}'${hint}. Allowed from the UI: ${UI_TICKET_STATUSES.join(', ')}`);
-    }
-    if (body.status !== existing.status) {
-      if (!UI_TICKET_STATUSES.includes(existing.status)) {
-        throw badRequest(`illegal status transition ${existing.status} → ${body.status}: UI transitions are limited to TODO ↔ IN_PROGRESS ↔ BLOCKED`);
-      }
-      recordScalar('status', existing.status, body.status);
-    }
-  }
-
-  // Assignments: replace-set semantics — the array replaces all rows for the ticket.
-  let newAssignments: TicketAssignmentRow[] | null = null;
-  if (body.assignments !== undefined) {
-    const normalized = normalizeTicketAssignments(body.assignments);
-    const current = getTicketAssignments(id);
-    if (!assignmentSetsEqual(current, normalized)) {
-      newAssignments = normalized;
-      changedFields.push('assignments');
-      oldValues.assignments = current;
-      newValues.assignments = normalized;
-      // Mirror the lead role into tickets.assigned_to (compat for existing queries/UI).
-      const leadRole = normalized.find((a) => a.is_lead === 1)!.role;
-      if (leadRole !== existing.assigned_to) { sets.push('assigned_to=?'); vals.push(leadRole); }
-    }
-  }
-
-  // Nothing actually changed → succeed without bumping change_seq or writing
-  // a revision (an empty diff would only make sessions chase a no-op).
-  if (changedFields.length === 0) {
-    return { result: { ok: true, ticket: getTicketWithAssignments(id) }, changedFields: [] };
-  }
-
-  // One transaction: field updates + change flags + revision + pending_action + events.
-  const apply = writeDb.transaction(() => {
-    if (newAssignments) {
-      writeDb.prepare('DELETE FROM ticket_assignments WHERE ticket_id = ?').run(id);
-      const ins = writeDb.prepare('INSERT INTO ticket_assignments (ticket_id, role, model, is_lead) VALUES (?, ?, ?, ?)');
-      for (const a of newAssignments) ins.run(id, a.role, a.model, a.is_lead);
-    }
-
-    sets.push('change_seq = change_seq + 1', 'pending_change = 1', "updated_at = datetime('now')");
-    writeDb.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
-
-    writeDb.prepare(
-      "INSERT INTO ticket_revisions (ticket_id, source, changed_fields, old_values, new_values) VALUES (?, 'ui', ?, ?, ?)"
-    ).run(id, JSON.stringify(changedFields), JSON.stringify(oldValues), JSON.stringify(newValues));
-
-    writeDb.prepare(
-      "INSERT INTO pending_actions (action, entity_type, entity_id, source, status, payload) VALUES ('ticket_changed', 'ticket', ?, 'dashboard', 'pending', ?)"
-    ).run(id, JSON.stringify({ changed_fields: changedFields, old_values: oldValues, new_values: newValues }));
-
-    const logEvent = writeDb.prepare(
-      "INSERT INTO event_log (entity_type, entity_id, action, field_name, old_value, new_value, actor) VALUES ('ticket', ?, 'updated', ?, ?, ?, 'dashboard')"
-    );
-    for (const field of changedFields) {
-      if (field === 'assignments') continue; // not scalar — captured in the revision diff
-      logEvent.run(id, field, oldValues[field] == null ? null : String(oldValues[field]), String(newValues[field]));
-    }
-  });
-  apply();
-
-  return { result: { ok: true, ticket: getTicketWithAssignments(id) }, changedFields };
-}
+// ─── Sprint planning / advance / update + Ticket CRUD ───────────────────────
+// Migrated to ./handlers/sprint.ts (T-278): apiPlanSprint, apiAdvanceSprint,
+// verifyPhaseGate, apiSprintUpdate, apiCreateTicket, apiUpdateTicket, and the
+// full-field PATCH family (apiPatchTicket + assignment helpers). The router
+// rebuilds marketing stats after apiSprintUpdate when it reports marketingDirty.
 
 function rebuildMarketingStats() {
   try {
@@ -1906,11 +1027,11 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     try {
       let data: any;
-      if (url.pathname === "/api/files") data = apiFiles();
-      else if (url.pathname === "/api/directories") data = apiDirectories();
+      if (url.pathname === "/api/files") data = codeHandlers.apiFiles(db);
+      else if (url.pathname === "/api/directories") data = codeHandlers.apiDirectories(db);
       else if (url.pathname === "/api/stats") data = apiStats();
-      else if (url.pathname === "/api/graph") data = apiGraph();
-      else if (url.pathname === "/api/changes") data = apiChanges(Number(url.searchParams.get("limit") ?? 100));
+      else if (url.pathname === "/api/graph") data = codeHandlers.apiGraph(db);
+      else if (url.pathname === "/api/changes") data = codeHandlers.apiChanges(db, Number(url.searchParams.get("limit") ?? 100));
       else if (url.pathname === "/api/skills") data = apiSkills();
       else if (url.pathname.startsWith("/api/skill/")) {
         const skillName = decodeURIComponent(url.pathname.slice("/api/skill/".length));
@@ -1992,29 +1113,29 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/backlog") data = apiBacklog();
       else if (url.pathname === "/api/sprints/plan" && req.method === "POST") {
         const body = await readBody(req);
-        data = apiPlanSprint(body);
+        data = sprintHandlers.apiPlanSprint(db, body);
         notifyClients();
       }
       else if (url.pathname === "/api/sprints/archive-completed" && req.method === "POST") {
-        data = apiArchiveCompletedSprints();
+        data = sprintHandlers.apiArchiveCompletedSprints(db);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/advance$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiAdvanceSprint(sid);
+        data = sprintHandlers.apiAdvanceSprint(db, sid);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/archive$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiArchiveSprint(sid);
+        data = sprintHandlers.apiArchiveSprint(db, sid);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/unarchive$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiUnarchiveSprint(sid);
+        data = sprintHandlers.apiUnarchiveSprint(db, sid);
         notifyClients();
       }
-      else if (url.pathname === "/api/retro/all") data = apiAllRetroFindings();
+      else if (url.pathname === "/api/retro/all") data = sprintHandlers.apiAllRetroFindings(db);
       else if (url.pathname === "/api/discoveries/coverage") {
         const sid = url.searchParams.get("sprint_id");
         data = apiDiscoveryCoverage(sid ? Number(sid) : undefined);
@@ -2040,81 +1161,84 @@ const server = http.createServer(async (req, res) => {
         notifyClients();
       }
       else if (url.pathname === "/api/sprints/grouped") data = apiSprintsGroupedByMilestone();
-      else if (url.pathname === "/api/sprints") data = apiSprints();
+      else if (url.pathname === "/api/sprints") data = sprintHandlers.apiSprints(db);
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/stuck$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiReportSprintStuck(sid, body);
+        data = sprintHandlers.apiReportSprintStuck(db, sid, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/burndown$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiBurndown(sid);
+        data = sprintHandlers.apiBurndown(db, sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         if (!body.description) { res.writeHead(400); res.end('{"error":"description required"}'); return; }
-        data = apiCreateBlocker(sid, body);
+        data = sprintHandlers.apiCreateBlocker(db, sid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/blocker\/\d+$/) && req.method === "PATCH") {
         const bid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiUpdateBlocker(bid, body);
+        data = sprintHandlers.apiUpdateBlocker(db, bid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/blockers$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiSprintBlockers(sid);
+        data = sprintHandlers.apiSprintBlockers(db, sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         if (!body.description || !body.severity) { res.writeHead(400); res.end('{"error":"description and severity required"}'); return; }
-        data = apiCreateBug(sid, body);
+        data = sprintHandlers.apiCreateBug(db, sid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/bug\/\d+$/) && req.method === "PATCH") {
         const bid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiUpdateBug(bid, body);
+        data = sprintHandlers.apiUpdateBug(db, bid, body);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/bugs$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiSprintBugs(sid);
+        data = sprintHandlers.apiSprintBugs(db, sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/tickets$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiSprintTickets(sid);
+        data = sprintHandlers.apiSprintTickets(db, sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
         if (!body.category || !body.finding) { res.writeHead(400); res.end('{"error":"category and finding required"}'); return; }
-        createRetroFinding(sid, body);
+        sprintHandlers.createRetroFinding(db, sid, body);
         data = { ok: true };
         notifyClients();
       } else if (url.pathname.match(/^\/api\/retro\/\d+$/) && req.method === "PATCH") {
         const rid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        updateRetroFinding(rid, body);
+        sprintHandlers.updateRetroFinding(db, rid, body);
         data = { ok: true };
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+\/retro$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiSprintRetro(sid);
+        data = sprintHandlers.apiSprintRetro(db, sid);
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "PUT") {
         const sid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiSprintUpdate(sid, body);
+        const { result, marketingDirty } = sprintHandlers.apiSprintUpdate(db, sid, body);
+        data = result;
+        // Marketing-stats rebuild is a router-side side-effect (sprint closed).
+        if (marketingDirty) rebuildMarketingStats();
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/) && req.method === "DELETE") {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiDeleteSprint(sid);
+        data = sprintHandlers.apiDeleteSprint(db, sid);
         notifyClients();
       } else if (url.pathname.match(/^\/api\/sprint\/\d+$/)) {
         const sid = Number(url.pathname.split("/")[3]);
-        data = apiSprintDetail(sid);
+        data = sprintHandlers.apiSprintDetail(db, sid);
         if (!data) { res.writeHead(404); res.end('{"error":"sprint not found"}'); return; }
       }
       else if (url.pathname.match(/^\/api\/ticket\/\d+\/milestone$/) && req.method === "PATCH") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiUpdateTicketMilestone(tid, body);
+        data = sprintHandlers.apiUpdateTicketMilestone(db, tid, body);
         notifyClients();
       }
       else if (url.pathname === "/api/epics" && req.method === "POST") {
@@ -2148,20 +1272,20 @@ const server = http.createServer(async (req, res) => {
       // ── Ticket CRUD endpoints ──────────────────────────────────────────
       else if (url.pathname === "/api/tickets" && req.method === "POST") {
         const body = await readBody(req);
-        data = apiCreateTicket(body);
+        data = sprintHandlers.apiCreateTicket(db, body);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/ticket\/\d+$/) && req.method === "PUT") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        data = apiUpdateTicket(tid, body);
+        data = sprintHandlers.apiUpdateTicket(db, tid, body);
         notifyClients();
       }
       // D1b (T-248): full-field UI ticket edit with revision trail + change flags
       else if (url.pathname.match(/^\/api\/ticket\/\d+$/) && req.method === "PATCH") {
         const tid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);
-        const { result, changedFields } = apiPatchTicket(tid, body);
+        const { result, changedFields } = sprintHandlers.apiPatchTicket(db, tid, body);
         data = result;
         if (changedFields.length > 0) {
           notifyClients({ type: "ticket_changed", entityType: "ticket", entityId: tid, change: { changed_fields: changedFields } });
@@ -2188,11 +1312,11 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/project/status") data = apiProjectStatus();
       else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
         const id = Number(url.pathname.split("/")[3]);
-        data = apiFileChanges(id, Number(url.searchParams.get("limit") ?? 50));
+        data = codeHandlers.apiFileChanges(db, id, Number(url.searchParams.get("limit") ?? 50));
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       } else if (url.pathname.startsWith("/api/file/")) {
         const id = Number(url.pathname.split("/")[3]);
-        data = apiFileContext(id);
+        data = codeHandlers.apiFileContext(db, id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
       // ── Bridge API (pending_actions) ──────────────────────────────────
@@ -2235,7 +1359,7 @@ const server = http.createServer(async (req, res) => {
         const parts = url.pathname.split("/");
         const sid = Number(parts[3]);
         const phase = parts[5];
-        data = verifyPhaseGate(sid, phase);
+        data = sprintHandlers.verifyPhaseGate(db, sid, phase);
       } else { res.writeHead(404); res.end('{"ok":false,"error":"unknown endpoint"}'); return; }
       res.writeHead(200);
       res.end(JSON.stringify(data));
