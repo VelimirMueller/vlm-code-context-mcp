@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
-import { buildFrontendPlaybook, buildWorkflowPlaybook } from "./frontend-playbook.js";
+import { buildCommitContract, buildFrontendPlaybook, buildWorkflowPlaybook, checkCommitFormat, formatCommitFormatBlock } from "./frontend-playbook.js";
 import {
   formatEnablement,
   getEnabledSkillSets,
@@ -1103,6 +1103,20 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         return { content: [{ type: "text" as const, text: `Gate blocked for ticket #${ticket_id}:\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
       }
 
+      // ─── T-274: commit-format QA gate ───────────────────────────
+      // Only fires when QA verification is being SET (qa_verified:true). Plain
+      // status updates never invoke git. The ticket's referencing commits
+      // (git log main..HEAD --grep <ref>) must each carry the Why:/What:/How:
+      // body groups. Zero referencing commits → exempt; git/repo unavailable →
+      // fail-open (skip with a note, never strand the ticket). Runs before any
+      // mutation so a block leaves the row untouched.
+      if (qa_verified === true && !ticket.qa_verified && ticket.ticket_ref) {
+        const fmt = checkCommitFormat(ticket.ticket_ref);
+        if (!fmt.ok && fmt.violations.length > 0) {
+          return { content: [{ type: "text" as const, text: formatCommitFormatBlock(ticket.ticket_ref, fmt) }], isError: true };
+        }
+      }
+
       // ─── Apply updates ──────────────────────────────────────────
       const sets: string[] = []; const vals: any[] = [];
       const oldStatus = ticket.status;
@@ -2110,6 +2124,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
               }
               const routing = buildModelRoutingSection(db, t);
               if (routing) sections.push("", routing);
+              // T-273: when the workflow set is on, carry the commit contract verbatim
+              // into the delegated prompt (distilled from wf:write-commit-messages) so
+              // the subagent obeys it without a separate get_skill round-trip.
+              const contract = buildCommitContract(db);
+              if (contract) sections.push(contract);
             }
           }
 
