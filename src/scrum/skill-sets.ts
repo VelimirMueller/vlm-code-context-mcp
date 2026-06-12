@@ -9,6 +9,12 @@
  * changes it any time.
  */
 import type Database from "better-sqlite3";
+// Single source of truth for the skill-set registry. scripts/compile-skills.mjs
+// reads the same JSON with fs (it runs before tsc, so it cannot import compiled
+// output) — see test/skill-sets.test.ts for the parity check that keeps the two
+// readers aligned. The JSON carries an extra `varName` used only by the build
+// script; SkillSetDef below intentionally omits it (runtime never needs it).
+import registry from "./skill-set-registry.json" with { type: "json" };
 
 export type SkillSetId = "frontend" | "landing" | "workflow";
 
@@ -26,32 +32,22 @@ export interface SkillSetDef {
   defaultEnabled: boolean;
 }
 
-export const SKILL_SETS: SkillSetDef[] = [
-  {
-    id: "frontend",
-    prefix: "fe",
-    label: "Frontend",
-    ownerRole: "fe-engineer",
-    upstreamDir: "skills/frontend/",
-    defaultEnabled: true,
-  },
-  {
-    id: "landing",
-    prefix: "la",
-    label: "Landing pages",
-    ownerRole: "fe-engineer",
-    upstreamDir: "skills/landing/",
-    defaultEnabled: false,
-  },
-  {
-    id: "workflow",
-    prefix: "wf",
-    label: "Workflow (PRs & commits)",
-    ownerRole: null,
-    upstreamDir: "skills/workflow/",
-    defaultEnabled: false,
-  },
-];
+/** Raw registry row shape — superset of SkillSetDef with the build-only varName. */
+interface SkillSetRegistryRow extends SkillSetDef {
+  /** Export name the build script emits for this set's compiled defaults. */
+  varName: string;
+}
+
+export const SKILL_SETS: SkillSetDef[] = (registry as SkillSetRegistryRow[]).map(
+  ({ id, prefix, label, ownerRole, upstreamDir, defaultEnabled }) => ({
+    id,
+    prefix,
+    label,
+    ownerRole,
+    upstreamDir,
+    defaultEnabled,
+  }),
+);
 
 /** Config row in the skills table holding the project's enablement choice. */
 export const SKILL_SETS_ENABLED_KEY = "SKILL_SETS_ENABLED_JSON";

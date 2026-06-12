@@ -1,0 +1,29 @@
+[
+  {
+    "id": "frontend",
+    "prefix": "fe",
+    "label": "Frontend",
+    "ownerRole": "fe-engineer",
+    "upstreamDir": "skills/frontend/",
+    "defaultEnabled": true,
+    "varName": "FRONTEND_SKILL_DEFAULTS"
+  },
+  {
+    "id": "landing",
+    "prefix": "la",
+    "label": "Landing pages",
+    "ownerRole": "fe-engineer",
+    "upstreamDir": "skills/landing/",
+    "defaultEnabled": false,
+    "varName": "LANDING_SKILL_DEFAULTS"
+  },
+  {
+    "id": "workflow",
+    "prefix": "wf",
+    "label": "Workflow (PRs & commits)",
+    "ownerRole": null,
+    "upstreamDir": "skills/workflow/",
+    "defaultEnabled": false,
+    "varName": "WORKFLOW_SKILL_DEFAULTS"
+  }
+]
