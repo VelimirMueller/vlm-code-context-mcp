@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
 import { formatModelRouting } from "./agent-model.js";
-import { buildFrontendPlaybook, buildWorkflowPlaybook } from "./frontend-playbook.js";
+import { buildCommitContract, buildFrontendPlaybook, buildWorkflowPlaybook } from "./frontend-playbook.js";
 import {
   formatEnablement,
   getEnabledSkillSets,
@@ -2110,6 +2110,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
               }
               const routing = buildModelRoutingSection(db, t);
               if (routing) sections.push("", routing);
+              // T-273: when the workflow set is on, carry the commit contract verbatim
+              // into the delegated prompt (distilled from wf:write-commit-messages) so
+              // the subagent obeys it without a separate get_skill round-trip.
+              const contract = buildCommitContract(db);
+              if (contract) sections.push(contract);
             }
           }
 

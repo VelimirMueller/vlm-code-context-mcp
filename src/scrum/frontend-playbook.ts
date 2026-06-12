@@ -92,3 +92,61 @@ export function buildWorkflowPlaybook(db: Database.Database): string | null {
     ...index,
   ].join("\n");
 }
+
+/** The skill row the Commit contract block is distilled from. */
+export const COMMIT_SKILL_NAME = "wf:write-commit-messages";
+
+/**
+ * Compact "Commit contract" derived live from the `wf:write-commit-messages`
+ * skill so a delegated subagent prompt carries the contract verbatim instead of
+ * relying on the agent pulling the skill. Single-sourced: every line below is
+ * extracted from the stored SKILL.md, so editing the skill (→ regenerate
+ * defaults → reseed) updates the injected block — there is no second copy.
+ *
+ * Extraction targets, all stable structural anchors in the skill:
+ *  - subject rule: the first prose line under `## 3. Draft the subject`
+ *  - body template: the fenced ```text Why/What/How block under `## 4.`
+ *  - trailer note: emitted when the skill still names a `Co-Authored-By:` trailer
+ *
+ * Returns null if the skill row is absent or either anchor is missing (workflow
+ * set enabled but content not seeded / restructured) — caller omits the block
+ * rather than ship a stale paraphrase. The block is intentionally ≤ ~15 lines:
+ * it rides in every delegated prompt, so token diet matters (see C1 comments).
+ */
+export function buildCommitContract(db: Database.Database): string | null {
+  // Skill CONTENT is always seeded; only SERVE it when the project opted into
+  // the workflow set — mirrors buildWorkflowPlaybook's enablement gate (AC1).
+  if (!getEnabledSkillSets(db).workflow) return null;
+  const content = getSkillContent(db, COMMIT_SKILL_NAME);
+  if (!content) return null;
+
+  // Step 3 → the subject rule. Grab the first non-empty line after the heading.
+  const subjectSection = content.split(/^## 3\. Draft the subject\s*$/m)[1];
+  const subjectRule = subjectSection
+    ?.split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+
+  // Step 4 → the fenced ```text Why/What/How template (the canonical body shape).
+  const bodySection = content.split(/^## 4\./m)[1];
+  const bodyTemplate = bodySection?.match(/```text\r?\n([\s\S]*?)\r?\n```/)?.[1];
+
+  if (!subjectRule || !bodyTemplate) return null; // skill restructured → omit, don't fabricate
+
+  const trailerNote = /Co-Authored-By:/.test(content)
+    ? "Preserve the house trailer(s) the audit detects (e.g. `Co-Authored-By:`) after the three groups."
+    : null;
+
+  const lines = [
+    "",
+    "### Commit contract",
+    `Apply this when committing — distilled from \`${COMMIT_SKILL_NAME}\`; load it with \`get_skill\` for the full discipline.`,
+    `- **Subject:** ${subjectRule}`,
+    "- **Body:** exactly three labeled bullet groups, every bullet derived from the diff:",
+    "```text",
+    bodyTemplate,
+    "```",
+  ];
+  if (trailerNote) lines.push(`- ${trailerNote}`);
+  return lines.join("\n");
+}
