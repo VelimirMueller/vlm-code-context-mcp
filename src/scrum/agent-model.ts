@@ -1,8 +1,9 @@
-export type Tier = "opus" | "sonnet" | "haiku";
+export type Tier = "opus" | "sonnet" | "haiku" | "fable";
 
 /** Map a stored agent model id to the Task-tool subagent tier. Unknown/null → "sonnet". */
 export function modelToTier(modelId: string | null | undefined): Tier {
   if (!modelId) return "sonnet";
+  if (modelId.startsWith("claude-fable")) return "fable";
   if (modelId.startsWith("claude-opus")) return "opus";
   if (modelId.startsWith("claude-haiku")) return "haiku";
   return "sonnet";

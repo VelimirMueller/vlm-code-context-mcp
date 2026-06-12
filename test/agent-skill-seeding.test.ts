@@ -55,18 +55,26 @@ describe("Agent & Skill Seeding (T-45)", () => {
         expect(agent.role).toBeTruthy();
         expect(agent.name).toBeTruthy();
         expect(agent.description).toBeTruthy();
-        expect(["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
+        expect(["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
         expect(agent.tools).toBeNull();
         expect(agent.system_prompt).toBe("");
       }
     });
 
-    it("assigns the strongest model (claude-opus-4-8) to dev and QA roles", () => {
+    it("assigns the strongest model (claude-fable-5) to dev roles", () => {
       seedDefaults(db);
       const strong = db
-        .prepare("SELECT role FROM agents WHERE model = 'claude-opus-4-8' ORDER BY role")
+        .prepare("SELECT role FROM agents WHERE model = 'claude-fable-5' ORDER BY role")
         .all() as { role: string }[];
-      expect(strong.map((r) => r.role)).toEqual(["be-engineer", "developer", "fe-engineer", "qa"]);
+      expect(strong.map((r) => r.role)).toEqual(["be-engineer", "developer", "fe-engineer"]);
+    });
+
+    it("keeps qa on claude-opus-4-8", () => {
+      seedDefaults(db);
+      const qa = db
+        .prepare("SELECT model FROM agents WHERE role = 'qa'")
+        .get() as { model: string };
+      expect(qa.model).toBe("claude-opus-4-8");
     });
 
     it("be-engineer has correct description", () => {
@@ -191,7 +199,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
     });
 
     it("all agent models are valid Claude models", () => {
-      const validModels = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"];
+      const validModels = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"];
       for (const agent of AGENT_DEFAULTS) {
         expect(validModels).toContain(agent.model);
       }
