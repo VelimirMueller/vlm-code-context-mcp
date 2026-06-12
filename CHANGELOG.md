@@ -5,6 +5,20 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-06-12
+
+### Added
+- **Commit discipline, enforced end-to-end (Sprint 28)** — with the workflow skill set enabled, `load_phase_context({ phase: "implementation", ticket_id })` appends a compact **Commit contract** block (subject convention + the `Why:/What:/How:` body template + trailer note) to the Model-routing directive, derived **live** from the stored `wf:write-commit-messages` skill — edit the skill and the injected contract follows, no second copy. At close, `update_ticket` **refuses `qa_verified: true`** while branch commits referencing the ticket ref lack the three labeled body groups: the ⛔ message names the offending hashes with an amend-vs-squash remediation hint. Zero referencing commits → exempt (docs/process tickets never block); merge commits exempt; missing git/repo/base branch → fail-open skip. (`buildCommitContract`, `checkCommitFormat`)
+- **Auto-telemetry on ticket close (Sprint 29, adopts try_next #122)** — `update_ticket` transitioning a ticket to DONE auto-snapshots sprint metrics through the new shared `snapshotSprintMetrics` helper (the `snapshot_sprint_metrics` tool now routes through the same path), `advance_sprint` snapshots at every phase transition, and `update_ticket` accepts **`actual_hours`**, recorded against the ticket's assigned agent via the same column `log_time` writes. Burndown and time reports populate from normal ceremony flow — no manual snapshot ceremony. Telemetry writes are fail-open (`[audit]` to stderr; they can never block or roll back a close).
+- **Claude Fable 5 model tier** — `modelToTier` maps `claude-fable*` to the new `fable` tier for subagent routing; `fe-engineer`/`be-engineer`/`developer` defaults move to `claude-fable-5` (QA stays on `claude-opus-4-8`, pinned by test); the dashboard model picker lists Fable 5 as "Most capable".
+
+### Changed
+- **tools.ts decomposed (Sprint 27, discovery #16)** — new shared data-access layer `src/scrum/queries.ts` (sprint/ticket lookups deduplicated); the analytics (7 reporting tools) and skills (6 tools) handlers extracted byte-identical into `src/scrum/tools/{analytics,skills}.ts` behind `registerAnalyticsTools`/`registerSkillsTools` — tool surface unchanged. The skill-set registry is single-sourced into `src/scrum/skill-set-registry.json`: the TS server imports it, `compile-skills.mjs` fs-reads it (it runs pre-tsc), and a mutation-verified parity test guards derivation drift between the two readers.
+- **dashboard.ts decomposed, slice 1 (Sprint 29, discovery #17)** — the stalled `handlers/` migration revived along its own documented plan: code-intel routes (`handlers/code.ts`) and the full scrum API domain including `PATCH /api/ticket/:id` (`handlers/sprint.ts`) moved out via the registry barrel; `dashboard.ts` drops **2,350 → 1,473 lines** with a byte-identical route surface, pinned by a 76-route golden parity test (`test/dashboard-route-parity.test.ts`, sentinel-404 mechanism, mutation-verified).
+
+### Fixed
+- **Silent audit-trail loss around `event_log` writes (Sprint 27)** — 5 bare `catch {}` sites (`update_sprint`, `update_ticket` ×2, `log_bug`, `start_sprint`) now log `[audit] <context>: <error>` to stderr instead of swallowing the failure; the primary mutation still commits, the trail loss becomes visible. Regression-tested including the forced-failure stderr path.
+
 ## [2.1.0] - 2026-06-11
 
 ### Added

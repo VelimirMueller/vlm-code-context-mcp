@@ -53,6 +53,15 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.2 — Discipline & Telemetry 📐
+
+- **Commit contract, injected and enforced** — delegated implementation prompts carry the `Why:/What:/How:` commit-body contract (derived live from the `wf:write-commit-messages` skill), and `update_ticket` refuses `qa_verified` while a ticket's commits don't follow it — offending hashes named, docs-only tickets exempt, always fail-open.
+- **Telemetry without ceremony** — closing a ticket auto-snapshots the burndown and can log `actual_hours` against the assigned agent; phase transitions snapshot too. Retros quote real numbers instead of `0h`.
+- **Leaner internals** — `tools.ts` and `dashboard.ts` both decomposed into domain modules (dashboard server −37%), with byte-identical tool/route surfaces pinned by mutation-verified parity tests.
+- **Claude Fable 5 tier** — dev roles default to `claude-fable-5`; ticket routing gains the `fable` tier.
+
+---
+
 ## New in 2.0 — Process 2.0 🚦
 
 - **Planning gates that close the retro loop** — sprints refuse to start while retro `try_next` learnings sit untriaged; adopt, drop, or defer each one (`triage_retro_finding`), and adopted items auto-flag as applied when their ticket lands.
@@ -184,8 +193,8 @@ No agent holds the full project in its context window. They query what they need
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘          │
 │       └──────────────┼─────────────┘                │
 │                      ▼                              │
-│              76 MCP Tools                           │
-│          (32 read + 44 write)                       │
+│              97 MCP Tools                           │
+│      (reads · writes · ceremony cards)              │
 │                      │                              │
 │                      ▼                              │
 │  ┌─────────────────────────────────────┐            │
@@ -205,7 +214,7 @@ No agent holds the full project in its context window. They query what they need
 
 ## The Agent Team
 
-9 configurable agents, each with a role, model, and mood score. Dev roles and QA default to the strongest model (`claude-opus-4-8`); the rest use `claude-sonnet-4-6`.
+9 configurable agents, each with a role, model, and mood score. Dev roles default to the strongest model (`claude-fable-5`), QA to `claude-opus-4-8`; the rest use `claude-sonnet-4-6`.
 
 | Role | Focus |
 |---|---|
@@ -219,7 +228,7 @@ No agent holds the full project in its context window. They query what they need
 | Security Engineer | Vulnerability review, threat modeling, security best practices |
 | DevOps | CI/CD, builds, deployment |
 
-Add, remove, or swap models through MCP tools or with a single click in the dashboard — and the choice **routes execution**: during `/kickoff` and `/sprint`, each ticket is implemented by a subagent spawned at its assigned agent's model tier (`opus`/`sonnet`/`haiku`).
+Add, remove, or swap models through MCP tools or with a single click in the dashboard — and the choice **routes execution**: during `/kickoff` and `/sprint`, each ticket is implemented by a subagent spawned at its assigned agent's model tier (`fable`/`opus`/`sonnet`/`haiku`).
 
 Since 2.0, tickets can carry **multiple agents with per-assignment model overrides**: the lead implements, supporting agents verify the diff in parallel from their role's perspective, and the QA gate requires every verdict before a ticket counts as done.
 
@@ -244,6 +253,8 @@ Phases, durations, and gates are fully customizable via `update_sprint_config`.
 
 Since 2.0, planning is **gated**: `start_sprint` and `advance_sprint` refuse to proceed while untriaged retro `try_next` findings or escalated open discoveries (P0/P1 older than 3 sprints) exist — triage them, or override explicitly with `acknowledge_open_items: true`. Retro learnings stop being write-only.
 
+Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `qa_verified` while its referencing commits lack the `Why:/What:/How:` body groups — and closes feed the burndown automatically.
+
 ---
 
 ## Tech Stack
@@ -265,10 +276,10 @@ Since 2.0, planning is **gated**: `start_sprint` and `advance_sprint` refuse to 
 
 | Component | Count |
 |---|---|
-| MCP tools | 96 |
+| MCP tools | 97 |
 | Database tables | 32 (27 scrum + 5 code) |
 | React components | 75 |
-| Tests | 651 (566 backend + 85 frontend) |
+| Tests | 762 (677 backend + 85 frontend) |
 | Agent roles | 9 (configurable) |
 | Sprint phases | 4 with gate checks + planning gate |
 | Slash commands | 6 |
