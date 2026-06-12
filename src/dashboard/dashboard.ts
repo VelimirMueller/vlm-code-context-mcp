@@ -10,6 +10,7 @@ import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized } from "./auth.js";
+import { codeHandlers } from "./handlers/index.js";
 
 
 
@@ -144,40 +145,8 @@ function startWatcher(dir: string) {
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────
-function apiFiles() {
-  return db.prepare(`
-    SELECT f.id, f.path, f.language, f.extension, f.size_bytes, f.line_count,
-      f.summary, f.external_imports, f.created_at, f.modified_at, f.indexed_at,
-      (SELECT COUNT(*) FROM exports WHERE file_id = f.id) as export_count,
-      (SELECT COUNT(*) FROM dependencies WHERE source_id = f.id) as imports_count,
-      (SELECT COUNT(*) FROM dependencies WHERE target_id = f.id) as imported_by_count
-    FROM files f ORDER BY f.path
-  `).all();
-}
-
-function apiFileContext(id: number) {
-  const file = db.prepare(`SELECT id, path, language, extension, size_bytes, line_count, summary, description, external_imports, created_at, modified_at, indexed_at FROM files WHERE id = ?`).get(id) as any;
-  if (!file) return null;
-  const exports = db.prepare(`SELECT name, kind, description FROM exports WHERE file_id = ?`).all(id);
-  const imports = db.prepare(`
-    SELECT f.id, f.path, f.summary, d.symbols
-    FROM dependencies d JOIN files f ON d.target_id = f.id WHERE d.source_id = ?
-  `).all(id);
-  const importedBy = db.prepare(`
-    SELECT f.id, f.path, f.summary, d.symbols
-    FROM dependencies d JOIN files f ON d.source_id = f.id WHERE d.target_id = ?
-  `).all(id);
-  return { ...file, exports, imports, importedBy };
-}
-
-function apiGraph() {
-  const files = db.prepare(`SELECT id, path FROM files`).all() as any[];
-  const deps = db.prepare(`SELECT source_id, target_id, symbols FROM dependencies`).all() as any[];
-  return {
-    nodes: files.map(f => ({ id: f.id, label: f.path.split("/").slice(-2).join("/") })),
-    edges: deps.map(d => ({ source: d.source_id, target: d.target_id, symbols: d.symbols })),
-  };
-}
+// Code-intel handlers (files, file-context, graph, changes, directories) live in
+// ./handlers/code.ts (T-277) and are called via codeHandlers.* in the router.
 
 function apiStats() {
   const files = (db.prepare(`SELECT COUNT(*) as c FROM files`).get() as any).c;
@@ -188,35 +157,6 @@ function apiStats() {
   const languages = db.prepare(`SELECT language, COUNT(*) as c FROM files GROUP BY language ORDER BY c DESC`).all();
   const extensions = db.prepare(`SELECT extension, COUNT(*) as c FROM files GROUP BY extension ORDER BY c DESC LIMIT 15`).all();
   return { files, exports, deps, totalLines, totalSize, languages, extensions };
-}
-
-function apiDirectories() {
-  return db.prepare(`SELECT * FROM directories ORDER BY path`).all();
-}
-
-function apiChanges(limit: number) {
-  return db.prepare(`
-    SELECT id, file_path, event, timestamp,
-      old_summary, new_summary,
-      old_line_count, new_line_count,
-      old_size_bytes, new_size_bytes,
-      old_exports, new_exports
-    FROM changes ORDER BY timestamp DESC, id DESC LIMIT ?
-  `).all(limit);
-}
-
-function apiFileChanges(id: number, limit: number) {
-  const file = db.prepare(`SELECT path FROM files WHERE id = ?`).get(id) as { path: string } | undefined;
-  if (!file) return null;
-  return db.prepare(`
-    SELECT id, file_path, event, timestamp,
-      old_summary, new_summary,
-      old_line_count, new_line_count,
-      old_size_bytes, new_size_bytes,
-      old_exports, new_exports,
-      diff_text, reason
-    FROM changes WHERE file_path = ? ORDER BY timestamp DESC, id DESC LIMIT ?
-  `).all(file.path, limit);
 }
 
 // ─── Skills & Agents API ────────────────────────────────────────────────────
@@ -1906,11 +1846,11 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     try {
       let data: any;
-      if (url.pathname === "/api/files") data = apiFiles();
-      else if (url.pathname === "/api/directories") data = apiDirectories();
+      if (url.pathname === "/api/files") data = codeHandlers.apiFiles(db);
+      else if (url.pathname === "/api/directories") data = codeHandlers.apiDirectories(db);
       else if (url.pathname === "/api/stats") data = apiStats();
-      else if (url.pathname === "/api/graph") data = apiGraph();
-      else if (url.pathname === "/api/changes") data = apiChanges(Number(url.searchParams.get("limit") ?? 100));
+      else if (url.pathname === "/api/graph") data = codeHandlers.apiGraph(db);
+      else if (url.pathname === "/api/changes") data = codeHandlers.apiChanges(db, Number(url.searchParams.get("limit") ?? 100));
       else if (url.pathname === "/api/skills") data = apiSkills();
       else if (url.pathname.startsWith("/api/skill/")) {
         const skillName = decodeURIComponent(url.pathname.slice("/api/skill/".length));
@@ -2188,11 +2128,11 @@ const server = http.createServer(async (req, res) => {
       else if (url.pathname === "/api/project/status") data = apiProjectStatus();
       else if (url.pathname.match(/^\/api\/file\/\d+\/changes$/)) {
         const id = Number(url.pathname.split("/")[3]);
-        data = apiFileChanges(id, Number(url.searchParams.get("limit") ?? 50));
+        data = codeHandlers.apiFileChanges(db, id, Number(url.searchParams.get("limit") ?? 50));
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       } else if (url.pathname.startsWith("/api/file/")) {
         const id = Number(url.pathname.split("/")[3]);
-        data = apiFileContext(id);
+        data = codeHandlers.apiFileContext(db, id);
         if (!data) { res.writeHead(404); res.end('{"error":"not found"}'); return; }
       }
       // ── Bridge API (pending_actions) ──────────────────────────────────
