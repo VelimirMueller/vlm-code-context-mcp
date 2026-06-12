@@ -23,7 +23,7 @@ export interface HandlerContext {
 
 // Import domain handlers as they're extracted
 export * as codeHandlers from "./code.js";
-// export { sprintHandlers } from "./sprint.js";
+export * as sprintHandlers from "./sprint.js";
 // export { planningHandlers } from "./planning.js";
 // export { teamHandlers } from "./team.js";
 // export { bridgeHandlers } from "./bridge.js";
