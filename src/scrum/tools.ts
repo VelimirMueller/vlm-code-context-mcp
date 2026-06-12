@@ -524,6 +524,29 @@ export function buildPlanningGateContext(db: Database.Database): string {
 }
 
 /**
+ * T-279: shared burndown-snapshot logic, callable in-process (no MCP round-trip).
+ *
+ * Upserts one row in sprint_metrics for (sprint_id, date) capturing remaining vs
+ * completed points — the same query the snapshot_sprint_metrics tool exposes, so
+ * the tool and the auto-telemetry hooks (ticket close, phase transition) stay in
+ * lockstep. Returns the computed totals; an empty sprint snapshots a valid 0/0
+ * point. Pure DB work — the caller decides whether to notify the dashboard, so
+ * this never reaches outward (and stays safe to wrap in a fail-open try/catch).
+ */
+export function snapshotSprintMetrics(
+  db: Database.Database,
+  sprintId: number,
+  date?: string,
+): { date: string; remaining: number; completed: number } {
+  const d = date || new Date().toISOString().split("T")[0];
+  const tickets = db.prepare(`SELECT status, story_points FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprintId) as any[];
+  const remaining = tickets.filter((t) => t.status !== "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
+  const completed = tickets.filter((t) => t.status === "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
+  db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprintId, d, remaining, completed);
+  return { date: d, remaining, completed };
+}
+
+/**
  * Register read-only MCP tools for the Scrum system.
  */
 export function registerScrumTools(server: McpServer, db: Database.Database): void {
@@ -964,6 +987,17 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       notifyDashboard(db);
 
+      // T-279: snapshot burndown at every phase transition so the curve has
+      // anchor points even when no manual snapshot_sprint_metrics call was made
+      // (retro try_next #122). Fail-open like the commit gate — a telemetry write
+      // must never fail an advance, so errors are swallowed to stderr (T-269 audit
+      // pattern) after the transition has already committed above.
+      try {
+        snapshotSprintMetrics(db, sprint_id);
+      } catch (e: any) {
+        console.error(`[audit] advance_sprint sprint #${sprint_id} auto-snapshot (${sprint.status}→${nextPhase}): ` + (e?.message ?? String(e)));
+      }
+
       // B4: server-side auto-emit — phase transitions appear in the wizard timeline
       const PHASE_INDEX: Record<string, number> = { planning: 1, implementation: 2, done: 3, rest: 4 };
       notifyDashboard(db, {
@@ -1067,7 +1101,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "update_ticket",
-    "Update a ticket's status, assignment, milestone, epic, or QA verification",
+    "Update a ticket's status, assignment, milestone, epic, QA verification, or actual time. Closing a ticket (status=DONE) auto-snapshots sprint burndown; supply actual_hours to record time against the assigned agent — both are best-effort and never block the close.",
     {
       ticket_id: z.number().describe("Ticket ID"),
       status: z.enum(["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "PARTIAL", "NOT_DONE"]).optional(),
@@ -1077,6 +1111,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       notes: z.string().optional(),
       milestone_id: z.number().nullable().optional().describe("Milestone ID to link to (null to unlink)"),
       epic_id: z.number().nullable().optional().describe("Epic ID to link to (null to unlink)"),
+      actual_hours: z.number().optional().describe("T-279: actual hours spent — recorded against the ticket's assigned agent via the same column log_time writes, so get_time_report attributes it without a separate ceremony call"),
       agents: z.array(z.object({
         role: z.string().describe("Agent role"),
         model: z.string().nullable().optional().describe("Per-assignment model override (null/omit = agent default)"),
@@ -1084,7 +1119,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       })).optional().describe("D2: replace-set multi-agent assignments for this ticket"),
       format: z.enum(["text", "card"]).optional().describe("card = diff-fence sprint card + compact state in one response (no follow-up get_ticket needed)"),
     },
-    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id, agents, format }) => {
+    async ({ ticket_id, status, assigned_to, qa_verified, verified_by, notes, milestone_id, epic_id, actual_hours, agents, format }) => {
       const ticket = db.prepare(`SELECT t.*, s.status as sprint_status, s.name as sprint_name FROM tickets t LEFT JOIN sprints s ON t.sprint_id = s.id WHERE t.id = ?`).get(ticket_id) as any;
       if (!ticket) return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} not found.` }], isError: true };
 
@@ -1125,6 +1160,9 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (qa_verified !== undefined) { sets.push("qa_verified=?"); vals.push(qa_verified ? 1 : 0); }
       if (verified_by) { sets.push("verified_by=?"); vals.push(verified_by); }
       if (notes) { sets.push("notes=?"); vals.push(notes); }
+      // T-279: actual time rides the same column log_time writes; get_time_report
+      // groups by assigned_to, so the ticket's current/incoming assignee gets credit.
+      if (actual_hours !== undefined) { sets.push("actual_hours=?"); vals.push(actual_hours); }
       if (epic_id !== undefined) { sets.push("epic_id=?"); vals.push(epic_id); }
       if (milestone_id !== undefined) {
         sets.push("milestone_id=?"); vals.push(milestone_id);
@@ -1189,6 +1227,21 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       notifyDashboard(db);
 
+      // T-279: auto-snapshot burndown when a ticket closes — accumulates data
+      // points without a manual snapshot_sprint_metrics call (retro try_next #122:
+      // two retros quoted 0h est/0h actual and zero burndown snapshots). Fail-open
+      // exactly like the commit gate: a telemetry write must NEVER block or fail a
+      // close, so any error is swallowed to stderr (audit pattern from T-269) and
+      // the close still returns success. Fires only on a real transition to DONE.
+      if (status === "DONE" && status !== oldStatus && ticket.sprint_id) {
+        try {
+          snapshotSprintMetrics(db, ticket.sprint_id);
+          notifyDashboard(db);
+        } catch (e: any) {
+          console.error(`[audit] update_ticket ticket #${ticket_id} auto-snapshot sprint #${ticket.sprint_id}: ` + (e?.message ?? String(e)));
+        }
+      }
+
       // B4: server-side auto-emit — wizard mirrors terminal-driven ticket updates without extra LLM calls
       if (status && status !== oldStatus && ticket.sprint_id) {
         const prog = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) as done FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).get(ticket.sprint_id) as any;
@@ -1226,7 +1279,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         }
       }
 
-      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}` }] };
+      const timeNote = actual_hours !== undefined ? ` — actual ${actual_hours}h logged` : "";
+      return { content: [{ type: "text" as const, text: `Ticket #${ticket_id} updated: ${status ? `${oldStatus} → ${status}` : "fields updated"}${timeNote}` }] };
     }
   );
 
@@ -2587,11 +2641,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, date }) => {
       try {
-        const d = date || new Date().toISOString().split("T")[0];
-        const tickets = db.prepare(`SELECT status, story_points FROM tickets WHERE sprint_id = ? AND deleted_at IS NULL`).all(sprint_id) as any[];
-        const remaining = tickets.filter(t => t.status !== "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
-        const completed = tickets.filter(t => t.status === "DONE").reduce((s, t) => s + (t.story_points || 0), 0);
-        db.prepare(`INSERT INTO sprint_metrics (sprint_id, date, remaining_points, completed_points) VALUES (?, ?, ?, ?) ON CONFLICT(sprint_id, date) DO UPDATE SET remaining_points=excluded.remaining_points, completed_points=excluded.completed_points`).run(sprint_id, d, remaining, completed);
+        const { date: d, remaining, completed } = snapshotSprintMetrics(db, sprint_id, date);
         notifyDashboard(db);
         return { content: [{ type: "text" as const, text: `Snapshot ${d}: ${completed}pts done, ${remaining}pts remaining` }] };
       } catch (e: any) {
