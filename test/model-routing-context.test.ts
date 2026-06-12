@@ -20,8 +20,8 @@ function routingFor(assignedRole: string): string {
 }
 
 describe("ticket model routing (DB join → tier)", () => {
-  it("routes an fe-engineer ticket to the opus tier", () => {
-    expect(routingFor("fe-engineer")).toContain('model: "opus"'); // fe-engineer defaults to claude-opus-4-8
+  it("routes an fe-engineer ticket to the fable tier", () => {
+    expect(routingFor("fe-engineer")).toContain('model: "fable"'); // fe-engineer defaults to claude-fable-5
   });
   it("routes a qa ticket to the opus tier", () => {
     expect(routingFor("qa")).toContain('model: "opus"'); // qa defaults to claude-opus-4-8
