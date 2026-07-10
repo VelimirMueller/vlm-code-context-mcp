@@ -58,7 +58,7 @@ const server = new McpServer({ name: "code-context", version: "1.0.0" });
 // ─── Tool: index_directory ───────────────────────────────────────────────────
 server.tool(
   "index_directory",
-  "Scan a directory, parse all files, extract metadata/exports and build a dependency graph. Use freshness_check=true to skip re-indexing if the index is recent (<5 min), returning only a summary (~20 tokens).",
+  "Scan a directory, parse all files, extract metadata/exports and build a dependency graph. Rows for files deleted from disk are pruned (scoped to the indexed path). Use freshness_check=true to skip re-indexing if the index is recent (<5 min), returning only a summary (~20 tokens).",
   {
     path: z.string().describe("Absolute path to the directory to index"),
     freshness_check: z.boolean().optional().describe("If true, skip re-indexing when fresh (<5 min). Returns summary only."),
@@ -87,7 +87,10 @@ server.tool(
 
       // Build structured description output
       const sections: string[] = [];
-      sections.push(`# Index Summary\nIndexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies\n`);
+      const prunedNote = stats.prunedFiles || stats.prunedDirs
+        ? ` — pruned ${stats.prunedFiles} deleted file${stats.prunedFiles === 1 ? "" : "s"}, ${stats.prunedDirs} deleted director${stats.prunedDirs === 1 ? "y" : "ies"}`
+        : "";
+      sections.push(`# Index Summary\nIndexed ${stats.files} files, ${stats.exports} exports, ${stats.deps} dependencies${prunedNote}\n`);
 
       // Top-level directories with descriptions
       const topDirs = db.prepare(`
