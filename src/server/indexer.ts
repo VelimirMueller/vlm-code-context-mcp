@@ -725,7 +725,7 @@ function allowedIndexRoots(): string[] {
   return roots;
 }
 
-export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number } {
+export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number; prunedFiles: number; prunedDirs: number } {
   const rootDir = path.resolve(dirPath);
   const roots = allowedIndexRoots();
   if (!roots.some(r => isPathInside(rootDir, r))) {
@@ -830,6 +830,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   indexDeps();
 
   // Phase 3: index directories
+  const seenDirs = new Set<string>();
   const indexDirs = db.transaction(() => {
     const upsertDir = db.prepare(`
       INSERT INTO directories (path, name, parent_path, depth, file_count, total_size_bytes, total_lines, language_breakdown, indexed_at)
@@ -867,6 +868,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
     }
 
     for (const [dirPath, stats] of dirMap) {
+      seenDirs.add(dirPath);
       const name = path.basename(dirPath);
       const parentPath = dirPath === rootDir ? null : path.dirname(dirPath);
       const depth = dirPath === rootDir ? 0 : dirPath.slice(rootDir.length + 1).split(path.sep).length;
@@ -887,9 +889,39 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   });
   indexDirs();
 
+  // Phase 3.5: prune rows whose files/directories vanished from disk.
+  // Scoped to rootDir — indexing a subdirectory must never evict sibling rows
+  // outside it. Child rows are deleted explicitly so pruning does not depend
+  // on the caller's foreign_keys pragma. Runs before the Phase-4 snapshot so
+  // pruned files land in the changes log as "delete" events.
+  const seenFiles = new Set(filePaths);
+  const pruned = { files: 0, dirs: 0 };
+  const pruneDeleted = db.transaction(() => {
+    const fileRows = db.prepare(`SELECT id, path FROM files`).all() as { id: number; path: string }[];
+    const deleteFileExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
+    const deleteFileDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ? OR target_id = ?`);
+    const deleteFile = db.prepare(`DELETE FROM files WHERE id = ?`);
+    for (const row of fileRows) {
+      if (!isPathInside(row.path, rootDir) || seenFiles.has(row.path)) continue;
+      deleteFileExports.run(row.id);
+      deleteFileDeps.run(row.id, row.id);
+      deleteFile.run(row.id);
+      pruned.files++;
+    }
+
+    const dirRows = db.prepare(`SELECT id, path FROM directories`).all() as { id: number; path: string }[];
+    const deleteDir = db.prepare(`DELETE FROM directories WHERE id = ?`);
+    for (const row of dirRows) {
+      if (!isPathInside(row.path, rootDir) || seenDirs.has(row.path)) continue;
+      deleteDir.run(row.id);
+      pruned.dirs++;
+    }
+  });
+  pruneDeleted();
+
   // Phase 4: diff and log changes (after snapshot reads new content from DB)
   const after = snapshotFromDb(db);
   diffAndLogChanges(db, before, after);
 
-  return { files: filePaths.length, exports: exportCount, deps: depCount };
+  return { files: filePaths.length, exports: exportCount, deps: depCount, prunedFiles: pruned.files, prunedDirs: pruned.dirs };
 }
