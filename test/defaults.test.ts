@@ -90,6 +90,27 @@ describe("resetAgents", () => {
     const dev = db.prepare("SELECT * FROM agents WHERE role = 'developer'").get();
     expect(dev).toBeDefined();
   });
+
+  it("re-seeds departments (discovery #33 sibling fix — INSERT used to omit the column)", () => {
+    resetAgents(db);
+    const rows = db.prepare("SELECT role, department FROM agents").all() as { role: string; department: string }[];
+    for (const expected of AGENT_DEFAULTS) {
+      const row = rows.find((r) => r.role === expected.role);
+      expect(row, `agent ${expected.role} missing after reset`).toBeDefined();
+      expect(row!.department).toBe(expected.department);
+    }
+  });
+});
+
+describe("ESM regression tripwire (discovery #33)", () => {
+  // The live crash ("require is not defined") only reproduced OUTSIDE vitest,
+  // because the build check is skipped under VITEST — so no behavioral test can
+  // catch a reintroduced lazy require(). Guard the source instead.
+  it("defaults.ts contains no CJS require() calls", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../src/scrum/defaults.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/[^.\w`]require\s*\(/);
+  });
 });
 
 describe("resetSkills", () => {
