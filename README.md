@@ -53,6 +53,15 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.3 — Current-Gen Models & Hardening 🧭
+
+- **Sonnet 5 defaults** — support roles seed on `claude-sonnet-5`; the dashboard offers the full current generation (Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5) from one shared model catalog, and Fable agents finally render (and are pickable) everywhere.
+- **Reset tools un-broken** — `reset_agents`/`reset_skills` no longer crash with `require is not defined`, and a reset preserves agent departments.
+- **Backups you can trust** — `--force` checkpoints the WAL before renaming and uses SQLite-pairable backup names, so the `.bak` alone holds every committed write.
+- **Groomed fatal errors** — a DB from a newer version refuses the boot with a clean two-line error (no stack trace, no stray `-wal`/`-shm` files), and `--help` finally tells the truth about setup-vs-update.
+
+---
+
 ## New in 2.2 — Discipline & Telemetry 📐
 
 - **Commit contract, injected and enforced** — delegated implementation prompts carry the `Why:/What:/How:` commit-body contract (derived live from the `wf:write-commit-messages` skill), and `update_ticket` refuses `qa_verified` while a ticket's commits don't follow it — offending hashes named, docs-only tickets exempt, always fail-open.
@@ -214,7 +223,7 @@ No agent holds the full project in its context window. They query what they need
 
 ## The Agent Team
 
-9 configurable agents, each with a role, model, and mood score. Dev roles default to the strongest model (`claude-fable-5`), QA to `claude-opus-4-8`; the rest use `claude-sonnet-4-6`.
+9 configurable agents, each with a role, model, and mood score. Dev roles default to the strongest model (`claude-fable-5`), QA to `claude-opus-4-8`; the rest use `claude-sonnet-5`.
 
 | Role | Focus |
 |---|---|
