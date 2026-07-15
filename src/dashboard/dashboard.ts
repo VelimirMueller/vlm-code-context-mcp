@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
-import { initScrumSchema, runMigrations } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized } from "./auth.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
@@ -29,6 +29,18 @@ console.log(`[db] Database path: ${dbPath}`);
 // Single read-write connection for all queries and writes
 // (A read-only connection cannot see WAL changes from external processes like the MCP server)
 const isFreshDb = !fs.existsSync(dbPath);
+
+// Refuse a downgrade BEFORE the read-write open — same groomed two-line error
+// as the MCP server entry; avoids WAL litter next to a refused DB (discovery #28).
+if (!isFreshDb) {
+  const stamped = peekSchemaVersion(dbPath);
+  if (stamped > LATEST_SCHEMA_VERSION) {
+    console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
+    console.error(`  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`);
+    process.exit(1);
+  }
+}
+
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
