@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { applyStatuslineSetting } from "./statusline.js";
 
@@ -20,26 +20,31 @@ if (args.includes("--help") || args.includes("-h")) {
 code-context-mcp — Pre-index your codebase for AI agents
 
 Usage:
-  code-context-mcp [path]              Index a directory (default: current dir)
-  code-context-mcp setup [path]        Full setup: index + scrum + .mcp.json
+  code-context-mcp [path]              Set up or update a project (default: current dir)
+                                         fresh directory  → full setup: index + scrum seed + .mcp.json
+                                         existing context.db → update mode: migrate schema +
+                                         refresh client config (no re-index, data preserved)
+  code-context-mcp setup [path]        Same as above (explicit alias)
   code-context-mcp --help              Show this help
 
 Options:
-  --force                              Re-initialize even if context.db exists
+  --force                              Fresh start even if context.db exists — the old DB is
+                                       renamed to context.db.bak-<timestamp> first
   --name <name>                        Project name (default: directory name)
-  --defaults                           Skip prompts, auto-create vision & milestone
+  --defaults                           Non-interactive: skip prompts, auto-create vision & milestone
 
 Examples:
-  code-context-mcp .                   Index current directory
+  code-context-mcp .                   Set up (or update) the current directory
   code-context-mcp setup ~/my-project  Full setup for a project
-  code-context-mcp --force .           Re-index from scratch
+  code-context-mcp --defaults .        Non-interactive setup/update (CI-friendly)
+  code-context-mcp --force .           Re-initialize from scratch (old DB backed up)
 
 After setup:
   code-context-dashboard               Open dashboard (default port: ${process.env.DASHBOARD_PORT || "3333"})
 
-MCP Tools (94 total):
-  11 code-context tools (index, search, file context, symbols, changes)
-  83 scrum tools (sprints, tickets, retros, milestones, agents, bridge, dump/restore)
+MCP Tools:
+  code-context tools (index, search, file context, symbols, changes)
+  scrum suite (sprints, tickets, retros, milestones, agents, bridge, dump/restore)
 `);
   process.exit(0);
 }
@@ -137,20 +142,7 @@ if (UPDATE_MODE) {
   step("Migrating database schema...");
 
   // Peek current schema version (pre-versioning DBs lack the table → current=0)
-  let currentVersion = 0;
-  let peekDb: Database.Database | null = null;
-  try {
-    peekDb = new Database(DB_PATH, { readonly: true });
-    const row = peekDb.prepare("SELECT MAX(version) v FROM schema_versions").get() as any;
-    currentVersion = row?.v ?? 0;
-  } catch {
-    currentVersion = 0;
-  } finally {
-    if (peekDb) {
-      try { peekDb.close(); } catch { /* ignore */ }
-      peekDb = null;
-    }
-  }
+  const currentVersion = peekSchemaVersion(DB_PATH);
 
   if (currentVersion > LATEST_SCHEMA_VERSION) {
     console.error(
@@ -164,7 +156,13 @@ if (UPDATE_MODE) {
     // Backup before migrating: checkpoint the WAL so context.db alone holds all data.
     checkpointWalForBackup(DB_PATH);
 
-    fs.copyFileSync(DB_PATH, DB_PATH + ".bak");
+    try {
+      fs.copyFileSync(DB_PATH, DB_PATH + ".bak");
+    } catch (err) {
+      console.error(`  ERROR: Could not create the pre-migration backup (context.db.bak): ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`  Migration aborted — nothing was changed. Fix disk space/permissions and re-run.`);
+      process.exit(1);
+    }
     console.log(`  Backup created: context.db.bak`);
 
     // Open for migration
