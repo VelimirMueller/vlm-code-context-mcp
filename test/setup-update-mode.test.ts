@@ -96,3 +96,49 @@ describe("setup update mode", () => {
     expect(row.c).toBe(0); // fresh DB
   });
 });
+
+describe("--force backup WAL handling (discovery #27)", () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "setup-force-wal-"));
+    writeFileSync(path.join(dir, "hello.ts"), "export const hi = 1;\n");
+    runSetup(dir);
+    dbPath = path.join(dir, "context.db");
+  }, 120_000);
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("checkpoints tail writes into the renamed .bak and keeps SQLite sibling pairing", () => {
+    // Leave a committed write in the WAL only: autocheckpoint off + connection
+    // held open across the --force run, so nothing checkpoints it for us.
+    const writer = new Database(dbPath);
+    writer.pragma("journal_mode = WAL");
+    writer.pragma("wal_autocheckpoint = 0");
+    writer
+      .prepare("INSERT INTO sprints (name, goal, status) VALUES ('WAL Tail', 'must survive --force backup', 'planning')")
+      .run();
+    try {
+      expect(existsSync(dbPath + "-wal")).toBe(true);
+
+      runSetup(dir, "--force");
+
+      const entries = readdirSync(dir);
+      const bak = entries.find(
+        (f) => /^context\.db\.bak-/.test(f) && !f.endsWith("-wal") && !f.endsWith("-shm"),
+      );
+      expect(bak).toBeDefined();
+
+      // Pre-fix naming (context.db-wal.bak-<ts>) breaks SQLite pairing — must be gone.
+      expect(entries.some((f) => /^context\.db-wal\.bak-/.test(f))).toBe(false);
+
+      // The .bak alone holds the tail write (WAL was checkpointed before the rename).
+      const bakDb = new Database(path.join(dir, bak!), { readonly: true });
+      const row = bakDb.prepare("SELECT goal FROM sprints WHERE name = 'WAL Tail'").get() as any;
+      bakDb.close();
+      expect(row?.goal).toBe("must survive --force backup");
+    } finally {
+      writer.close();
+    }
+  }, 120_000);
+});

@@ -81,18 +81,50 @@ function step(label: string): void {
   console.log(`[${stepNo++}/${totalSteps}] ${label}`);
 }
 
+// ─── WAL checkpoint before file-level backups ────────────────────────────────
+/**
+ * Checkpoint the WAL into the main DB file so a rename/copy of dbPath alone
+ * holds every committed write — un-checkpointed pages otherwise live only in
+ * the -wal sibling and a naive restore of the backup silently loses them
+ * (discovery #27). Warns instead of throwing: both callers proceed with a
+ * backup of whatever state exists.
+ */
+function checkpointWalForBackup(dbPath: string): void {
+  try {
+    const checkpointDb = new Database(dbPath);
+    // better-sqlite3 returns [{ busy, log, checkpointed }] for this pragma.
+    const ckptResult = checkpointDb.pragma("wal_checkpoint(TRUNCATE)") as
+      Array<{ busy: number; log: number; checkpointed: number }>;
+    checkpointDb.close();
+    const ckpt = Array.isArray(ckptResult) ? ckptResult[0] : ckptResult;
+    if (ckpt && (ckpt.busy === 1 || ckpt.checkpointed < ckpt.log)) {
+      console.warn(
+        `  Warning: WAL checkpoint incomplete (${ckpt.checkpointed}/${ckpt.log} pages) — ` +
+        `another process may be writing to this database (running dashboard or MCP server?). ` +
+        `The backup may lag the latest writes.`
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `  Warning: WAL checkpoint failed (${err instanceof Error ? err.message : String(err)}) — backing up files as-is.`
+    );
+  }
+}
+
 // ─── --force: rename existing DB (instead of deleting) ───────────────────────
 if (FORCE && dbExisted) {
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const bakSuffix = `.bak-${ts}`;
-  const bakPath = DB_PATH + bakSuffix;
+  const bakPath = `${DB_PATH}.bak-${ts}`;
+  // Checkpoint first so the renamed context.db alone holds every committed write.
+  checkpointWalForBackup(DB_PATH);
   fs.renameSync(DB_PATH, bakPath);
   console.log(`  Renamed existing database to ${path.basename(bakPath)}`);
-  // Rename WAL/SHM siblings if present
+  // Rename WAL/SHM siblings preserving SQLite's pairing convention
+  // (context.db.bak-<ts>-wal), so opening the .bak re-pairs any residue.
   for (const ext of ["-wal", "-shm"]) {
     const sib = DB_PATH + ext;
     if (fs.existsSync(sib)) {
-      fs.renameSync(sib, DB_PATH + ext + bakSuffix);
+      fs.renameSync(sib, bakPath + ext);
     }
   }
   console.log(`  Backup location: ${bakPath}\n`);
@@ -130,19 +162,7 @@ if (UPDATE_MODE) {
 
   if (currentVersion < LATEST_SCHEMA_VERSION) {
     // Backup before migrating: checkpoint the WAL so context.db alone holds all data.
-    // better-sqlite3 returns [{ busy, log, checkpointed }] for this pragma.
-    const checkpointDb = new Database(DB_PATH);
-    const ckptResult = checkpointDb.pragma("wal_checkpoint(TRUNCATE)") as
-      Array<{ busy: number; log: number; checkpointed: number }>;
-    checkpointDb.close();
-    const ckpt = Array.isArray(ckptResult) ? ckptResult[0] : ckptResult;
-    if (ckpt && (ckpt.busy === 1 || ckpt.checkpointed < ckpt.log)) {
-      console.warn(
-        `  Warning: WAL checkpoint incomplete (${ckpt.checkpointed}/${ckpt.log} pages) — ` +
-        `another process may be writing to this database (running dashboard or MCP server?). ` +
-        `The backup may lag the latest writes.`
-      );
-    }
+    checkpointWalForBackup(DB_PATH);
 
     fs.copyFileSync(DB_PATH, DB_PATH + ".bak");
     console.log(`  Backup created: context.db.bak`);
