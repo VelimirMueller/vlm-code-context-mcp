@@ -5,6 +5,11 @@ All notable changes to `vlm-code-context-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Stale index rows for deleted files (`index_directory` prune)** — the indexer upserted every file it found but never removed rows for files deleted from disk, so `search_files`/`find_symbol` kept returning ghosts until a manual SQL sweep (observed in the wild: a 104-file dead-code purge left 311 ghost file rows, 643 orphaned exports and 154 dangling dependency edges across re-indexes). `indexDirectory` now diffs the scanned path set against stored rows and deletes files and directories that vanished — scoped to the indexed root so indexing a subdirectory never evicts sibling rows, with export/dependency child rows removed explicitly (no reliance on the caller's `foreign_keys` pragma), and pruned files recorded as `delete` events in the changes log (that branch of `diffAndLogChanges` was previously unreachable). Stats gain `prunedFiles`/`prunedDirs`; the `index_directory` summary reports the prune when nonzero. The dashboard file-watcher re-index inherits the fix.
+
 ## [2.2.0] - 2026-06-12
 
 ### Added
