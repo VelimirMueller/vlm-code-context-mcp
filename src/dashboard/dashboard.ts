@@ -13,7 +13,7 @@ import { resolveDashboardToken, isAuthorized } from "./auth.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
 // Shared validators live in handlers/validation.ts so the migrated scrum
 // handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
-import { validateEnum, validateColor, ALLOWED_AGENT_MODELS } from "./handlers/validation.js";
+import { validateEnum, validateColor, ALLOWED_AGENT_MODELS, DEFAULT_AGENT_MODEL } from "./handlers/validation.js";
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
@@ -283,9 +283,9 @@ function apiCreateAgent(body: any) {
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
   if (existing) throw Object.assign(new Error("agent with this role already exists"), { status: 409 });
   writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
-    body.role, body.name, body.description || null, body.model || 'claude-sonnet-4-6'
+    body.role, body.name, body.description || null, body.model || DEFAULT_AGENT_MODEL
   );
-  return { role: body.role, name: body.name, description: body.description || null, model: body.model || 'claude-sonnet-4-6' };
+  return { role: body.role, name: body.name, description: body.description || null, model: body.model || DEFAULT_AGENT_MODEL };
 }
 
 function apiUpdateAgent(role: string, body: any) {

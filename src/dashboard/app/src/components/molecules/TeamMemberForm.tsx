@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Agent } from '@/types';
-import { MODEL_OPTIONS } from '@/lib/constants';
+import { MODEL_OPTIONS, DEFAULT_AGENT_MODEL } from '@/lib/constants';
 
 interface TeamMemberFormProps {
   agent?: Agent;
@@ -34,14 +34,14 @@ export function TeamMemberForm({ agent, onSave, onCancel, busy }: TeamMemberForm
   const [role, setRole] = useState(agent?.role ?? '');
   const [name, setName] = useState(agent?.name ?? '');
   const [description, setDescription] = useState(agent?.description ?? '');
-  const [model, setModel] = useState(agent?.model ?? 'claude-sonnet-4-6');
+  const [model, setModel] = useState(agent?.model ?? DEFAULT_AGENT_MODEL);
 
   useEffect(() => {
     if (agent) {
       setRole(agent.role);
       setName(agent.name);
       setDescription(agent.description ?? '');
-      setModel(agent.model ?? 'claude-sonnet-4-6');
+      setModel(agent.model ?? DEFAULT_AGENT_MODEL);
     }
   }, [agent]);
 
@@ -114,7 +114,7 @@ export function TeamMemberForm({ agent, onSave, onCancel, busy }: TeamMemberForm
         >
           {MODEL_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
-              {opt.label}
+              {opt.label} — {opt.description}
             </option>
           ))}
         </select>
