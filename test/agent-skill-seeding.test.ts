@@ -55,7 +55,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
         expect(agent.role).toBeTruthy();
         expect(agent.name).toBeTruthy();
         expect(agent.description).toBeTruthy();
-        expect(["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
+        expect(["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
         expect(agent.tools).toBeNull();
         expect(agent.system_prompt).toBe("");
       }
@@ -199,9 +199,15 @@ describe("Agent & Skill Seeding (T-45)", () => {
     });
 
     it("all agent models are valid Claude models", () => {
-      const validModels = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"];
+      const validModels = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"];
       for (const agent of AGENT_DEFAULTS) {
         expect(validModels).toContain(agent.model);
+      }
+    });
+
+    it("seed models are current generation (no superseded defaults)", () => {
+      for (const agent of AGENT_DEFAULTS) {
+        expect(agent.model).not.toBe("claude-sonnet-4-6");
       }
     });
 

@@ -7,13 +7,13 @@ import Database from "better-sqlite3";
 import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
-import { initScrumSchema, runMigrations } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized } from "./auth.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
 // Shared validators live in handlers/validation.ts so the migrated scrum
 // handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
-import { validateEnum, validateColor, ALLOWED_AGENT_MODELS } from "./handlers/validation.js";
+import { validateEnum, validateColor, ALLOWED_AGENT_MODELS, DEFAULT_AGENT_MODEL } from "./handlers/validation.js";
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
@@ -29,6 +29,18 @@ console.log(`[db] Database path: ${dbPath}`);
 // Single read-write connection for all queries and writes
 // (A read-only connection cannot see WAL changes from external processes like the MCP server)
 const isFreshDb = !fs.existsSync(dbPath);
+
+// Refuse a downgrade BEFORE the read-write open — same groomed two-line error
+// as the MCP server entry; avoids WAL litter next to a refused DB (discovery #28).
+if (!isFreshDb) {
+  const stamped = peekSchemaVersion(dbPath);
+  if (stamped > LATEST_SCHEMA_VERSION) {
+    console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
+    console.error(`  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`);
+    process.exit(1);
+  }
+}
+
 const writeDb = new Database(dbPath);
 writeDb.pragma("journal_mode = WAL");
 writeDb.pragma("foreign_keys = ON");
@@ -283,9 +295,9 @@ function apiCreateAgent(body: any) {
   const existing = writeDb.prepare("SELECT role FROM agents WHERE role = ?").get(body.role);
   if (existing) throw Object.assign(new Error("agent with this role already exists"), { status: 409 });
   writeDb.prepare("INSERT INTO agents (role, name, description, model) VALUES (?, ?, ?, ?)").run(
-    body.role, body.name, body.description || null, body.model || 'claude-sonnet-4-6'
+    body.role, body.name, body.description || null, body.model || DEFAULT_AGENT_MODEL
   );
-  return { role: body.role, name: body.name, description: body.description || null, model: body.model || 'claude-sonnet-4-6' };
+  return { role: body.role, name: body.name, description: body.description || null, model: body.model || DEFAULT_AGENT_MODEL };
 }
 
 function apiUpdateAgent(role: string, body: any) {

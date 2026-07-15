@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
-import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION } from "../scrum/schema.js";
+import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
@@ -16,6 +16,19 @@ import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
 const DB_PATH = process.argv[2] ?? "./context.db";
 const resolvedDbPath = path.resolve(DB_PATH);
 const isFreshDb = !fs.existsSync(resolvedDbPath);
+
+// Refuse a downgrade BEFORE the read-write open: opening in WAL mode would
+// litter empty -wal/-shm siblings next to a DB this version must not touch,
+// and the runMigrations guard would surface as a raw stack trace (discovery #28).
+if (!isFreshDb) {
+  const stamped = peekSchemaVersion(resolvedDbPath);
+  if (stamped > LATEST_SCHEMA_VERSION) {
+    console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
+    console.error(`  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`);
+    process.exit(1);
+  }
+}
+
 const db = new Database(resolvedDbPath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
