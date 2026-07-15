@@ -146,8 +146,8 @@ describe('TicketDetailModal', () => {
   let useToastStore: typeof import('@/stores/toastStore').useToastStore;
 
   const agents = [
-    { role: 'fe-engineer', name: 'FE', description: '', model: 'claude-sonnet-4-6' },
-    { role: 'security', name: 'Sec', description: '', model: 'claude-sonnet-4-6' },
+    { role: 'fe-engineer', name: 'FE', description: '', model: 'claude-sonnet-5' },
+    { role: 'security', name: 'Sec', description: '', model: 'claude-sonnet-5' },
   ];
 
   const renderModal = async (ticket: Ticket = { ...baseTicket }) => {

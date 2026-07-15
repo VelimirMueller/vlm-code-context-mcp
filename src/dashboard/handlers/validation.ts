@@ -43,5 +43,10 @@ export function badRequest(message: string): Error {
 }
 
 // Single allowed-model list shared by the /api/agent routes and per-assignment
-// model overrides on PATCH /api/ticket/:id (D2).
-export const ALLOWED_AGENT_MODELS = ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+// model overrides on PATCH /api/ticket/:id (D2). claude-sonnet-4-6 stays
+// accepted so agents created on it before the Sonnet 5 refresh remain editable.
+export const ALLOWED_AGENT_MODELS = ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+
+// Model applied when an agent is created without one (also the seed tier for
+// non-dev roles in src/scrum/defaults.ts — keep the two in sync).
+export const DEFAULT_AGENT_MODEL = 'claude-sonnet-5';

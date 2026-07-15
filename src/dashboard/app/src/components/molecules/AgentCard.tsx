@@ -6,6 +6,7 @@ import { cardHover } from '@/lib/motion';
 import { put, del } from '@/lib/api';
 import { useAgentStore } from '@/stores/agentStore';
 import { AlertDialog } from '@/components/molecules/AlertDialog';
+import { MODEL_OPTIONS, MODEL_COLORS, MODEL_SHORT_LABELS } from '@/lib/constants';
 import type { Agent } from '@/types';
 
 interface AgentCardProps {
@@ -24,24 +25,6 @@ const healthColor: Record<string, string> = {
   idle: 'var(--orange)',
   blocked: 'var(--red)',
 };
-
-const MODEL_COLORS: Record<string, string> = {
-  'claude-opus-4-8': '#a78bfa',
-  'claude-sonnet-4-6': '#3b82f6',
-  'claude-haiku-4-5': '#10b981',
-};
-
-const MODEL_LABELS: Record<string, string> = {
-  'claude-opus-4-8': 'opus 4.8',
-  'claude-sonnet-4-6': 'sonnet 4.6',
-  'claude-haiku-4-5': 'haiku 4.5',
-};
-
-const MODEL_OPTIONS = [
-  { value: 'claude-opus-4-8', label: 'Opus 4.8' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-] as const;
 
 const iconBtnStyle: React.CSSProperties = {
   background: 'none',
@@ -231,7 +214,7 @@ export function AgentCard({ agent, onEdit }: AgentCardProps) {
               }}
               title="Click to change model"
             >
-              {MODEL_LABELS[agent.model] || agent.model || 'default'}
+              {MODEL_SHORT_LABELS[agent.model] || agent.model || 'default'}
             </button>
 
             {modelDropdownOpen && (
