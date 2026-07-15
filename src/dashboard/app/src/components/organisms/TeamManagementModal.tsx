@@ -6,18 +6,13 @@ import { post, put, del } from '@/lib/api';
 import { useAgentStore } from '@/stores/agentStore';
 import { AlertDialog } from '@/components/molecules/AlertDialog';
 import type { Agent } from '@/types';
+import { MODEL_OPTIONS, DEFAULT_AGENT_MODEL } from '@/lib/constants';
 
 interface TeamManagementModalProps {
   open: boolean;
   onClose: () => void;
   agent?: Agent;
 }
-
-const MODEL_OPTIONS = [
-  { value: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Most capable', color: '#a78bfa' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6', description: 'Balanced', color: '#3b82f6' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fast', color: '#10b981' },
-] as const;
 
 const ROLE_PRESETS = [
   { role: 'product-owner', name: 'Product Owner', description: 'Defines product vision and priorities' },
@@ -59,7 +54,7 @@ export function TeamManagementModal({ open, onClose, agent }: TeamManagementModa
   const [role, setRole] = useState(agent?.role ?? '');
   const [name, setName] = useState(agent?.name ?? '');
   const [description, setDescription] = useState(agent?.description ?? '');
-  const [model, setModel] = useState(agent?.model ?? 'claude-sonnet-4-6');
+  const [model, setModel] = useState(agent?.model ?? DEFAULT_AGENT_MODEL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -75,12 +70,12 @@ export function TeamManagementModal({ open, onClose, agent }: TeamManagementModa
         setRole(agent.role);
         setName(agent.name);
         setDescription(agent.description ?? '');
-        setModel(agent.model ?? 'claude-sonnet-4-6');
+        setModel(agent.model ?? DEFAULT_AGENT_MODEL);
       } else {
         setRole('');
         setName('');
         setDescription('');
-        setModel('claude-sonnet-4-6');
+        setModel(DEFAULT_AGENT_MODEL);
       }
       setStep('form');
       setError(null);
@@ -348,7 +343,7 @@ export function TeamManagementModal({ open, onClose, agent }: TeamManagementModa
 
               <div>
                 <label style={labelStyle}>AI Model</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   {MODEL_OPTIONS.map(opt => (
                     <button
                       key={opt.value}
