@@ -191,7 +191,23 @@ When you start a task, pull the matching skill's full guidance with
 
 // ─── Seed Function ──────────────────────────────────────────────────────────
 
+import { execSync } from "node:child_process";
 import type Database from "better-sqlite3";
+
+/**
+ * Pre-build check shared by the reset_* tools: ensure dist/ matches src/ before
+ * a destructive re-seed. Skipped under vitest — a full build inside a unit test
+ * blows the 5s timeout on CI runners. Must use the top-level ESM import:
+ * a lazy CJS `require()` here crashes with "require is not defined" (discovery #33).
+ */
+function ensureFreshBuild(action: string): void {
+  if (process.env.VITEST) return;
+  try {
+    execSync("npm run build", { stdio: "inherit" });
+  } catch {
+    throw new Error(`Build failed. Cannot ${action} with build errors.`);
+  }
+}
 
 /** Idempotently insert any missing frontend skills + primer. Returns count inserted. */
 export function seedFrontendSkills(db: Database.Database): number {
@@ -304,21 +320,12 @@ export function seedDefaults(db: Database.Database): { agents: number; skills: n
  * Reset agents table to factory defaults. Truncates and re-seeds.
  */
 export function resetAgents(db: Database.Database): number {
-  // Pre-build check: ensure build is up-to-date (skipped under vitest — a full
-  // build inside a unit test is slow enough to blow the 5s timeout on CI runners)
-  if (!process.env.VITEST) {
-    const { execSync } = require("child_process");
-    try {
-      execSync("npm run build", { stdio: "inherit" });
-    } catch (err) {
-      throw new Error("Build failed. Cannot reset agents with build errors.");
-    }
-  }
+  ensureFreshBuild("reset agents");
 
   db.prepare("DELETE FROM agents").run();
-  const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt) VALUES (?, ?, ?, ?, ?, ?)`);
+  const stmt = db.prepare(`INSERT INTO agents (role, name, description, model, tools, system_prompt, department) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const a of AGENT_DEFAULTS) {
-    stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt);
+    stmt.run(a.role, a.name, a.description, a.model, a.tools, a.system_prompt, a.department);
   }
 
   // Validation: ensure agent count is exactly 9
@@ -335,16 +342,7 @@ export function resetAgents(db: Database.Database): number {
  * Returns the total number of skills restored (structural + frontend).
  */
 export function resetSkills(db: Database.Database): number {
-  // Pre-build check: ensure build is up-to-date (skipped under vitest — a full
-  // build inside a unit test is slow enough to blow the 5s timeout on CI runners)
-  if (!process.env.VITEST) {
-    const { execSync } = require("child_process");
-    try {
-      execSync("npm run build", { stdio: "inherit" });
-    } catch (err) {
-      throw new Error("Build failed. Cannot reset skills with build errors.");
-    }
-  }
+  ensureFreshBuild("reset skills");
 
   db.prepare("DELETE FROM skills").run();
   const stmt = db.prepare(`INSERT INTO skills (name, content, owner_role) VALUES (?, ?, ?)`);
