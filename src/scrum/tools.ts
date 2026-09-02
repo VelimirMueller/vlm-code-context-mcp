@@ -4,7 +4,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { resolveDashboardToken } from "../dashboard/auth.js";
-import { formatModelRouting } from "./agent-model.js";
+import { formatModelRouting, KNOWN_AGENT_MODELS, modelToTier } from "./agent-model.js";
 import { buildCommitContract, buildFrontendPlaybook, buildWorkflowPlaybook, checkCommitFormat, formatCommitFormatBlock } from "./frontend-playbook.js";
 import {
   formatEnablement,
@@ -181,6 +181,20 @@ export function buildModelRoutingSection(db: Database.Database, ticket: { id: nu
   if (!role) return null;
   const agentDefault = (db.prepare(`SELECT model FROM agents WHERE role = ?`).get(role) as { model: string } | undefined)?.model ?? null;
   return formatModelRouting(role, single?.override ?? agentDefault);
+}
+
+/**
+ * Guard for the single-assignee path of create_ticket / update_ticket. A model or
+ * provider name in `assigned_to` ("opus", "glm") is not an error anywhere downstream —
+ * buildModelRoutingSection just finds no agent and silently routes to the sonnet
+ * default. Returns null when the value is a roster role (or the roster is empty:
+ * agentless mode accepts anything), otherwise a user-facing message.
+ */
+export function unknownRosterRole(db: Database.Database, role: string | null | undefined): string | null {
+  if (!role) return null;
+  const roles = (db.prepare("SELECT role FROM agents").all() as { role: string }[]).map((a) => a.role);
+  if (roles.length === 0 || roles.includes(role)) return null;
+  return `Unknown agent role "${role}". assigned_to must be a roster role (${roles.join(", ")}) — the runtime (opus / glm / deepseek) belongs on the ticket as a tag such as impl:glm (add_tag), not in assigned_to.`;
 }
 
 /**
@@ -575,6 +589,40 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (!agent) return { content: [{ type: "text" as const, text: `Agent "${role}" not found. Use list_agents to see available roles.` }] };
       const sections = [`# ${agent.name} (${agent.role})`, agent.description || "", `Model: ${agent.model || "default"}`, `Tools: ${agent.tools || "none"}`, "", "## System Prompt", agent.system_prompt || "(none)"];
       return { content: [{ type: "text" as const, text: sections.join("\n") }] };
+    }
+  );
+
+  server.tool(
+    "update_agent",
+    "Update a roster agent's model, tools, system prompt, name, description or department. The model drives the Model routing directive (claude-fable* → fable, claude-opus* → opus, claude-haiku* → haiku, everything else → sonnet), so only known Claude ids are accepted; omitted fields stay unchanged.",
+    {
+      role: z.string().describe("Agent role to update (see list_agents)"),
+      model: z.string().optional().describe(`One of: ${KNOWN_AGENT_MODELS.join(", ")}`),
+      tools: z.string().nullable().optional().describe("Free-text tool inventory shown by get_agent and the dashboard (null clears)"),
+      system_prompt: z.string().nullable().optional().describe("Operating instructions for the role (null clears)"),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      department: z.string().optional(),
+    },
+    async ({ role, model, tools, system_prompt, name, description, department }) => {
+      const agent = db.prepare(`SELECT role FROM agents WHERE role = ?`).get(role);
+      if (!agent) return { content: [{ type: "text" as const, text: `Agent "${role}" not found. Use list_agents to see available roles.` }], isError: true };
+      if (model !== undefined && !(KNOWN_AGENT_MODELS as readonly string[]).includes(model)) {
+        return { content: [{ type: "text" as const, text: `Unknown model "${model}". Allowed: ${KNOWN_AGENT_MODELS.join(", ")}. Non-Claude runtimes (e.g. OpenCode implementers) are not roster agents — tag the ticket (impl:glm) instead.` }], isError: true };
+      }
+      const sets: string[] = []; const vals: unknown[] = [];
+      if (model !== undefined) { sets.push("model=?"); vals.push(model); }
+      if (tools !== undefined) { sets.push("tools=?"); vals.push(tools); }
+      if (system_prompt !== undefined) { sets.push("system_prompt=?"); vals.push(system_prompt); }
+      if (name !== undefined) { sets.push("name=?"); vals.push(name); }
+      if (description !== undefined) { sets.push("description=?"); vals.push(description); }
+      if (department !== undefined) { sets.push("department=?"); vals.push(department); }
+      if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
+      sets.push("updated_at=datetime('now')");
+      db.prepare(`UPDATE agents SET ${sets.join(", ")} WHERE role = ?`).run(...vals, role);
+      notifyDashboard(db);
+      const updated = db.prepare(`SELECT role, name, model FROM agents WHERE role = ?`).get(role) as any;
+      return { content: [{ type: "text" as const, text: `Agent ${updated.name} (${updated.role}) updated — model ${updated.model ?? "default"} → tier ${modelToTier(updated.model)}.` }] };
     }
   );
 
@@ -1070,6 +1118,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
     },
     async ({ sprint_id, title, ticket_ref, description, priority, assigned_to, story_points, milestone, milestone_id, epic_id, agents }) => {
       try {
+        if (!agents) {
+          const badRole = unknownRosterRole(db, assigned_to);
+          if (badRole) return { content: [{ type: "text" as const, text: badRole }], isError: true };
+        }
         // Resolve milestone name from milestone_id if not provided directly
         let milestoneName = milestone || null;
         if (milestone_id && !milestoneName) {
@@ -1150,6 +1202,11 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         if (!fmt.ok && fmt.violations.length > 0) {
           return { content: [{ type: "text" as const, text: formatCommitFormatBlock(ticket.ticket_ref, fmt) }], isError: true };
         }
+      }
+
+      if (assigned_to && !agents) {
+        const badRole = unknownRosterRole(db, assigned_to);
+        if (badRole) return { content: [{ type: "text" as const, text: badRole }], isError: true };
       }
 
       // ─── Apply updates ──────────────────────────────────────────
