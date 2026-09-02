@@ -113,7 +113,7 @@ export function Team() {
           </HeroText>
           {agents.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 14 }}>
-              No agents configured. Use <code style={{ fontFamily: 'var(--mono)', background: 'var(--surface)', padding: '2px 6px', borderRadius: 4 }}>create_agent</code> to add team members.
+              No agents configured. Use <code style={{ fontFamily: 'var(--mono)', background: 'var(--surface)', padding: '2px 6px', borderRadius: 4 }}>reset_agents</code> to seed the factory team, or add members with the form above.
             </div>
           ) : (
             <>
