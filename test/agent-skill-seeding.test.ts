@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { KNOWN_AGENT_MODELS } from "../src/scrum/agent-model.js";
 import Database from "better-sqlite3";
 import { initScrumSchema } from "../src/scrum/schema.js";
 import {
@@ -55,7 +56,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
         expect(agent.role).toBeTruthy();
         expect(agent.name).toBeTruthy();
         expect(agent.description).toBeTruthy();
-        expect(["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]).toContain(agent.model);
+        expect(KNOWN_AGENT_MODELS).toContain(agent.model);
         expect(agent.tools).toBeNull();
         expect(agent.system_prompt).toBe("");
       }
@@ -69,12 +70,12 @@ describe("Agent & Skill Seeding (T-45)", () => {
       expect(strong.map((r) => r.role)).toEqual(["be-engineer", "developer", "fe-engineer"]);
     });
 
-    it("keeps qa on claude-opus-4-8", () => {
+    it("keeps qa on claude-opus-5", () => {
       seedDefaults(db);
       const qa = db
         .prepare("SELECT model FROM agents WHERE role = 'qa'")
         .get() as { model: string };
-      expect(qa.model).toBe("claude-opus-4-8");
+      expect(qa.model).toBe("claude-opus-5");
     });
 
     it("be-engineer has correct description", () => {
@@ -199,7 +200,7 @@ describe("Agent & Skill Seeding (T-45)", () => {
     });
 
     it("all agent models are valid Claude models", () => {
-      const validModels = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"];
+      const validModels = KNOWN_AGENT_MODELS;
       for (const agent of AGENT_DEFAULTS) {
         expect(validModels).toContain(agent.model);
       }

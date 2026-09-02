@@ -140,7 +140,7 @@ Retros are **MANDATORY** — never skip, even when sprint is green.
         const agents = db.prepare("SELECT role, name, description, department FROM agents ORDER BY department, role").all() as { role: string; name: string; description: string; department: string }[];
         if (agents.length === 0) return "## Role Responsibilities\nNo agents configured. Use `reset_agents` to seed the default team.";
         const lines = agents.map(a => `- **${a.role}** (${a.department}) — ${a.description}`);
-        return `## Role Responsibilities (${agents.length} agents from DB)\n${lines.join("\n")}\n\nManage agents via \`list_agents\`, \`create_agent\`, or \`reset_agents\`. Always use \`list_agents\` to check real roles before assigning tickets.`;
+        return `## Role Responsibilities (${agents.length} agents from DB)\n${lines.join("\n")}\n\nManage agents via \`list_agents\`, \`get_agent\`, \`update_agent\` (model / tools / system prompt), or \`reset_agents\` (factory seed — wipes customisations). Always use \`list_agents\` to check real roles before assigning tickets.`;
       } catch { return "## Role Responsibilities\nUse `list_agents` to see current team."; }
     })(),
 

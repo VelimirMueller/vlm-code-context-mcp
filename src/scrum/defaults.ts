@@ -64,7 +64,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
     role: "qa",
     name: "QA Engineer",
     description: "Tests and verifies functionality",
-    model: "claude-opus-4-8",
+    model: "claude-opus-5",
     tools: null,
     system_prompt: "",
     department: "quality",
