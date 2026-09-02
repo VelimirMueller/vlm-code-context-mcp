@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`update_agent` MCP tool** — change a roster agent's `model`, `tools`, `system_prompt`, `name`, `description` or `department` without raw SQL or the dashboard; omitted fields stay unchanged, `null` clears the nullable ones, and the reply names the Task-tool tier the new model routes to. Models are validated against the new single source of truth `KNOWN_AGENT_MODELS` (`src/scrum/agent-model.ts`), which the dashboard's `ALLOWED_AGENT_MODELS` now re-exports, so the server and the dashboard can no longer drift. The sprint-instructions text and the empty-team hint advertised a `create_agent` tool that never existed; they now point at `update_agent` / `reset_agents`.
+- **Claude Opus 5 in the model catalog** — `claude-opus-5` is offered by the dashboard picker and accepted everywhere; the QA factory seed moves `claude-opus-4-8` → `claude-opus-5`. `claude-opus-4-8` joins `claude-sonnet-4-6` as a legacy id (rendered and editable, not offered for new picks).
+
+### Fixed
+- **A model or provider name in `assigned_to` silently routed to sonnet** — `create_ticket` and `update_ticket` accepted any string on the single-assignee path (only the `agents[]` path validated roles), so a ticket assigned to `"opus"` or `"glm"` found no agent in `buildModelRoutingSection` and got the sonnet fallback with no error anywhere. Both tools now reject an `assigned_to` that is not a roster role (message lists the valid roles and points at `impl:*` tags for the runtime); an empty roster (agentless mode) still accepts anything. (`unknownRosterRole`)
+
 ## [2.3.0] - 2026-07-15
 
 ### Added

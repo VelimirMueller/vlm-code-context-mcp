@@ -623,6 +623,29 @@ Get full details of a scrum agent by role.
 
 ---
 
+### `update_agent`
+
+Update a roster agent's model, tools, system prompt, name, description or department. Omitted fields stay unchanged. The model drives the **Model routing** directive that `load_phase_context` appends to a ticket (`claude-fable*` → fable, `claude-opus*` → opus, `claude-haiku*` → haiku, anything else → sonnet), so only known Claude ids are accepted — non-Claude runtimes belong on the ticket as a tag (e.g. `impl:glm`), not in the roster.
+
+**Parameters:**
+```typescript
+{
+  role: string,             // see list_agents
+  model?: string,           // claude-fable-5 | claude-opus-5 | claude-sonnet-5 | claude-haiku-4-5 (+ superseded claude-opus-4-8, claude-sonnet-4-6)
+  tools?: string | null,    // free-text tool inventory (null clears)
+  system_prompt?: string | null,
+  name?: string,
+  description?: string,
+  department?: string
+}
+```
+
+**Returns:** the agent's new model and the tier it routes to.
+
+> `create_ticket` / `update_ticket` reject an `assigned_to` that is not a roster role (unless the roster is empty) for the same reason: an unknown assignee silently routes to sonnet.
+
+---
+
 ### `record_mood`
 
 Record an agent's mood for a sprint (1-5 scale) for burnout detection.
