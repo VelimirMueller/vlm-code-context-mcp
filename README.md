@@ -53,6 +53,14 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.4 — Roster Control 🎛️
+
+- **`update_agent`** — change a role's model, tools, system prompt, name, description or department from a single MCP call, and the reply names the Task-tool tier the new model routes to. No raw SQL and no dashboard detour. The sprint instructions used to advertise a `create_agent` tool that never existed; they now point here.
+- **One model catalog** — `claude-opus-5` is offered and accepted everywhere, and seeds the QA role. `KNOWN_AGENT_MODELS` is the single source of truth the dashboard re-exports, so server and UI can no longer drift; `claude-opus-4-8` joins `claude-sonnet-4-6` as a legacy id that still renders and edits.
+- **`assigned_to` is validated** — a model or provider name such as `opus` or `glm` used to find no agent and route silently to the sonnet fallback. Both ticket tools now reject anything that is not a roster role and point at `impl:*` tags for the runtime.
+
+---
+
 ## New in 2.3 — Current-Gen Models & Hardening 🧭
 
 - **Sonnet 5 defaults** — support roles seed on `claude-sonnet-5`; the dashboard offers the full current generation (Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5) from one shared model catalog, and Fable agents finally render (and are pickable) everywhere.
