@@ -10,6 +10,7 @@ import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized } from "./auth.js";
+import { makeWatchIgnorePredicate, WATCH_DIR_WARN_THRESHOLD } from "../shared/ignore.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
 // Shared validators live in handlers/validation.ts so the migrated scrum
 // handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
@@ -107,8 +108,12 @@ function startWatcher(dir: string) {
 
   const watcher = chokidar.watch(resolved, {
     ignored: [
-      /node_modules/, /\.git/, /dist\//, /\.next/, /build\//,
-      /coverage/, /\.turbo/, /\.cache/, /\.db/, /\.db-shm/, /\.db-wal/,
+      // The context database itself lives inside the watched tree in some
+      // setups, and its -wal churns on every write.
+      /\.db$/, /\.db-shm$/, /\.db-wal$/,
+      // Directory policy lives in shared/ignore.ts — see the two EMFILE
+      // incidents documented there before adding a pattern here.
+      makeWatchIgnorePredicate(),
     ],
     ignoreInitial: true,
     persistent: true,
@@ -129,6 +134,38 @@ function startWatcher(dir: string) {
   watcher.on("add", scheduleReindex);
   watcher.on("change", scheduleReindex);
   watcher.on("unlink", scheduleReindex);
+
+  watcher.on("error", (err: unknown) => {
+    const e = err as NodeJS.ErrnoException;
+    if (e?.code === "EMFILE") {
+      console.error(
+        `[watch] EMFILE: too many open files. The watcher is descending into a ` +
+          `directory type that src/shared/ignore.ts does not skip — most likely a ` +
+          `nested checkout or a dependency directory for an ecosystem not listed there.`,
+      );
+    } else {
+      console.error(`[watch] Watcher error: ${e?.message ?? String(err)}`);
+    }
+  });
+
+
+  // EMFILE gives no useful stack and reads like a clean exit, so say the number
+  // out loud. If the process dies right after this line, the count is the
+  // diagnosis. Registered after the error handler, because an EMFILE during the
+  // initial scan arrives on "error" and 'ready' never fires at all.
+  watcher.on("ready", () => {
+    const dirCount = Object.keys(watcher.getWatched()).length;
+    if (dirCount > WATCH_DIR_WARN_THRESHOLD) {
+      console.warn(
+        `[watch] ${dirCount} directories watched (over ${WATCH_DIR_WARN_THRESHOLD}) — ` +
+          `on macOS each one costs a kernel watch handle and EMFILE kills the process. ` +
+          `Check for a directory type missing from src/shared/ignore.ts.`,
+      );
+    } else {
+      console.log(`[watch] ${dirCount} directories watched`);
+    }
+  });
+
   console.log(`[watch] Watching ${resolved} for changes`);
 }
 

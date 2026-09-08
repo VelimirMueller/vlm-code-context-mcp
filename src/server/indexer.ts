@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
+import { SKIP_DIR_NAMES, isUnderSkippedPath } from "../shared/ignore.js";
 
 // ─── .gitignore support ─────────────────────────────────────────────────────
 interface GitignorePattern {
@@ -53,11 +54,12 @@ function matchesGitignore(relativePath: string, isDirectory: boolean, patterns: 
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", ".next", "build", "coverage", ".turbo",
-  ".cache", ".output", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv",
-  ".vitepress", ".temp",
-]);
+// Single source of truth in src/shared/ignore.ts — the watcher reads the same
+// set, because the two lists drifting apart is what took the dashboard down
+// twice. The addition that matters here is `vendor`: on 2026-09-08 Composer
+// dependencies were 19,052 of the 24,777 indexed files (77%), so symbol search
+// was mostly third-party code.
+const SKIP_DIRS = SKIP_DIR_NAMES;
 
 const SKIP_FILES = new Set([".DS_Store", "Thumbs.db", ".gitkeep"]);
 
@@ -353,13 +355,16 @@ function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePat
   const patterns = gitignorePatterns ?? loadGitignore(root);
   const results: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    // Always skip node_modules and .git regardless of .gitignore
+    // Always skip these regardless of .gitignore
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".")) continue;
     const full = path.join(dir, entry.name);
     const relativePath = path.relative(root, full);
     if (entry.isSymbolicLink()) continue; // skip symlinks to avoid loops
     if (entry.isDirectory()) {
+      // Generated or churning subtrees whose directory NAME is too generic to
+      // list — storage/framework (compiled Blade) and storage/logs.
+      if (isUnderSkippedPath(full)) continue;
       // Check .gitignore patterns for directories
       if (patterns.length > 0 && matchesGitignore(relativePath, true, patterns)) continue;
       try { results.push(...walkDir(full, root, patterns)); } catch { /* skip inaccessible dirs */ }
