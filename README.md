@@ -24,11 +24,11 @@ Two commands, then restart Claude Code — `setup` writes `.mcp.json`, so the se
 
 ## Benchmark
 
-Tested across 10 real development tasks (retrieval, debugging, refactoring, implementation), then validated with 200 randomized trials and a Wilcoxon signed-rank test.
+Simulated, not live sessions: 10 scripted development tasks (retrieval, debugging, refactoring, implementation) replayed against an 11-file fixture project, with token counts estimated from what each approach reads — no model calls. A stochastic run of 200 randomized trials with a Wilcoxon signed-rank test checks the result is not a fluke. Method and limits: [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 | | MCP | Vanilla | Saved |
 |---|---|---|---|
-| **Tokens** | 4,806 | 8,726 | **44.9%** |
+| **Tokens (estimated)** | 4,806 | 8,726 | **44.9%** |
 | **Tool calls** | 49 | 68 | **27.9%** |
 | **Stochastic win rate** | — | — | **90.5%** (p < 0.001) |
 
@@ -186,7 +186,7 @@ Unlike a plugin, these are **served by the MCP server into your live session**, 
 | Opt-in | `/kickoff` Phase 1b asks once; `update_skill_sets({ landing: true, ... })` any time |
 | Trigger | fe/la on `fe-engineer` tickets, wf on any implementation work during `/kickoff` |
 | Load | index + primer up front; full body via `get_skill({ name })` |
-| Update | boot-time auto-sync from the latest upstream release; `npm run sync:skills` re-vendors the offline fallback |
+| Update | opt-in boot-time sync from the latest upstream release (`CODE_CONTEXT_SKILLS_AUTOSYNC=1`); `npm run sync:skills` re-vendors the offline fallback |
 
 ---
 
@@ -210,7 +210,7 @@ No agent holds the full project in its context window. They query what they need
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘          │
 │       └──────────────┼─────────────┘                │
 │                      ▼                              │
-│              97 MCP Tools                           │
+│              98 MCP Tools                           │
 │      (reads · writes · ceremony cards)              │
 │                      │                              │
 │                      ▼                              │
@@ -293,7 +293,7 @@ Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `
 
 | Component | Count |
 |---|---|
-| MCP tools | 97 |
+| MCP tools | 98 |
 | Database tables | 32 (27 scrum + 5 code) |
 | React components | 75 |
 | Tests | 762 (677 backend + 85 frontend) |

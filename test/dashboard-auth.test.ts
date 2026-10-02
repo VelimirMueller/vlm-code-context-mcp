@@ -8,6 +8,8 @@ import {
   isPublicPath,
   tokensMatch,
   isAuthorized,
+  isAllowedHost,
+  isAllowedOrigin,
 } from "../src/dashboard/auth.js";
 
 const ENV = "CODE_CONTEXT_DASHBOARD_TOKEN";
@@ -103,5 +105,30 @@ describe("dashboard auth: authorization decisions", () => {
   it("rejects /api with a wrong token", () => {
     const req = { headers: { authorization: "Bearer nope" } };
     expect(isAuthorized(req, new URL("http://localhost/api/sprints"), TOKEN)).toBe(false);
+  });
+});
+
+describe("dashboard auth: DNS-rebinding guard", () => {
+  it("accepts loopback hostnames on the listening port", () => {
+    expect(isAllowedHost("localhost:3333", 3333)).toBe(true);
+    expect(isAllowedHost("127.0.0.1:3333", 3333)).toBe(true);
+    expect(isAllowedHost("[::1]:3333", 3333)).toBe(true);
+    expect(isAllowedHost("LOCALHOST:3333", 3333)).toBe(true);
+  });
+  it("rejects a rebound hostname, another port, smuggling and a missing Host", () => {
+    expect(isAllowedHost("evil.example:3333", 3333)).toBe(false);
+    expect(isAllowedHost("localhost.evil.example:3333", 3333)).toBe(false);
+    expect(isAllowedHost("localhost:3334", 3333)).toBe(false);
+    expect(isAllowedHost("localhost", 3333)).toBe(false);
+    expect(isAllowedHost("evil.example@localhost:3333", 3333)).toBe(false);
+    expect(isAllowedHost(undefined, 3333)).toBe(false);
+  });
+  it("lets reads through and gates writes on a loopback Origin", () => {
+    expect(isAllowedOrigin("GET", "http://evil.example")).toBe(true);
+    expect(isAllowedOrigin("POST", undefined)).toBe(true); // MCP server, curl
+    expect(isAllowedOrigin("POST", "http://localhost:5173")).toBe(true); // Vite dev proxy
+    expect(isAllowedOrigin("POST", "http://127.0.0.1:3333")).toBe(true);
+    expect(isAllowedOrigin("POST", "http://evil.example")).toBe(false);
+    expect(isAllowedOrigin("DELETE", "null")).toBe(false);
   });
 });

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Dashboard DNS-rebinding guard** — every request must carry a `localhost`/`127.0.0.1`/`[::1]` Host on the listening port (else `421`), and writes from a non-loopback `Origin` get `403`. Before, a hostile page that rebound its hostname to 127.0.0.1 could read the token injected into `/` and queue `/api/bridge/actions`, which the PreToolUse hook feeds into the agent. The no-op `requireLocalAccess` gate is gone (the server only binds 127.0.0.1).
+- **Skill auto-sync is opt-in** — the MCP server no longer pulls the latest upstream skills release into agent prompts on every boot; set `CODE_CONTEXT_SKILLS_AUTOSYNC=1` to enable it.
+- **`setup` adds `context.db*` to the project `.gitignore`** — the index stores the full content of indexed files.
+- **Dependencies** — `@modelcontextprotocol/sdk` → ^1.32.0, `npm audit` clean; Remotion and `gemma-brain` move to devDependencies, so installs no longer pull them.
+
+### Fixed
+- Downgrade-guard errors told users to install `code-context-mcp`, a different package; they now name `vlm-code-context-mcp`.
+- The MCP server reported version `1.0.0`; it now reads `package.json`.
+- `/health` crashed into its fallback on `require is not defined` (ESM) and always reported the build as `unknown`.
+- README benchmark is labelled as simulated tasks on a fixture, and the tool counts agree (98).
+
 ## [2.4.0] - 2026-09-03
 
 ### Added

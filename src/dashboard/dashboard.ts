@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import http from "http";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,7 +10,7 @@ import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
-import { resolveDashboardToken, isAuthorized } from "./auth.js";
+import { resolveDashboardToken, isAuthorized, isAllowedHost, isAllowedOrigin } from "./auth.js";
 import { makeWatchIgnorePredicate, WATCH_DIR_WARN_THRESHOLD } from "../shared/ignore.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
 // Shared validators live in handlers/validation.ts so the migrated scrum
@@ -18,7 +19,7 @@ import { validateEnum, validateColor, ALLOWED_AGENT_MODELS, DEFAULT_AGENT_MODEL 
 
 // Read version from package.json
 const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version; } catch { return '2.0.0'; } })();
-const TOOL_COUNT = 93;
+const TOOL_COUNT = 98;
 
 const DB_PATH = process.argv[2] ?? "./context.db";
 const PORT = Number(process.argv[3] ?? process.env.DASHBOARD_PORT ?? 3333);
@@ -37,7 +38,7 @@ if (!isFreshDb) {
   const stamped = peekSchemaVersion(dbPath);
   if (stamped > LATEST_SCHEMA_VERSION) {
     console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
-    console.error(`  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`);
+    console.error(`  It was created by a newer code-context version — update the package (npm i -g vlm-code-context-mcp@latest).`);
     process.exit(1);
   }
 }
@@ -467,7 +468,6 @@ function apiHealth() {
 
   try {
     // Try to get git commit hash
-    const { execSync } = require("child_process");
     try {
       buildHash = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
     } catch {
@@ -940,27 +940,6 @@ function readBody(req: http.IncomingMessage): Promise<any> {
   });
 }
 
-// ─── Security: localhost-only gate for sensitive operations ─────────────────
-function isLocalRequest(req: http.IncomingMessage): boolean {
-  const addr = req.socket.remoteAddress ?? "";
-  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
-}
-
-const SENSITIVE_GET_PATHS = ["/api/dump", "/api/restore"];
-
-function requireLocalAccess(req: http.IncomingMessage, res: http.ServerResponse, url: URL): boolean {
-  if (isLocalRequest(req)) return true;
-  // Block all mutating methods from non-local sources
-  const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(req.method ?? "");
-  const sensitiveGet = SENSITIVE_GET_PATHS.some(p => url.pathname.startsWith(p)) || url.pathname.startsWith("/api/file/");
-  if (mutating || sensitiveGet) {
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end('{"error":"access denied: localhost only"}');
-    return false;
-  }
-  return true;
-}
-
 // ─── Server ──────────────────────────────────────────────────────────────────
 // Shared bearer token for /api/* (#15b). Auto-generated + persisted if unset.
 const DASHBOARD_TOKEN = resolveDashboardToken();
@@ -974,8 +953,18 @@ function injectToken(html: string): string {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
-  // Enforce localhost-only access for sensitive operations
-  if (!requireLocalAccess(req, res, url)) return;
+  // DNS-rebinding guard: the server binds 127.0.0.1, so every peer is local —
+  // what matters is the hostname the browser thinks it is talking to.
+  if (!isAllowedHost(req.headers.host, req.socket.localPort ?? PORT)) {
+    res.writeHead(421, { "Content-Type": "application/json" });
+    res.end('{"error":"misdirected request: Host must be localhost"}');
+    return;
+  }
+  if (!isAllowedOrigin(req.method, req.headers.origin)) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end('{"error":"forbidden: cross-origin write"}');
+    return;
+  }
 
   // Security headers on all responses
   res.setHeader("X-Content-Type-Options", "nosniff");
