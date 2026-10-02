@@ -622,7 +622,7 @@ export function runMigrations(
   if (current > LATEST_SCHEMA_VERSION) {
     throw new Error(
       `context.db schema is v${current}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}. ` +
-        `It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest) or open it with a matching version.`,
+        `It was created by a newer code-context version — update the package (npm i -g vlm-code-context-mcp@latest) or open it with a matching version.`,
     );
   }
 

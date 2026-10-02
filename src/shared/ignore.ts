@@ -36,7 +36,7 @@
  * structurally (skip any directory containing a `.git` entry) as a generic
  * guard against the next tool that invents its own directory. It over-skips.
  * A `git worktree` and a SUBMODULE both carry `.git` as a file, and this tree
- * has three submodules under COX_Lead-Management whose source IS indexed — so
+ * has three submodules under one project whose source IS indexed — so
  * the rule dropped the watched count to 780 and would have left that source
  * indexed but unwatched, i.e. silently stale. Telling the two apart means
  * parsing the gitdir pointer (`/worktrees/` vs `/modules/`), which is more

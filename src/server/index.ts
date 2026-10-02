@@ -5,6 +5,7 @@ import { runReadOnlyQuery, runWriteStatement } from "./sql-guard.js";
 import { z } from "zod";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { initSchema } from "./schema.js";
 import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
@@ -24,7 +25,7 @@ if (!isFreshDb) {
   const stamped = peekSchemaVersion(resolvedDbPath);
   if (stamped > LATEST_SCHEMA_VERSION) {
     console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
-    console.error(`  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`);
+    console.error(`  It was created by a newer code-context version — update the package (npm i -g vlm-code-context-mcp@latest).`);
     process.exit(1);
   }
 }
@@ -55,8 +56,9 @@ if (seeded.agents + seeded.skills > 0) {
 
 // Best-effort refresh of fe:* skills from the latest upstream release.
 // Non-blocking and offline-safe; baked defaults remain the fallback.
-// Disable with CODE_CONTEXT_SKILLS_AUTOSYNC=0.
-if (process.env.CODE_CONTEXT_SKILLS_AUTOSYNC !== "0") {
+// Opt-in with CODE_CONTEXT_SKILLS_AUTOSYNC=1: synced skills land in agent
+// prompts, so pulling remote content on every boot must be the user's choice.
+if (process.env.CODE_CONTEXT_SKILLS_AUTOSYNC === "1") {
   void syncSkillsFromUpstream(db).then((r) => {
     if (r.ok && !r.skipped) {
       console.error(
@@ -66,7 +68,17 @@ if (process.env.CODE_CONTEXT_SKILLS_AUTOSYNC !== "0") {
   });
 }
 
-const server = new McpServer({ name: "code-context", version: "1.0.0" });
+// src/server/ and dist/server/ both sit two levels below package.json.
+const PKG_VERSION: string = (() => {
+  try {
+    const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json");
+    return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
+
+const server = new McpServer({ name: "code-context", version: PKG_VERSION });
 
 // ─── Tool: index_directory ───────────────────────────────────────────────────
 server.tool(

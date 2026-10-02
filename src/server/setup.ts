@@ -8,6 +8,7 @@ import { indexDirectory } from "./indexer.js";
 import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { applyStatuslineSetting } from "./statusline.js";
+import { ensureDbGitignored, DB_IGNORE_PATTERN } from "./gitignore.js";
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,7 +148,7 @@ if (UPDATE_MODE) {
   if (currentVersion > LATEST_SCHEMA_VERSION) {
     console.error(
       `  ERROR: Database is at schema v${currentVersion}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.` +
-      `\n  It was created by a newer code-context version — update the package (npm i -g code-context-mcp@latest).`
+      `\n  It was created by a newer code-context version — update the package (npm i -g vlm-code-context-mcp@latest).`
     );
     process.exit(1);
   }
@@ -290,6 +291,11 @@ mcpConfig.mcpServers["code-context"] = serverEntry;
 fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`  Wrote ${mcpConfigPath}\n`);
 
+// Keep the index (it stores file contents) out of the project's git history
+if (ensureDbGitignored(TARGET_DIR) === "added") {
+  console.log(`  Added ${DB_IGNORE_PATTERN} to ${path.join(TARGET_DIR, ".gitignore")}\n`);
+}
+
 // Configure bridge hook (.claude/settings.json)
 if (!UPDATE_MODE) step("Configuring bridge hook...");
 const hookScript = "./" + path.relative(TARGET_DIR, path.resolve(__dirname, "../bridge/hook.js")).split(path.sep).join("/");
@@ -368,6 +374,6 @@ console.log("Dashboard:");
 console.log(`  npx code-context-dashboard ${DB_PATH}  — Open at http://localhost:${dashPort}`);
 console.log(`  npx code-context-dashboard ${DB_PATH} ${dashPort} .  — With file watcher`);
 console.log("");
-console.log("Restart your AI client to load the MCP tools (94 total).");
+console.log("Restart your AI client to load the MCP tools (98 total).");
 console.log("All data lives in context.db — no .claude/ files needed.");
 console.log("");

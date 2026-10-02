@@ -73,8 +73,8 @@ describe('makeWatchIgnorePredicate', () => {
   const ignored = makeWatchIgnorePredicate();
 
   it('rejects the directory types behind both incidents', () => {
-    expect(ignored('/dev/LM/.worktrees/clx-777/app/Foo.php', asFile)).toBe(true);
-    expect(ignored('/dev/LM/.factory/worktrees/CLX-734/x.php', asFile)).toBe(true);
+    expect(ignored('/dev/LM/.worktrees/abc-777/app/Foo.php', asFile)).toBe(true);
+    expect(ignored('/dev/LM/.factory/worktrees/ABC-734/x.php', asFile)).toBe(true);
     expect(ignored('/dev/LM/laravel/vendor/acme/src/A.php', asFile)).toBe(true);
     expect(ignored('/dev/LM/laravel/storage/logs/laravel.log', asFile)).toBe(true);
     expect(ignored('/dev/LM/laravel/storage/framework/views/abc.php', asFile)).toBe(true);
@@ -124,7 +124,7 @@ describe('makeWatchIgnorePredicate', () => {
   });
 
   it('handles Windows separators, drive letter included', () => {
-    expect(ignored('C:\\dev\\repo\\.worktrees\\clx-1\\a.ts', asFile)).toBe(true);
+    expect(ignored('C:\\dev\\repo\\.worktrees\\abc-1\\a.ts', asFile)).toBe(true);
     expect(ignored('C:\\dev\\repo\\src\\a.ts', asFile)).toBe(false);
     // A skip directory immediately under the drive root: the drive becomes its
     // own segment ('C:'), which matches nothing, so the real segment decides.
