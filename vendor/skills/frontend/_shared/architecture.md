@@ -6,7 +6,7 @@ How the frontendskills set fits together. The skills look independent but interl
 
 | Seam | File | Created by |
 |---|---|---|
-| `fetcher` | `src/libs/fetcher.ts` | set-up-state-management |
+| `fetcher` | `src/libs/fetcher.ts` | set-up-state-management (code: [`fetcher.md`](fetcher.md)) |
 | `env` | `src/libs/env.ts` | validate-env |
 | `queryClient` | `src/libs/queryClient.ts` | set-up-state-management |
 | `queryKeys` | `src/libs/queryKeys.ts` | set-up-state-management |

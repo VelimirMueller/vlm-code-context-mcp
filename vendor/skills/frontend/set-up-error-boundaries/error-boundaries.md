@@ -84,7 +84,7 @@ function renderWithErrorBoundary(renderFn) {
 (The plugin's frontend skills target React/Vue, so this is for completeness only.)
 
 ## Rule: classify boundary as molecule (with documented exception)
-**Why:** A boundary composes one atom (the fallback UI) with one behavior (catch + report). That's a molecule by the methodology in `../../_shared/glossary.md`.
+**Why:** A boundary composes one atom (the fallback UI) with one behavior (catch + report). That's a molecule by the methodology in `../_shared/glossary.md`.
 **Alternative classification:** some teams place boundaries at the organism layer because they wrap whole regions. Both are defensible. This plugin's convention is *molecule* because the boundary itself is small and reusable; the *organism* is the wrapped content, not the boundary.
 
 ## Rule: fallback UI is friendly + actionable

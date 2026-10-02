@@ -22,7 +22,7 @@ localStorage.setItem('access_token', token);
 
 ## Rule: refresh transparently in the fetcher, once
 **Why:** Every call site handling 401-and-refresh is duplication and races (parallel requests each refreshing). Centralizing it in the `fetcher` seam means call sites never see expiry.
-**How to apply:** On 401, the fetcher calls `/auth/refresh` **once** (de-duped — share a single in-flight refresh promise so concurrent 401s wait on it), retries the original request, and on refresh failure clears the user query and redirects to `/login`. Never loop.
+**How to apply:** On 401, the fetcher calls `/auth/refresh` **once** (de-duped — share a single in-flight refresh promise so concurrent 401s wait on it), retries the original request, and on refresh failure throws `HttpError(401)`. The fetcher never navigates — a seam that redirects can't be reused in loaders or tests. `currentUserQueryOptions` maps that 401 to `null`, and the route guard turns `null` into the redirect to `/login`. Never loop.
 
 ## Rule: cookie auth needs CSRF protection
 **Why:** httpOnly cookies are sent automatically — including on forged cross-site requests. That's the CSRF trade-off for the XSS safety.
@@ -34,7 +34,8 @@ function csrfHeader(): Record<string, string> {
   const token = document.cookie.match(/(?:^|; )csrf=([^;]+)/)?.[1];
   return token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {};
 }
-// in the fetcher, for POST/PUT/PATCH/DELETE: headers: { ...csrfHeader(), ...init?.headers }
+// in the fetcher, for POST/PUT/PATCH/DELETE: set it on `new Headers(init?.headers)` unless the
+// caller already did — never spread `init` after the headers. Full code: ../_shared/fetcher.md
 ```
 
 ## When to deviate

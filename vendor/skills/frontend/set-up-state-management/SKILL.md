@@ -60,21 +60,9 @@ pnpm add -D @tanstack/vue-query-devtools
 
 ### `src/libs/fetcher.ts` (both frameworks)
 
-A typed `fetch` wrapper that throws on non-2xx so TanStack Query treats failures as errors. Single seam for base URL and auth headers later.
+A typed `fetch` wrapper that throws a typed `HttpError` on non-2xx so TanStack Query treats failures as errors. Single seam for base URL and auth headers later.
 
-```ts
-// src/libs/fetcher.ts
-const BASE_URL = import.meta.env.VITE_API_URL ?? '';
-
-export async function fetcher<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
-  });
-  if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
-}
-```
+Write the **base version** from [`../_shared/fetcher.md`](../_shared/fetcher.md) — the one canonical definition, shared with `set-up-auth` and `validate-env`. If `src/libs/fetcher.ts` already exists, run that file's audit greps first: a fetcher that spreads `...init` after its headers drops caller headers and must be upgraded.
 
 ### `src/libs/queryKeys.ts` (both frameworks)
 

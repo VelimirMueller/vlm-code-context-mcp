@@ -81,5 +81,5 @@ pnpm dev                   # boots with valid env
 
 ## References
 - ./env-patterns.md — fail-fast rationale, one-typed-object, VITE_-prefix client exposure, validate-don't-just-read, secrets stay build-only.
-- ../set-up-state-management/SKILL.md — the `fetcher` seam that should import `env`.
+- ../_shared/fetcher.md — the canonical `fetcher` seam that should import `env`.
 - ../_shared/conventions.md — `libs/` seam location.

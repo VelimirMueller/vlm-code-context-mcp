@@ -31,14 +31,7 @@ React → hooks + TanStack Router guard. Vue → composables + Vue Router guard.
 
 **Never** `localStorage`/`sessionStorage` for tokens — any XSS reads them. With cookies, the `fetcher` sends credentials automatically; add CSRF protection (SameSite=Lax + a CSRF token on unsafe methods).
 
-```ts
-// augment src/libs/fetcher.ts: send the auth cookie
-const res = await fetch(`${BASE_URL}${path}`, {
-  credentials: 'include',
-  headers: { 'Content-Type': 'application/json', ...init?.headers },
-  ...init,
-});
-```
+Upgrade `src/libs/fetcher.ts` to the **auth version** in [`../_shared/fetcher.md`](../_shared/fetcher.md): `credentials: 'include'` for the cookie, an `X-CSRF-Token` header on unsafe methods, and the 401 refresh from step 8. It builds headers from `new Headers(init?.headers)` *after* spreading `init`, so a caller's own headers can never erase the CSRF token.
 
 ## 5. The current user is server state
 
@@ -58,14 +51,19 @@ export const queryKeys = {
 ```ts
 // src/libs/auth.ts
 import { queryOptions } from '@tanstack/react-query';
-import { fetcher } from '@/libs/fetcher';
+import { fetcher, HttpError } from '@/libs/fetcher';
 import { queryKeys } from '@/libs/queryKeys';
 
 export type User = { id: string; name: string };
 
 export const currentUserQueryOptions = queryOptions({
   queryKey: queryKeys.auth.me(),
-  queryFn: () => fetcher<User | null>('/auth/me'),
+  // 401 = signed out, not an error: the guard needs `null` to redirect.
+  queryFn: () =>
+    fetcher<User>('/auth/me').catch((e: unknown) => {
+      if (e instanceof HttpError && e.status === 401) return null;
+      throw e;
+    }),
   retry: false,
   staleTime: Infinity, // session rarely changes; invalidate on login/logout
 });
@@ -119,33 +117,9 @@ Vue: in `router.beforeEach`, `await queryClient.ensureQueryData(currentUserQuery
 
 ## 8. Transparent refresh (in-memory token strategy)
 
-On a 401, the `fetcher` calls `/auth/refresh` once, retries the original request, and on failure redirects to login. Keep it in the fetcher so call sites never handle expiry — see `auth-patterns.md`.
+On a 401, the `fetcher` calls `/auth/refresh` once, retries the original request, and on failure throws `HttpError(401)` — the guard, not the fetcher, redirects to login. Keep the refresh in the fetcher so call sites never handle expiry — see `auth-patterns.md`.
 
-```ts
-// src/libs/fetcher.ts — single-flight refresh, retry once
-let refreshing: Promise<boolean> | null = null;
-
-function refreshSession(): Promise<boolean> {
-  // concurrent 401s share one in-flight refresh instead of stampeding
-  refreshing ??= fetch(`${BASE_URL}/auth/refresh`, { method: 'POST', credentials: 'include' })
-    .then((r) => r.ok)
-    .finally(() => { refreshing = null; });
-  return refreshing;
-}
-
-export async function fetcher<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
-  });
-  if (res.status === 401 && !retried && (await refreshSession())) {
-    return fetcher<T>(path, init, true); // retry once after a successful refresh
-  }
-  if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
-}
-```
+The code is the `refreshSession` / `retried` part of the auth version in [`../_shared/fetcher.md`](../_shared/fetcher.md). Concurrent 401s share one in-flight refresh promise instead of stampeding, and the original request is retried once. When the refresh fails, the fetcher throws `HttpError(401)`; `currentUserQueryOptions` maps that to `null`, so the guard in step 7 redirects instead of crashing.
 
 ## 9. Verify
 ```bash
@@ -155,5 +129,6 @@ Log in → protected route loads and `/auth/me` is cached; log out → `queryCli
 
 ## References
 - ./auth-patterns.md — token storage threat model, user-is-server-state, guard-at-the-boundary, 401 refresh, CSRF, third-party providers.
+- ../_shared/fetcher.md — the canonical `fetcher`, base and auth versions.
 - ../set-up-state-management/SKILL.md — the `fetcher` seam + query-key factory this extends.
 - ../set-up-routing/SKILL.md — the guard hook points.
