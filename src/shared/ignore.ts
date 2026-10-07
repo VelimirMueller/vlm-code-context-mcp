@@ -1,7 +1,8 @@
 /**
  * One place that decides which directories the tooling never descends into.
  *
- * Why this file exists: the same omission has taken the dashboard down twice.
+ * Why this file exists: the same omission has taken the dashboard down three
+ * times.
  * Three separate policies had drifted apart — the watcher's regex list in
  * `dashboard/dashboard.ts`, `SKIP_DIRS` in `server/indexer.ts`, and an inline
  * dot-directory check in `scrum/tools.ts`. On macOS that is not a tidiness
@@ -9,9 +10,11 @@
  * directory costs a kernel watch handle, and crossing the limit kills the
  * process with EMFILE seconds after it starts.
  *
- * The two incidents, both on a tree of ~7 repos:
+ * The incidents, all on the same workspace tree:
  *   2026-07-28  PHP `vendor/` was not skipped                  → 4,508 dirs
  *   2026-09-08  `.worktrees/` and `.factory/` were not skipped  → 17,657 dirs
+ *   2026-10-07  CocoaPods `Pods/` (a Flutter app's ios/ + macos/) was not
+ *               skipped → 631 of 5,392 dirs, over WATCH_DIR_WARN_THRESHOLD
  *
  * THE INVARIANT: the watcher must never skip a directory the indexer indexes.
  * Break it and the index silently serves stale content for files it claims to
@@ -71,6 +74,8 @@ export const SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
   '.temp',
   // PHP / Composer
   'vendor',
+  // iOS / macOS (CocoaPods). Often committed to git, so .gitignore is no guard.
+  'Pods',
   // Python
   '__pycache__',
   'venv',

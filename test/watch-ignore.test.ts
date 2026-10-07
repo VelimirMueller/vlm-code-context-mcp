@@ -20,6 +20,11 @@ describe('skipDirName', () => {
     expect(skipDirName('node_modules')).toBe(true);
   });
 
+  it('skips CocoaPods, the dependency directory behind the 2026-10-07 incident', () => {
+    expect(skipDirName('Pods')).toBe(true);
+    expect(skipDir('/dev/PEX/flutter/ios/Pods')).toBe(true);
+  });
+
   it('skips every dot-directory, including ones nobody has listed yet', () => {
     for (const name of ['.git', '.worktrees', '.factory', '.turbo', '.some-future-tool']) {
       expect(skipDirName(name)).toBe(true);
