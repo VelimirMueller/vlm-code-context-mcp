@@ -104,28 +104,89 @@ export function log(level: string, msg: unknown): void {
   }
 }
 
+const patchedServers = new WeakSet<object>();
+
 /**
  * Patch `server.tool(name, ..., handler)` so every handler registered from now
- * on logs a CRITICAL line (tool name + error class) when it throws, then
- * rethrows unchanged — the MCP SDK still turns it into its usual error result.
- * Call before any tool is registered.
+ * on logs ONE CRITICAL line (tool name + error class) when it throws or
+ * rejects, then rethrows unchanged — the MCP SDK still turns it into its usual
+ * error result. Every other registration argument (description, zod schema,
+ * annotations) passes through untouched; the handler keeps its `this`, every
+ * call argument, its arity and its sync/async behaviour. Idempotent: a second
+ * call on the same server is a no-op. Call before any tool is registered.
  */
-export function logToolExceptions(server: { tool: (...args: never[]) => unknown }): void {
-  const target = server as unknown as { tool: (...args: unknown[]) => unknown };
-  const register = target.tool.bind(server);
-  target.tool = (...args: unknown[]) => {
-    const name = String(args[0]);
-    const handler = args[args.length - 1];
-    if (typeof handler === "function") {
-      args[args.length - 1] = async (...callArgs: unknown[]) => {
+export function logToolExceptions(server: object): void {
+  if (patchedServers.has(server)) return;
+  const target = server as { tool?: unknown };
+  if (typeof target.tool !== "function") return;
+  const original = target.tool as (...args: unknown[]) => unknown;
+  patchedServers.add(server);
+
+  target.tool = function patchedTool(this: unknown, ...args: unknown[]): unknown {
+    const name = args[0];
+    const last = args.length - 1;
+    const handler = args[last];
+    if (args.length >= 2 && typeof name === "string" && typeof handler === "function") {
+      const fn = handler as (...a: unknown[]) => unknown;
+      const report = (err: unknown): void =>
+        log("CRITICAL", `tool ${name}: unhandled exception error=${errorClass(err)}`);
+      const wrapped = function (this: unknown, ...callArgs: unknown[]): unknown {
+        let result: unknown;
         try {
-          return await (handler as (...a: unknown[]) => unknown)(...callArgs);
+          result = fn.apply(this, callArgs);
         } catch (err) {
-          log("CRITICAL", `tool ${name}: unhandled exception error=${errorClass(err)}`);
+          report(err);
           throw err;
         }
+        if (result && typeof (result as { then?: unknown }).then === "function") {
+          return (result as Promise<unknown>).then(undefined, (err: unknown) => {
+            report(err);
+            throw err;
+          });
+        }
+        return result;
       };
+      Object.defineProperty(wrapped, "length", { value: fn.length });
+      Object.defineProperty(wrapped, "name", { value: fn.name });
+      args = args.slice();
+      args[last] = wrapped;
     }
-    return register(...args);
+    return original.apply(this === undefined ? server : this, args);
   };
+}
+
+const THROTTLE_MAX_KEYS = 256;
+const throttleState = new Map<string, { last: number; suppressed: number }>();
+
+/**
+ * At most one line per `key` per `windowMs`. Repeats inside the window are
+ * counted, and the next line that gets through carries ` suppressed=<n>`.
+ * The key table is bounded: past THROTTLE_MAX_KEYS live keys, all further
+ * keys share one overflow bucket, so varying the key cannot flood the log.
+ */
+export function logThrottled(key: string, level: string, msg: string, windowMs = 60_000, now = Date.now()): void {
+  try {
+    let k = key;
+    if (!throttleState.has(k) && throttleState.size >= THROTTLE_MAX_KEYS) {
+      for (const [old, st] of throttleState) {
+        if (now - st.last >= windowMs && st.suppressed === 0) throttleState.delete(old);
+      }
+      if (throttleState.size >= THROTTLE_MAX_KEYS) k = "\u0000overflow";
+    }
+    const st = throttleState.get(k);
+    if (st && now - st.last < windowMs) {
+      st.suppressed++;
+      return;
+    }
+    const suppressed = st?.suppressed ?? 0;
+    throttleState.set(k, { last: now, suppressed: 0 });
+    log(level, suppressed > 0 ? `${msg} suppressed=${suppressed}` : msg);
+  } catch {
+    // Logging never breaks the tool.
+  }
+}
+
+/** Test hook: forget all throttle windows. */
+export function resetThrottle(): void {
+  throttleState.clear();
 }

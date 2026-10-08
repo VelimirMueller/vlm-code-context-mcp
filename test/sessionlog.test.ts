@@ -6,8 +6,10 @@ import { createTestDb } from './helpers/db.js';
 import { initScrumSchema, runMigrations } from '../src/scrum/schema.js';
 import { registerScrumTools } from '../src/scrum/tools.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { z } from 'zod';
-import { log, sessionLogPath, sanitizeMessage, localTimestamp, logToolExceptions } from '../src/sessionlog.js';
+import { log, sessionLogPath, sanitizeMessage, localTimestamp, logToolExceptions, logThrottled, resetThrottle } from '../src/sessionlog.js';
 
 type Handler = (
   args: Record<string, unknown>,
@@ -146,29 +148,104 @@ describe('sessionlog integration — update_ticket', () => {
   });
 });
 
-describe('logToolExceptions', () => {
-  it('logs CRITICAL with tool name + error class, rethrows, and leaves success untouched', async () => {
+describe('logToolExceptions — real McpServer through the SDK', () => {
+  async function connect(patchTimes: number) {
     const server = new McpServer({ name: 't', version: '0' });
-    const captured = new Map<string, (...a: unknown[]) => Promise<unknown>>();
-    const realTool = server.tool.bind(server) as (...a: unknown[]) => unknown;
-    (server as unknown as { tool: (...a: unknown[]) => unknown }).tool = (...a: unknown[]) => {
-      captured.set(String(a[0]), a[a.length - 1] as (...x: unknown[]) => Promise<unknown>);
-      return realTool(...a);
-    };
-    logToolExceptions(server);
-    server.tool('boom', 'd', { id: z.number() }, async () => {
+    for (let i = 0; i < patchTimes; i++) logToolExceptions(server);
+    let seenThis: unknown;
+    let seenExtra: unknown;
+    server.tool('boom', 'throws', { id: z.number() }, async () => {
       throw Object.assign(new TypeError('SECRET-VALUE-in-message'), { code: 'E_X' });
     });
-    server.tool('ok', 'd', {}, async () => ({ content: [{ type: 'text' as const, text: 'fine' }] }));
+    server.tool('sync_boom', 'throws synchronously', {}, () => {
+      throw new RangeError('SECRET-sync');
+    });
+    server.tool('echo', 'echoes', { id: z.number() }, async function (this: unknown, { id }, extra) {
+      seenThis = this;
+      seenExtra = extra;
+      return { content: [{ type: 'text' as const, text: `id=${id}` }] };
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'c', version: '0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    return { server, client, seen: () => ({ seenThis, seenExtra }) };
+  }
 
-    await expect(captured.get('boom')!({ id: 1 }, {})).rejects.toThrow(TypeError);
-    await expect(captured.get('ok')!({}, {})).resolves.toEqual({ content: [{ type: 'text', text: 'fine' }] });
+  it('keeps the zod schema enforced, passes args/extra through, logs one CRITICAL per throw', async () => {
+    const { client, seen } = await connect(1);
 
-    const lines = readLines();
+    // (a) schema still enforced: invalid args never reach the handler
+    const bad = (await client.callTool({ name: 'echo', arguments: { id: 'not-a-number' } })) as { isError?: boolean };
+    expect(bad.isError).toBe(true);
+    // valid call goes through with the SDK's extra argument intact
+    const ok = (await client.callTool({ name: 'echo', arguments: { id: 7 } })) as { content: Array<{ text: string }> };
+    expect(ok.content[0].text).toBe('id=7');
+    expect(seen().seenExtra).toBeTypeOf('object');
+    expect(readLines()).toHaveLength(0);
+
+    // (b) a throwing handler yields exactly one CRITICAL line, class only
+    const res = (await client.callTool({ name: 'boom', arguments: { id: 1 } })) as { isError?: boolean };
+    expect(res.isError).toBe(true);
+    let lines = readLines();
     expect(lines).toHaveLength(1);
     const [, level, , , msg] = lines[0].split('\t');
     expect(level).toBe('CRITICAL');
     expect(msg).toBe('tool boom: unhandled exception error=TypeError(E_X)');
-    expect(lines[0]).not.toContain('SECRET');
+
+    // synchronous throws are caught too
+    await client.callTool({ name: 'sync_boom', arguments: {} });
+    lines = readLines();
+    expect(lines).toHaveLength(2);
+    expect(lines[1].split('\t')[4]).toBe('tool sync_boom: unhandled exception error=RangeError');
+    expect(lines.join('\n')).not.toContain('SECRET');
+  });
+
+  it('(c) double-patching is a no-op — still exactly one line per throw', async () => {
+    const { client } = await connect(2);
+    await client.callTool({ name: 'boom', arguments: { id: 1 } });
+    expect(readLines()).toHaveLength(1);
+  });
+
+  it('preserves this and handler arity', () => {
+    const calls: unknown[] = [];
+    const fake = {
+      tool(this: unknown, ...args: unknown[]) {
+        calls.push({ self: this, args });
+      },
+    };
+    logToolExceptions(fake);
+    const handler = function (this: unknown, _a: unknown, _b: unknown) { return this; };
+    fake.tool('t', {}, handler);
+    const { self, args } = calls[0] as { self: unknown; args: unknown[] };
+    expect(self).toBe(fake);
+    const wrapped = args[2] as (...a: unknown[]) => unknown;
+    expect(wrapped.length).toBe(2);
+    const ctx = { marker: 1 };
+    expect(wrapped.call(ctx, 1, 2)).toBe(ctx);
+    // non-handler shapes pass through untouched
+    fake.tool('x');
+    expect((calls[1] as { args: unknown[] }).args).toEqual(['x']);
+  });
+});
+
+describe('logThrottled', () => {
+  beforeEach(() => resetThrottle());
+
+  it('one line per key per window, then reports the suppressed count', () => {
+    const t0 = 1_000_000;
+    logThrottled('401 /api/x', 'WARN', 'rejected', 60_000, t0);
+    for (let i = 1; i <= 5; i++) logThrottled('401 /api/x', 'WARN', 'rejected', 60_000, t0 + i);
+    logThrottled('403 /api/x', 'WARN', 'other key', 60_000, t0 + 10);
+    expect(readLines()).toHaveLength(2);
+    logThrottled('401 /api/x', 'WARN', 'rejected', 60_000, t0 + 60_000);
+    const lines = readLines();
+    expect(lines).toHaveLength(3);
+    expect(lines[2].split('\t')[4]).toBe('rejected suppressed=5');
+  });
+
+  it('bounds the key table so varying keys cannot flood the log', () => {
+    const t0 = 2_000_000;
+    for (let i = 0; i < 1000; i++) logThrottled(`401 /p${i}`, 'WARN', 'rejected', 60_000, t0);
+    expect(readLines().length).toBeLessThanOrEqual(257);
   });
 });

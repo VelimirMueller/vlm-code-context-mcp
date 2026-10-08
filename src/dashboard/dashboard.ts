@@ -13,7 +13,13 @@ import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized, isAllowedHost, isAllowedOrigin } from "./auth.js";
 import { makeWatchIgnorePredicate, WATCH_DIR_WARN_THRESHOLD } from "../shared/ignore.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
-import { log as slog, errorClass } from "../sessionlog.js";
+import { log as slog, errorClass, logThrottled } from "../sessionlog.js";
+
+/** Rejected-request breadcrumb, at most one per status+path per minute (anyone local can trigger these). */
+function logRejected(status: number, reason: string, method: string | undefined, pathname: string): void {
+  const p = pathname.replace(/\/\d+(?=\/|$)/g, "/:id").slice(0, 120);
+  logThrottled(`${status} ${p}`, "WARN", `dashboard: rejected request status=${status} reason=${reason} method=${method} path=${p}`);
+}
 // Shared validators live in handlers/validation.ts so the migrated scrum
 // handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
 import { validateEnum, validateColor, ALLOWED_AGENT_MODELS, DEFAULT_AGENT_MODEL } from "./handlers/validation.js";
@@ -968,13 +974,13 @@ const server = http.createServer(async (req, res) => {
   // DNS-rebinding guard: the server binds 127.0.0.1, so every peer is local —
   // what matters is the hostname the browser thinks it is talking to.
   if (!isAllowedHost(req.headers.host, req.socket.localPort ?? PORT)) {
-    slog("WARN", `dashboard: rejected request status=421 reason=host-not-loopback method=${req.method}`);
+    logRejected(421, "host-not-loopback", req.method, url.pathname);
     res.writeHead(421, { "Content-Type": "application/json" });
     res.end('{"error":"misdirected request: Host must be localhost"}');
     return;
   }
   if (!isAllowedOrigin(req.method, req.headers.origin)) {
-    slog("WARN", `dashboard: rejected request status=403 reason=cross-origin-write method=${req.method}`);
+    logRejected(403, "cross-origin-write", req.method, url.pathname);
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end('{"error":"forbidden: cross-origin write"}');
     return;
@@ -990,7 +996,7 @@ const server = http.createServer(async (req, res) => {
   // the browser can load the app and read the injected token.
   if (!isAuthorized(req, url, DASHBOARD_TOKEN)) {
     // Path only — never the query string (EventSource sends ?token=).
-    slog("WARN", `dashboard: rejected api auth status=401 method=${req.method} path=${url.pathname}`);
+    logRejected(401, "missing-or-invalid-token", req.method, url.pathname);
     res.writeHead(401, { "Content-Type": "application/json" });
     res.end('{"error":"unauthorized: missing or invalid dashboard token"}');
     return;
@@ -1423,8 +1429,12 @@ const server = http.createServer(async (req, res) => {
     } catch (e: any) {
       const payload: any = { ok: false, error: e.message };
       if (e.gate) payload.gate = e.gate;
-      if ((e.status ?? 500) >= 500) {
-        slog("CRITICAL", `dashboard: route error method=${req.method} path=${url.pathname} error=${errorClass(e)}`);
+      const status = Number(e?.status ?? 500);
+      const routePath = url.pathname.replace(/\/\d+(?=\/|$)/g, "/:id").slice(0, 120);
+      if (status >= 500) {
+        slog("CRITICAL", `dashboard: route error status=${status} method=${req.method} path=${routePath} error=${errorClass(e)}`);
+      } else {
+        slog("WARN", `dashboard: route rejected status=${status} method=${req.method} path=${routePath} error=${errorClass(e)}`);
       }
       res.writeHead(e.status ?? 500);
       res.end(JSON.stringify(payload));
