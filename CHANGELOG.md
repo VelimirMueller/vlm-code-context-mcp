@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-09
+
+### Added
+- **Overdrive session log** — the MCP server and the dashboard append one-line breadcrumbs to the shared per-session log `${OVERDRIVE_SESSION_LOG_DIR:-~/.claude/.local_ai_setup_logs/sessions}/<CLAUDE_CODE_SESSION_ID>.log` (`_nosession-YYYY-MM-DD.log` without a session id), in the overdrive contract format `<ts>\t<LEVEL>\tcode-context@<version>\tpid=<pid>\t<message>`. New helper `src/sessionlog.ts` (node stdlib only): one `O_APPEND` write per line, dir `0700` / file `0600`, every error swallowed, never prints (stdout is the MCP transport), `OVERDRIVE_SESSION_LOG=0` turns it off.
+  - `INFO` — server and dashboard start (version, port, db basename), sprint phase transitions, ticket status changes, discovery/sprint archive counts, `index_directory` runs (file count, duration).
+  - `WARN` — advisory gate warnings from `advance_sprint` / `update_sprint` (counts), gate-blocked ticket edits (ticket id + rule), planning-gate blocks (counts), rejected dashboard requests (401/403/421, never the token or query string; at most one line per status+path per minute, with a `suppressed=<n>` count), dashboard routes that throw a 4xx error (status + error class), schema migrations applied.
+  - `CRITICAL` — exceptions escaping any MCP tool handler, dashboard routes failing with a 5xx (error class only), DB open/migration failure.
+  - Only ids, counts, phases and durations are logged — never titles, descriptions, retro text, file contents, the dashboard token or SQL values. Read paths stay silent.
+- The test suite runs with `OVERDRIVE_SESSION_LOG=0` so it never writes into a real session log.
+
+## [2.4.1] - 2026-10-07
+
 ### Security
 - **Dashboard DNS-rebinding guard** — every request must carry a `localhost`/`127.0.0.1`/`[::1]` Host on the listening port (else `421`), and writes from a non-loopback `Origin` get `403`. Before, a hostile page that rebound its hostname to 127.0.0.1 could read the token injected into `/` and queue `/api/bridge/actions`, which the PreToolUse hook feeds into the agent. The no-op `requireLocalAccess` gate is gone (the server only binds 127.0.0.1).
 - **Skill auto-sync is opt-in** — the MCP server no longer pulls the latest upstream skills release into agent prompts on every boot; set `CODE_CONTEXT_SKILLS_AUTOSYNC=1` to enable it.
