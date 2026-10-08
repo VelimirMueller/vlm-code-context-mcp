@@ -5,8 +5,11 @@
 //
 // Rules this helper enforces:
 // - stdout is the MCP stdio transport: never print anything, ever.
-// - one fs.writeSync per line on an fd opened with 'a' (O_APPEND), so lines
-//   from concurrent writers never interleave and survive a crash.
+// - one fs.writeSync per line on an fd opened O_APPEND, so lines from
+//   concurrent writers never interleave and survive a crash.
+// - only a regular file is written: the open uses O_NOFOLLOW|O_NONBLOCK and the
+//   OPEN handle is fstat'ed, so a symlink, directory or fifo planted at the log
+//   path gets nothing (no check-then-write window).
 // - logging never breaks the tool: every error is swallowed.
 // - env is read at call time (tests and long-lived servers can flip it).
 // - callers log ids, counts, durations and error classes — never titles,
@@ -93,9 +96,12 @@ export function log(level: string, msg: unknown): void {
     const line =
       `${localTimestamp(now)}\t${lvl}\tcode-context@${toolVersion()}\tpid=${process.pid}\t` +
       `${sanitizeMessage(msg)}\n`;
-    const fd = fs.openSync(file, "a", 0o600);
+    const { O_WRONLY, O_APPEND, O_CREAT, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
+    // No O_NOFOLLOW on this platform → a symlink could redirect the append: write nothing.
+    if (O_NOFOLLOW === undefined) return;
+    const fd = fs.openSync(file, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600);
     try {
-      fs.writeSync(fd, line);
+      if (fs.fstatSync(fd).isFile()) fs.writeSync(fd, line);
     } finally {
       fs.closeSync(fd);
     }

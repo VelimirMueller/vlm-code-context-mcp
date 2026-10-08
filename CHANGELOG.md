@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-09
+
+### Security
+- **Session log refuses anything but a regular file** (overdrive contract rule 2). `src/sessionlog.ts` now opens the log with `O_WRONLY|O_APPEND|O_CREAT|O_NOFOLLOW|O_NONBLOCK` (mode `0600`) and checks the open handle with `fstat` before its one write. A symlink planted at the log path no longer redirects the append into its target; a directory or fifo at the log path gets nothing written and never blocks. Errors stay swallowed. On a platform without `O_NOFOLLOW` the helper writes nothing.
+
 ## [2.5.0] - 2026-10-09
 
 ### Added
