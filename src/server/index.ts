@@ -12,6 +12,7 @@ import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersio
 import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
+import { log as slog, errorClass, logToolExceptions } from "../sessionlog.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
@@ -30,16 +31,26 @@ if (!isFreshDb) {
   }
 }
 
-const db = new Database(resolvedDbPath);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+let db: Database.Database;
+let preMigrationVersion: number;
+try {
+  db = new Database(resolvedDbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
 
-initSchema(db);
-initScrumSchema(db);
-// Peek the stamped version before migrating so the report shows the delta
-const preMigrationVersion =
-  (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as { v: number | null })?.v ?? 0;
-runMigrations(db, { freshDb: isFreshDb });
+  initSchema(db);
+  initScrumSchema(db);
+  // Peek the stamped version before migrating so the report shows the delta
+  preMigrationVersion =
+    (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as { v: number | null })?.v ?? 0;
+  runMigrations(db, { freshDb: isFreshDb });
+} catch (err) {
+  slog("CRITICAL", `server: db open/migration failed db=${path.basename(resolvedDbPath)} error=${errorClass(err)}`);
+  throw err;
+}
+if (!isFreshDb && preMigrationVersion < LATEST_SCHEMA_VERSION) {
+  slog("WARN", `server: migrations applied db=${path.basename(resolvedDbPath)} schema v${preMigrationVersion}→v${LATEST_SCHEMA_VERSION}`);
+}
 console.error(
   isFreshDb
     ? `[schema] v${LATEST_SCHEMA_VERSION} (new database)`
@@ -80,6 +91,10 @@ const PKG_VERSION: string = (() => {
 
 const server = new McpServer({ name: "code-context", version: PKG_VERSION });
 
+// Session log: an exception escaping any tool handler (core or scrum) is a
+// CRITICAL breadcrumb — tool name + error class only, then rethrown unchanged.
+logToolExceptions(server);
+
 // ─── Tool: index_directory ───────────────────────────────────────────────────
 server.tool(
   "index_directory",
@@ -108,7 +123,9 @@ server.tool(
         }
       }
 
+      const indexStart = Date.now();
       const stats = indexDirectory(db, rootDir);
+      slog("INFO", `index_directory: files=${stats.files} exports=${stats.exports} deps=${stats.deps} pruned=${stats.prunedFiles} duration_ms=${Date.now() - indexStart}`);
 
       // Build structured description output
       const sections: string[] = [];
@@ -175,6 +192,7 @@ server.tool(
 
       return { content: [{ type: "text", text: sections.join("\n") }] };
     } catch (err: any) {
+      slog("CRITICAL", `tool index_directory: failed error=${errorClass(err)}`);
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
     }
   }
@@ -531,3 +549,4 @@ registerScrumTools(server, db);
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(`code-context MCP server running — db: ${DB_PATH}`);
+slog("INFO", `server: started version=${PKG_VERSION} db=${path.basename(resolvedDbPath)}`);

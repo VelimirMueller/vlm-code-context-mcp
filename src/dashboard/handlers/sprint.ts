@@ -13,6 +13,7 @@
  */
 import type Database from "better-sqlite3";
 import { validateEnum, validateSprintTransition, badRequest, ALLOWED_AGENT_MODELS } from "./validation.js";
+import { log as slog } from "../../sessionlog.js";
 
 // ─── Scrum reads ────────────────────────────────────────────────────────────
 
@@ -526,6 +527,10 @@ export function apiSprintUpdate(db: Database.Database, id: number, body: any): {
   sets.push("updated_at=datetime('now')");
   vals.push(id);
   db.prepare(`UPDATE sprints SET ${sets.join(",")} WHERE id=?`).run(...vals);
+  if (body.status && body.status !== current.status) {
+    slog("INFO", `dashboard: sprint=${id} phase ${current.status}→${body.status}`);
+    if (gateWarnings.length > 0) slog("WARN", `dashboard: gate warnings sprint=${id} to=${body.status} count=${gateWarnings.length}`);
+  }
 
   // Auto-archive discoveries when a sprint is closed (marketing-stats rebuild is
   // a side-effect the router performs — see `marketingDirty`).
@@ -620,6 +625,9 @@ export function apiUpdateTicket(db: Database.Database, id: number, body: any) {
   sets.push("updated_at=datetime('now')");
   vals.push(id);
   db.prepare(`UPDATE tickets SET ${sets.join(",")} WHERE id=?`).run(...vals);
+  if (body.status !== undefined && body.status !== existing.status) {
+    slog("INFO", `dashboard: ticket=${id} status ${existing.status}→${body.status}`);
+  }
 
   // Auto-promote linked discoveries when ticket moves to DONE
   if (body.status === 'DONE') {
@@ -810,6 +818,9 @@ export function apiPatchTicket(db: Database.Database, id: number, body: any): { 
     }
   });
   apply();
+  if (changedFields.includes('status')) {
+    slog("INFO", `dashboard: ticket=${id} status ${oldValues.status}→${newValues.status}`);
+  }
 
   return { result: { ok: true, ticket: getTicketWithAssignments(db, id) }, changedFields };
 }

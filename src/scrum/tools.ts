@@ -21,6 +21,7 @@ import {
 } from "./queries.js";
 import { registerAnalyticsTools } from "./tools/analytics.js";
 import { registerSkillsTools } from "./tools/skills.js";
+import { log as slog } from "../sessionlog.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -480,7 +481,7 @@ export function getOpenDiscoveries(db: Database.Database): any[] {
  * A1+A2: planning gate evaluated by start_sprint. Blocks when untriaged try_next
  * findings or escalated open discoveries exist.
  */
-export function checkPlanningGate(db: Database.Database): { blocked: boolean; sections: string[] } {
+export function checkPlanningGate(db: Database.Database): { blocked: boolean; sections: string[]; untriaged: number; escalated: number } {
   autoApplyRetroActions(db);
   const sections: string[] = [];
   const untriaged = getUntriagedTryNext(db);
@@ -498,7 +499,7 @@ export function checkPlanningGate(db: Database.Database): { blocked: boolean; se
     escalated.forEach((d: any) =>
       sections.push(`- ⚠ ${d.priority} #${d.id} [open ${d.age_sprints} sprints] ${truncateFinding(d.finding)}`));
   }
-  return { blocked: sections.length > 0, sections };
+  return { blocked: sections.length > 0, sections, untriaged: untriaged.length, escalated: escalated.length };
 }
 
 /**
@@ -875,6 +876,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch (e: any) {
           console.error(`[audit] update_sprint sprint #${sprint_id} status ${oldStatus}→${status}: ` + (e?.message ?? String(e)));
         }
+        slog("INFO", `update_sprint: sprint=${sprint_id} phase ${oldStatus}→${status}`);
+      }
+      if (gateWarnings.length > 0) {
+        slog("WARN", `update_sprint: gate warnings sprint=${sprint_id} to=${status} count=${gateWarnings.length}`);
       }
 
       // M12-015: Auto-generate retro analysis when sprint is done or closed
@@ -913,16 +918,17 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
         // Auto-archive discoveries linked to this sprint
         try {
-          db.prepare(`
+          const implemented = db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
-          `).run(sprint_id, sprint_id);
-          db.prepare(`
+          `).run(sprint_id, sprint_id).changes;
+          const dropped = db.prepare(`
             UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
-          `).run(sprint_id, sprint_id);
+          `).run(sprint_id, sprint_id).changes;
+          if (implemented + dropped > 0) slog("INFO", `update_sprint: archived discoveries sprint=${sprint_id} implemented=${implemented} dropped=${dropped}`);
         } catch {}
       }
 
@@ -957,6 +963,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (nextPhase === "implementation") {
         const gate = checkPlanningGate(db);
         if (gate.blocked && !acknowledge_open_items) {
+          slog("WARN", `advance_sprint: planning gate blocked sprint=${sprint_id} untriaged_try_next=${gate.untriaged} escalated_discoveries=${gate.escalated}`);
           return { content: [{ type: "text" as const, text: [
             `⛔ SPRINT ADVANCE BLOCKED — planning gate (planning → implementation)`,
             ``,
@@ -990,6 +997,8 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
       // Advance sprint + archive discoveries atomically — partial failure rolls back cleanly
       let retroNote = "";
+      let archivedImplemented = 0;
+      let archivedDropped = 0;
       db.transaction(() => {
         const sets = ["status=?", "updated_at=datetime('now')"];
         const vals: any[] = [nextPhase];
@@ -1010,20 +1019,28 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           retroNote = "\nAuto retro analysis generated.";
 
           // Auto-archive discoveries: mark "planned" discoveries with completed tickets as "implemented"
-          db.prepare(`
+          archivedImplemented = db.prepare(`
             UPDATE discoveries SET status = 'implemented', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status = 'DONE')
-          `).run(sprint_id, sprint_id);
+          `).run(sprint_id, sprint_id).changes;
 
           // Auto-drop discoveries that were planned but ticket was not completed
-          db.prepare(`
+          archivedDropped = db.prepare(`
             UPDATE discoveries SET status = 'dropped', drop_reason = 'Sprint closed without completion', updated_at = datetime('now')
             WHERE discovery_sprint_id = ? AND status = 'planned'
               AND implementation_ticket_id IN (SELECT id FROM tickets WHERE sprint_id = ? AND status NOT IN ('DONE'))
-          `).run(sprint_id, sprint_id);
+          `).run(sprint_id, sprint_id).changes;
         }
       })();
+
+      slog("INFO", `advance_sprint: sprint=${sprint_id} phase ${sprint.status}→${nextPhase}`);
+      if (gates.warnings.length > 0) {
+        slog("WARN", `advance_sprint: gate warnings sprint=${sprint_id} to=${nextPhase} count=${gates.warnings.length}`);
+      }
+      if (archivedImplemented + archivedDropped > 0) {
+        slog("INFO", `advance_sprint: archived discoveries sprint=${sprint_id} implemented=${archivedImplemented} dropped=${archivedDropped}`);
+      }
 
       // Build next-action guidance
       const NEXT_ACTIONS: Record<string, string> = {
@@ -1187,6 +1204,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       }
 
       if (gates.length > 0) {
+        slog("WARN", `update_ticket: gate blocked ticket=${ticket_id} rule=sprint-phase to=${status} sprint=${ticket.sprint_id} sprint_phase=${ticket.sprint_status}`);
         return { content: [{ type: "text" as const, text: `Gate blocked for ticket #${ticket_id}:\n${gates.map(g => `- ${g}`).join("\n")}` }], isError: true };
       }
 
@@ -1200,6 +1218,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       if (qa_verified === true && !ticket.qa_verified && ticket.ticket_ref) {
         const fmt = checkCommitFormat(ticket.ticket_ref);
         if (!fmt.ok && fmt.violations.length > 0) {
+          slog("WARN", `update_ticket: gate blocked ticket=${ticket_id} rule=commit-format violations=${fmt.violations.length}`);
           return { content: [{ type: "text" as const, text: formatCommitFormatBlock(ticket.ticket_ref, fmt) }], isError: true };
         }
       }
@@ -1273,6 +1292,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         } catch (e: any) {
           console.error(`[audit] update_ticket ticket #${ticket_id} status ${oldStatus}→${status}: ` + (e?.message ?? String(e)));
         }
+        slog("INFO", `update_ticket: ticket=${ticket_id} status ${oldStatus}→${status}`);
       }
       if (qa_verified !== undefined) {
         try {
@@ -1744,6 +1764,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         // A1+A2 planning gate: no sprint starts over untriaged retro/discovery items
         const gate = checkPlanningGate(db);
         if (gate.blocked && !acknowledge_open_items) {
+          slog("WARN", `start_sprint: planning gate blocked untriaged_try_next=${gate.untriaged} escalated_discoveries=${gate.escalated}`);
           return { content: [{ type: "text" as const, text: [
             `⛔ SPRINT START BLOCKED — planning gate`,
             ``,
