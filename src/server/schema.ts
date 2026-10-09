@@ -77,6 +77,16 @@ export function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_changes_path ON changes(file_path);
+
+    -- One row per directory passed to index_directory: the commit it was
+    -- indexed at lets the read-time freshness guard notice a moved HEAD and
+    -- re-index only what git says changed (src/server/freshness.ts).
+    CREATE TABLE IF NOT EXISTS indexed_repos (
+      root       TEXT PRIMARY KEY,
+      head       TEXT,
+      indexed_at TEXT DEFAULT (datetime('now')),
+      file_count INTEGER NOT NULL DEFAULT 0
+    );
     CREATE INDEX IF NOT EXISTS idx_changes_ts ON changes(timestamp DESC);
   `);
 }

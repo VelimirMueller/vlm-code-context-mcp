@@ -1,0 +1,132 @@
+/**
+ * What the INDEXER refuses to store, on top of the directory policy it shares
+ * with the watcher (`src/shared/ignore.ts`).
+ *
+ * Why a second file: the shared policy decides which DIRECTORIES both the
+ * watcher and the indexer skip, and its invariant is "the watcher never skips
+ * a directory the indexer indexes". Everything here only narrows the indexer,
+ * so watcher ⊇ indexer still holds — a pointless re-index at worst, never a
+ * stale answer.
+ *
+ * Measured 2026-10-09 on the shared context.db: 19 085 of 26 749 indexed
+ * files (71 %) were node_modules/vendor, nearly all from one Laravel repo, and
+ * the `content` column made the db 256 MB. Search ranked third-party code above
+ * the team's own. The rules below are the cheap half of the fix; `.gitignore`
+ * (via `git ls-files`, see listRepoFiles in indexer.ts) is the other half.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import { skipDirName, isUnderSkippedPath } from "../shared/ignore.js";
+
+/** Never content worth searching: media, archives, fonts, binaries, databases. */
+export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".avif", ".bmp", ".svg", ".tif", ".tiff", ".heic", ".psd",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+  ".mp3", ".mp4", ".wav", ".ogg", ".webm", ".mov", ".m4a",
+  ".zip", ".tar", ".gz", ".tgz", ".br", ".zst", ".7z", ".rar", ".jar",
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".exe", ".dll", ".so", ".dylib", ".wasm", ".class", ".o", ".a", ".bin", ".pyc",
+  ".db", ".sqlite", ".sqlite3", ".db-shm", ".db-wal",
+]);
+
+/** Generated lockfiles: huge, machine-written, no symbols anyone searches for. */
+export const LOCKFILE_NAMES: ReadonlySet<string> = new Set([
+  "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock",
+  "composer.lock", "Gemfile.lock", "Cargo.lock", "poetry.lock", "Pipfile.lock", "uv.lock",
+  "go.sum", "pubspec.lock", "Podfile.lock", "mix.lock", "flake.lock",
+]);
+
+export const SKIP_FILE_NAMES: ReadonlySet<string> = new Set([".DS_Store", "Thumbs.db", ".gitkeep"]);
+
+/** Minified bundles and source maps are build output even when committed. */
+const GENERATED_SUFFIXES = [".min.js", ".min.mjs", ".min.css", ".js.map", ".css.map", ".map", ".bundle.js"];
+
+const DEFAULT_MAX_FILE_KB = 512;
+
+/** Size ceiling per file. `CODE_CONTEXT_MAX_FILE_KB` overrides; read at call time. */
+export function maxFileBytes(): number {
+  const raw = Number(process.env.CODE_CONTEXT_MAX_FILE_KB);
+  const kb = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_FILE_KB;
+  return Math.floor(kb * 1024);
+}
+
+/** True when a file of this NAME is never indexed (extension, lockfile, generated). */
+export function isDeniedFileName(name: string): boolean {
+  if (name.startsWith(".")) return true; // matches the walk's historic dot rule
+  if (SKIP_FILE_NAMES.has(name) || LOCKFILE_NAMES.has(name)) return true;
+  const lower = name.toLowerCase();
+  if (BINARY_EXTENSIONS.has(path.extname(lower))) return true;
+  return GENERATED_SUFFIXES.some((s) => lower.endsWith(s));
+}
+
+const laravelCache = new Map<string, boolean>();
+
+/**
+ * Laravel's `storage/` holds uploads, caches, sessions and compiled views — never
+ * source. A bare `storage` is too generic to skip everywhere (Android, Go and Rust
+ * use it for real code, see shared/ignore.ts), so it is skipped only where an
+ * `artisan` file sits next to it. Cached: called once per path segment.
+ */
+export function isLaravelStorage(dirPath: string): boolean {
+  if (path.basename(dirPath) !== "storage") return false;
+  const parent = path.dirname(dirPath);
+  let hit = laravelCache.get(parent);
+  if (hit === undefined) {
+    try {
+      hit = fs.statSync(path.join(parent, "artisan")).isFile();
+    } catch {
+      hit = false;
+    }
+    if (laravelCache.size > 4096) laravelCache.clear();
+    laravelCache.set(parent, hit);
+  }
+  return hit;
+}
+
+/** True when a directory is never descended into by the indexer. */
+export function isDeniedDir(absDir: string): boolean {
+  return skipDirName(path.basename(absDir)) || isUnderSkippedPath(absDir) || isLaravelStorage(absDir);
+}
+
+/**
+ * The one decision for a file the indexer might store, by absolute path.
+ * `root` bounds the ancestor check (segments above it are not judged — a repo
+ * may live under a dot-directory). `sizeBytes`, when known, applies the size cap.
+ */
+export function isDeniedPath(absPath: string, root?: string, sizeBytes?: number): boolean {
+  const name = path.basename(absPath);
+  if (isDeniedFileName(name)) return true;
+  if (sizeBytes !== undefined && sizeBytes > maxFileBytes()) return true;
+
+  const base = root ? path.resolve(root) : path.parse(absPath).root;
+  const rel = path.relative(base, path.dirname(absPath));
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  if (rel === "") return false;
+  let cur = base;
+  for (const seg of rel.split(path.sep)) {
+    cur = path.join(cur, seg);
+    if (isDeniedDir(cur)) return true;
+  }
+  return false;
+}
+
+/** First 8 KB contains a NUL byte → binary, whatever the extension says. */
+export function looksBinary(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8192);
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
+  return false;
+}
+
+/** True when a directory path, or any ancestor below `root`, is denied. */
+export function isDeniedDirPath(absDir: string, root: string): boolean {
+  const base = path.resolve(root);
+  const rel = path.relative(base, absDir);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  let cur = base;
+  for (const seg of rel.split(path.sep)) {
+    cur = path.join(cur, seg);
+    if (isDeniedDir(cur)) return true;
+  }
+  return false;
+}
