@@ -8,11 +8,12 @@ description: Use when tuning frontend performance — enables the React Compiler
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, frontend.meta, package_manager
 grep -E '"(babel-plugin-react-compiler|rollup-plugin-visualizer|web-vitals)"' package.json 2>/dev/null
 grep -rn "React.lazy\|defineAsyncComponent\|loading=\"lazy\"" src/ 2>/dev/null | head
 ```
 
-**Prerequisites:** `scaffold-frontend-project` (Vite) and ideally `set-up-routing` (route-level splitting). **Rule zero: measure before optimizing** — wire the analyzer + vitals (steps 6–7) before hand-tuning anything.
+Read `frontend.framework` (step 3) and `frontend.meta`: `next` / `nuxt` have their own image, font and compiler options — use theirs, and treat steps 6–7 as the shared part. Commands use pnpm; translate for `package_manager`. **Prerequisites:** `scaffold-frontend-project` (Vite) and ideally `set-up-routing` (route-level splitting). **Rule zero: measure before optimizing** — wire the analyzer + vitals (steps 6–7) before hand-tuning anything.
 
 ## 2. Decide what to do
 - Greenfield → enable Compiler + splitting + measurement (steps 4–8).
@@ -56,7 +57,7 @@ Pin the compiler exact (`-E`): its output can change between versions. In existi
 const Chart = lazy(() => import('@/components/organisms/Chart')); // React
 // Vue: const Chart = defineAsyncComponent(() => import('@/components/organisms/Chart.vue'))
 ```
-Wrap in `<Suspense>`. Let Vite handle vendor splitting; only add `build.rollupOptions.output.manualChunks` for a *measured* win.
+Wrap in `<Suspense>`. Let Vite handle vendor splitting; only configure chunking for a *measured* win, under `build.rolldownOptions` (Vite 8 deprecated `build.rollupOptions` as an alias of it).
 
 ## 6. Bundle analysis + a budget
 
@@ -68,7 +69,15 @@ pnpm add -D rollup-plugin-visualizer
 import { visualizer } from 'rollup-plugin-visualizer';
 // plugins: [..., visualizer({ filename: 'dist/stats.html', gzipSize: true })]
 ```
-`pnpm build` then open `dist/stats.html`. Set a budget (e.g. initial JS < 200 KB gzipped) and enforce it with **`size-limit`** (`pnpm add -D size-limit @size-limit/preset-app`, add a `size-limit` array to `package.json`, run `pnpm size-limit` in CI) so regressions fail the build, not just the eyeball.
+`pnpm build` then open `dist/stats.html`. Set a budget (e.g. initial JS < 200 KB gzipped) and enforce it with **`size-limit`** so regressions fail the build, not just the eyeball:
+```bash
+pnpm add -D size-limit @size-limit/file
+```
+```json
+// .size-limit.json — globs cover the files dist/index.html loads (entry + its static vendor chunks); lazy route chunks stay out
+[{ "name": "initial JS", "path": "dist/assets/index-*.js", "limit": "200 kB", "gzip": true }]
+```
+`pnpm exec size-limit` exits non-zero over the limit (run it after `pnpm build`, as `configure-ci` does). `@size-limit/file` measures built files only; `preset-app` adds a Chrome-based timing plugin that is slow and flaky in CI. Without `gzip: true` it measures brotli, so say which one the budget means.
 
 ## 7. Measure Core Web Vitals
 
@@ -85,11 +94,11 @@ export function reportWebVitals(report: (m: { name: string; value: number }) => 
   onLCP(report);
 }
 ```
-Call it once from the app entry; send to analytics (or the `captureError`-style seam) in prod, `console.log` in dev.
+Call it once from the app entry; send to analytics (or the `captureError`-style seam) in prod, `console.log` in dev. Browser coverage: `onINP` and `onLCP` report in Chromium, Firefox and Safari; `onCLS` only in Chromium, so field CLS is a Chromium sample. Sending the values to an analytics vendor is analytics: it follows that skill's consent rule (`configure-analytics`).
 
 ## 8. Images & layout stability
 - Always set `width`/`height` (or `aspect-ratio`) so images don't shift layout (**CLS**).
-- `loading="lazy"` + `decoding="async"` for below-the-fold images.
+- `loading="lazy"` + `decoding="async"` for below-the-fold images. The LCP image is the exception: no `loading="lazy"`, add `fetchpriority="high"`.
 - Serve AVIF/WebP; `vite-imagetools` generates responsive `srcset` at build time.
 - Preload the LCP image/font; `font-display: swap`.
 
@@ -98,7 +107,7 @@ Call it once from the app entry; send to analytics (or the `captureError`-style 
 pnpm build          # inspect dist/stats.html against the budget
 pnpm preview        # run Lighthouse / read web-vitals in console
 ```
-Targets: **LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1** (mobile, mid-tier device).
+Targets, judged at the 75th percentile of real page loads (the "good" thresholds): **LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1**. Lighthouse on a mid-tier mobile profile is the lab proxy.
 
 ## References
 - ./performance-rules.md — measure-first, the Compiler's effect, splitting strategy, CWV targets, image/CLS rules, when manual memo still matters.

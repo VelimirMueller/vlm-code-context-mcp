@@ -4,6 +4,11 @@ The bundled rubric for `audit-content-quality` — used when the project has no
 `.claude/rubrics/content-quality.md`. Offer to install a copy there for the project to
 adapt (own criteria, points, knockouts). Format rules: `../_shared/rubric-convention.md`.
 
+Thresholds below (80 words, 4 sentences, 12 months, 2 links) are practical defaults, not
+Google rules; Google publishes no such numbers. They exist so the audit gives a
+repeatable verdict. "E-E-A-T" is Google's quality-rater framework, not a direct ranking
+factor — the criterion checks the visible trust signals readers and raters look for.
+
 ## [K.O.] Content is in the served HTML
 Passes when the main content survives the view-source test (`../_shared/page-types.md`).
 Evidence: the curl/grep result. Fails → the page fails; fix via `../set-up-seo/SKILL.md`
@@ -54,3 +59,10 @@ mirrors it). Evergreen content passes by default. Evidence: the visible date.
 ## One next step
 Passes when the page ends with a clear related action — the next article, the signup,
 the contact — not a dead stop. Evidence: quote the closing CTA/link.
+
+## When to deviate
+- Change the numbers to match your audience; keep each criterion testable with a quote.
+- Transactional landing pages: drop *Scannability*, *Internal links*, and *Freshness*;
+  they are article criteria. Use `../build-landing-page/SKILL.md` for those pages.
+- Install the file as `.claude/rubrics/content-quality.md` and edit it; do not fork the
+  skill.

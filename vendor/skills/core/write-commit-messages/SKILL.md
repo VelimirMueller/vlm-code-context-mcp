@@ -6,8 +6,9 @@ description: Use when committing work or writing a commit message — produces a
 # Write Commit Messages
 
 The diff already records *what* changed; the message carries what the diff cannot — the
-motivation, the shape, the approach. Subject in the repository's own convention; body in
-three labeled groups — Why, What, How — every line derived from the diff.
+motivation and the approach. Subject in the repository's own convention; body in up to
+three labeled groups — Why, What, How — every line derived from the diff. Scale to the
+change: a one-line fix gets a subject and, at most, a Why line.
 
 ## 1. Audit — the diff and the house convention
 
@@ -18,8 +19,9 @@ git log --oneline -15
 
 Read the actual diff: the body will be derived from it, never from memory of what was
 intended. From the log, detect the subject convention — conventional commits
-(`feat(scope): …`), gitmoji, or plain imperative — and match it; default to conventional
-commits only when no convention is detectable. Change nothing yet.
+(`feat(scope): …`), gitmoji, or plain imperative — and match it; default to Conventional
+Commits 1.0.0 (`type(scope)!: description`, `!` or a `BREAKING CHANGE:` footer for breaking
+changes) only when no convention is detectable. Change nothing yet.
 
 ## 2. Decide
 
@@ -30,18 +32,24 @@ commits only when no convention is detectable. Change nothing yet.
   published history breaks everyone who pulled it. Already pushed → never amend; when
   the message is still wanted (a squash target, the spine of a PR description), draft
   it without touching history.
+- **The change is trivial** (typo, rename, dependency bump the subject fully explains) →
+  subject only; skip step 4. Ceremony on a one-liner is noise in `git log`.
 - **The message already conforms** (subject in convention, the three groups present) →
   report "already in place" and exit. A second run writes nothing.
 
 ## 3. Draft the subject
 
-In the detected convention, imperative mood, aim ≤72 characters, the one concern named.
+In the detected convention, imperative mood (Git's convention; the Conventional Commits
+spec itself is silent on it), aim ≤72 characters (a display limit, not a spec rule), the
+one concern named.
 Test: "applying this commit will <subject>" reads as a sentence — the description after
 any `type(scope):` prefix is what must parse (./commit-patterns.md for the discipline).
 
 ## 4. Draft the body — Why, What, How
 
-Three labeled bullet groups, each grounded in the step-1 diff:
+Up to three labeled bullet groups, each grounded in the step-1 diff. `Why:` is
+mandatory; omit `What:` when the diff and subject already say it, and `How:` when the
+approach is the obvious one:
 
 ```text
 Why:

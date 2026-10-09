@@ -25,13 +25,13 @@ Reference for `configure-linting`. Why one tool, what it covers, and where its e
 **How to apply:** The hook runs `biome check --write` on staged files with `stage_fixed: true`; CI runs `biome ci` over the whole tree.
 
 ## Rule: lefthook over husky
-**Why:** lefthook is a single Go binary driven by one `lefthook.yml` — no `prepare` lifecycle script, no per-hook shell file. husky works but adds npm lifecycle scripts and a `.husky/` file per hook.
-**How to apply:** `pnpm add -D lefthook`, write `lefthook.yml`, run `pnpm lefthook install` once.
+**Why:** lefthook is one Go binary driven by one `lefthook.yml`; it filters by glob, passes `{staged_files}` and re-stages fixes (`stage_fixed`) without extra tooling. husky is a thin hook runner: you add `lint-staged` for the staged-file part and a `.husky/` shell file per hook. Both work; lefthook is fewer moving parts (verified: a nested `src/deep/a.ts` was fixed and re-staged on commit with the config in the skill).
+**How to apply:** `pnpm add -D lefthook`, write `lefthook.yml`, add `"prepare": "lefthook install"` so every clone gets the hooks (pnpm skips dependency install scripts, and the lefthook package relies on one).
 
 ## Vue: full SFC support, with a safety net
 With `html.experimentalFullSupportEnabled: true`, Biome parses the whole SFC: the `vue` domain rules (`useVueVForKey`, `noVueVIfWithVFor`, `noVueSetupPropsReactivityLoss`, `useVueDefineMacrosOrder`, …), the a11y rules on the template, and the formatter. Without it, Biome sees only `<script>` and reports template-used variables as unused.
 
-The support is labelled **experimental**, and the `vue` domain covers the essential/valid-* core of `eslint-plugin-vue`, not its ~250-rule long tail. The safety net is `vue-tsc --noEmit` (template type check) plus `tests/ui` with axe. Don't add ESLint back for `eslint-plugin-vue` unless a concrete bug class slips through both.
+The support is labelled **experimental**, and the `vue` domain covers the essential/valid-* core of `eslint-plugin-vue`, not the full `eslint-plugin-vue` rule set. The safety net is `vue-tsc -b` (template type check, via `pnpm typecheck`) plus `tests/ui` with axe. Don't add ESLint back for `eslint-plugin-vue` unless a concrete bug class slips through both.
 
 `useVueMultiWordComponentNames` is off on purpose: atoms are named `Button`, `Card`, `Input` in both frameworks, and PascalCase tags in an SFC never collide with native elements.
 
@@ -44,4 +44,5 @@ The support is labelled **experimental**, and the `vue` domain covers the essent
 ## When to deviate
 - **Type-aware rules** (`no-floating-promises`, `no-misused-promises`): Biome has `nursery/noFloatingPromises` and `nursery/noMisusedPromises` (type-inferred, not full type-checked) — try them first. If a codebase genuinely needs the full `typescript-eslint` typed set, add ESLint narrowly for those rules only and accept the second tool's cost.
 - **React Compiler lint rules** live in `eslint-plugin-react-hooks` (`recommended`), not in Biome. The compiler skips a component that breaks the Rules of React instead of miscompiling it, so the default is to do without; add the plugin alone if you want the warnings at lint time.
+- **A solo or tiny repo:** skip lefthook; `biome ci` in CI is the gate and the editor formats on save. The hook pays once several people commit.
 - **An org-wide Prettier/ESLint setup** (a work repo with its own guidelines): follow the repo. These skills are a preference, not a mandate.

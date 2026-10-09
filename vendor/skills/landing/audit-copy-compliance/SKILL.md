@@ -1,6 +1,6 @@
 ---
 name: audit-copy-compliance
-description: Use when page copy must pass brand, legal, or regulatory rules before going live — checks the visible copy of a public page against a rules file (the project's .claude/rubrics/copy-compliance.md if present, else the bundled template covering prohibited claims, required disclaimers, tone and address, terminology, locale formatting, substantiation) and reports every violation with the quoted text, the rule it breaks, and a compliant rewrite. A cheap pre-publish gate.
+description: Use when page copy must pass brand, legal, or regulatory rules before going live — checks visible copy against a rules file (project's .claude/rubrics/copy-compliance.md, else the bundled template) and reports each violation with quote, rule, and compliant rewrite.
 ---
 
 # Audit Copy Compliance

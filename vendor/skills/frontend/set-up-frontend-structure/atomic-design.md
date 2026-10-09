@@ -11,15 +11,15 @@ Five layers, each with a strict criterion. The criterion is what makes the metho
 ## Rule: an atom has one concept and zero internal composition
 **Why:** Atoms are the building blocks. If they compose other components, you've introduced a coupling that defeats the methodology.
 **How to apply:**
-- A `Button` (with optional icon prop accepting an Icon atom) is an atom.
-- A `Button` that internally renders a `Spinner` molecule is an organism (or a refactor target).
+- A `Button` that takes its content (text, or an icon passed as `children`) is an atom.
+- A `Button` that internally renders a `Spinner` atom for its loading state composes atoms: it is a molecule, or the loading state moves to the caller.
 
 ```tsx
 // good: atom takes content as children
 <Button>Save</Button>
 
-// bad: atom internally composes higher layers
-<Button isLoading /> // internally renders <LoadingDots />
+// bad (for an atom): it composes another component internally
+<Button isLoading /> // internally renders <Spinner />
 ```
 
 ## Rule: a molecule does one thing and composes 2–4 atoms
@@ -69,11 +69,11 @@ function AuthLayout() {
 
 ## Anti-pattern: atoms that import from molecules/organisms
 **Why:** Reverse-direction imports break the layer model and create cycles.
-**How to apply:** Atoms import only from `_shared/`, `utils/`, third-party libs, or design tokens. Molecules import from atoms. Organisms from molecules + atoms. Templates from organisms + molecules + atoms. Pages from anywhere lower.
+**How to apply:** Atoms import only from `utils/`, third-party libs, or design tokens. Molecules import from atoms. Organisms from molecules + atoms. Templates from organisms + molecules + atoms. Pages from anywhere lower.
 
 ## When to deviate
 
-- **Single-feature codebases:** for projects with < 20 components total, atomic design is overkill. A flat `src/components/` may serve. These skills create the structure regardless because the project will likely grow; if you know it won't, skip skill `set-up-frontend-structure`.
+- **Small apps:** under about 20 components, five layers are overhead: a flat `src/components/` (one folder per component) is enough, and the layers can be introduced when a folder passes 15 to 20 entries. The skill creates the layer folders because moving files later costs more than empty folders; if you know the app stays small, create only `components/` and `pages/`.
 - **Design system mismatch:** if the design system uses different layer terminology (e.g., "primitives / patterns / templates"), align with the design-system terms instead of forcing atomic-design vocabulary.
 
 ## Layer summary table

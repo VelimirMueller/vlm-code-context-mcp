@@ -1,13 +1,13 @@
 ---
 name: set-up-state-management
-description: Use when adding state management to a frontend project — wires server-state (TanStack Query) and UI-state (Zustand for React / Pinia for Vue) with a hard boundary between them, a typed query-key factory, a fetch seam, and example query/mutation hooks plus a small UI store.
+description: Use when adding state management to a frontend project - TanStack Query for server state, Zustand (React) or Pinia (Vue) for UI state, a hard boundary between them, a typed query-key factory and a fetch seam.
 ---
 
 # Set Up State Management
 
 ## 1. Audit current state
 
-Detect what already exists before changing anything.
+Detect what already exists before changing anything. Read `.claude/stack-profile.md` if present: `frontend.framework` decides the branch in step 3 (`frontend.meta` of `nuxt` or `next`: keep the boundary, read `../_shared/framework-idioms.md` "Meta-frameworks" for prefetch and hydration, and skip `queryClient.ts`/provider wiring the framework docs replace); `package_manager` replaces `pnpm`.
 
 Dependencies (read `package.json`):
 ```bash
@@ -281,14 +281,14 @@ createApp(App).use(createPinia()).use(VueQueryPlugin, vueQueryOptions).mount('#a
 ## 8. Verify
 
 ```bash
-pnpm tsc --noEmit
+pnpm typecheck
 ```
 
-Expected: 0 errors (seams, hooks, and store compile).
+Expected: exit 0 (seams, hooks, and store compile). Snippets here were compiled against `@tanstack/react-query` and `@tanstack/vue-query` 5.104, Zustand 5.0 and Pinia 4.0 under the `configure-typescript` flags.
 
-Run `pnpm dev` and confirm the TanStack Query devtools render in dev — `ReactQueryDevtools` (React), or mount `VueQueryDevtools` from `@tanstack/vue-query-devtools` (Vue).
+Run `pnpm dev` and confirm the TanStack Query devtools render in dev: `ReactQueryDevtools` (wired in step 7), or for Vue add `<VueQueryDevtools />` (from `@tanstack/vue-query-devtools`) to `App.vue`.
 
-Playwright e2e is deferred to skill `configure-test-stack`, matching the `set-up-error-boundaries` precedent. Until then, the type-check is the gate.
+Component and e2e tests come with `configure-test-stack`; until then `pnpm typecheck` is the gate.
 
 ## References
 - ./state-boundaries.md — which state goes where; the decision table; anti-patterns. The most important file.

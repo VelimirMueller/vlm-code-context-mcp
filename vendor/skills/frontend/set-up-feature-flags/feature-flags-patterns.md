@@ -28,6 +28,14 @@ const useNew = client.getBooleanValue('new-checkout', true);
 **Why:** A flag check deep in a component still loads the route and its data before hiding it. Gating in the route guard avoids the work and the flash.
 **How to apply:** Read the flag in `beforeLoad`/`beforeEach` and `notFound()`/redirect when off. In components, branch high in the tree, not per-leaf.
 
+## Rule: wait for the provider before the first guarded read
+**Why:** Until the provider is ready, every read returns the default. A route guard that runs on a cold page load sees `false` for a user who has the flag and answers 404; the component later re-renders with `true`, but the guard has already decided.
+**How to apply:** `await setProviderAndWait()` before rendering, and catch its rejection so a dead flag service means "defaults", not a blank page. Event-driven readers (the Vue composable) re-read on `Ready`, `ConfigurationChanged`, and `ContextChanged`.
+
+## Rule: a flag is UX, never authorization
+**Why:** Flag values reach the browser; anyone can read or override them in devtools. A flag that "hides" an admin feature protects nothing if the API accepts the call.
+**How to apply:** Gate the UI with the flag, and enforce entitlement on the server independently. Do not put secrets or unreleased-customer data in flag payloads.
+
 ## When to deviate
 - **Build-time toggle vs runtime flag:** if a switch never changes at runtime (e.g. enabling a dev-only panel), a `VITE_*` env var via `validate-env` is simpler — don't pay for a flag service. Use flags when you need to flip *without a deploy*, do gradual rollout, or target users.
 - **Kill switches:** for an emergency "turn this off in prod now," a flag is the right tool — but make sure the default-when-unreachable is the *safe* state.

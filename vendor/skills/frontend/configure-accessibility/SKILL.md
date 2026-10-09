@@ -8,11 +8,12 @@ description: Use when making a frontend accessible — turns on a11y linting (Bi
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, tests.layout, package_manager
 grep -E '"(eslint-plugin-vuejs-accessibility|vitest-axe|@axe-core/playwright|axe-core)"' package.json 2>/dev/null
 grep -rn "skip.*main\|role=\"main\"\|<main" src/ 2>/dev/null | head
 ```
 
-Detect a11y lint, axe in tests, and whether a skip link / landmarks exist. **Prerequisites:** `configure-linting` (Biome) and `configure-test-stack` (axe plugs into Vitest/Playwright).
+Read `tests.layout` (`tests-dir` → `tests/ui`, `tests/e2e`; `colocated` → `*.test.ts` beside the component, `e2e/` at the root) and `frontend.framework`. Commands use pnpm; translate for `package_manager`. Detect a11y lint, axe in tests, and whether a skip link / landmarks exist. **Prerequisites:** `configure-linting` (Biome) and `configure-test-stack` (axe plugs into Vitest/Playwright).
 
 ## 2. Decide what to do
 - Nothing → full setup (lint + conventions + axe tests).
@@ -25,13 +26,13 @@ React/JSX → Biome's a11y rules cover it. Vue → the same rules run on `<templ
 ## 4. Lint for accessibility
 
 Biome's `recommended` set (from `configure-linting`) already enables the core a11y rules — keep them at `error`, don't downgrade:
-- `useAltText`, `useButtonType`, `useKeyWithClickEvents`, `useValidAnchor`, `noSvgWithoutTitle`, `useAriaPropsForRole`, `noAutofocus`, …
+- `useAltText`, `useButtonType`, `useKeyWithClickEvents`, `useValidAnchor`, `noSvgWithoutTitle`, `useAriaPropsForRole`, `noAutofocus`, `noLabelWithoutControl`, … (all checked as recommended in Biome 2.5)
 
 ### Vue templates
 ```bash
 grep -n '"experimentalFullSupportEnabled": true' biome.json   # must match
 ```
-With full support, Biome reports `useAltText`, `useButtonType`, `useValidAnchor`, … inside `.vue` templates. It does not port the long tail of `eslint-plugin-vuejs-accessibility` (e.g. `form-control-has-label`, `no-redundant-roles`) — axe in step 6 catches those at runtime. Add the ESLint plugin back only if a missed rule class shows up in review. See `a11y-rules.md`.
+With full support, Biome reports `useAltText`, `useButtonType`, `useKeyWithClickEvents`, … inside `.vue` templates (verified on Biome 2.5.15). It does not port the long tail of `eslint-plugin-vuejs-accessibility` (e.g. `form-control-has-label`, `no-redundant-roles`) — axe in step 6 catches those at runtime. Add the ESLint plugin back only if a missed rule class shows up in review. See `a11y-rules.md`.
 
 ## 5. App conventions (the part lint can't check)
 
@@ -41,6 +42,7 @@ Apply the rules in `a11y-rules.md`:
 - **Focus-visible:** never strip the outline without a `focus-visible:ring` replacement (your design-system primitives already include one).
 - **Focus management:** move focus to the heading on route change; trap focus in modals/dialogs via a headless lib (Radix/Ark/Headless UI), never hand-rolled.
 - **Reduced motion:** gate non-essential animation behind `motion-safe:` / `prefers-reduced-motion`.
+- **WCAG 2.2 AA additions** (`a11y-rules.md`): interactive targets at least 24×24 CSS px, focus never hidden behind a sticky header, a non-drag alternative for drag gestures, no cognitive test or paste-blocking at login.
 
 ```tsx
 // skip link (render first inside <body>)
@@ -51,14 +53,20 @@ Apply the rules in `a11y-rules.md`:
 
 ## 6. Test with axe (fail CI on regressions)
 
-Component-level (React, `tests/ui`): `pnpm add -D vitest-axe`, register the matcher once in a setup file, then assert:
+Component-level (`tests/ui`; jsdom): `pnpm add -D axe-core`, then one helper every test calls:
 ```ts
-// tests/setup/axe.ts (add to the ui project's setupFiles)
+// tests/setup/axe.ts
+import axe from 'axe-core';
 import { expect } from 'vitest';
-import { toHaveNoViolations } from 'vitest-axe';
-expect.extend(toHaveNoViolations);
-// in a test: expect(await axe(container)).toHaveNoViolations();
+
+/** Fail with axe's own messages. jsdom has no layout, so colour contrast is left to the Playwright run. */
+export async function expectNoA11yViolations(container: Element): Promise<void> {
+  const { violations } = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+  expect(violations.map((v) => `${v.id}: ${v.help} (${v.nodes.length})`)).toEqual([]);
+}
+// in a test: await expectNoA11yViolations(container);
 ```
+Why `axe-core` directly: `vitest-axe` (last release 2025-01) works on Vitest 5 at runtime via `vitest-axe/matchers`, but its `toHaveNoViolations` type augmentation does not compile there. The helper is eight typed lines on the maintained engine.
 
 End-to-end (any framework, `tests/e2e`):
 ```bash
@@ -71,12 +79,14 @@ import AxeBuilder from '@axe-core/playwright';
 
 test('home page has no detectable a11y violations', async ({ page }) => {
   await page.goto('/');
-  const { violations } = await new AxeBuilder({ page }).analyze();
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze(); // colour contrast is enabled here: axe's default rules include it, so the jsdom-disabled check runs in this real-browser layer
   expect(violations).toEqual([]);
 });
 ```
 
-axe catches ~a third of issues automatically — pair it with a **manual keyboard pass** (Tab through every interactive element; nothing is reachable only by mouse).
+axe finds a large share but not all: Deque's own 2021 study of ~300,000 issues counts 57% by volume, and a much smaller share of WCAG criteria. Pair it with a **manual keyboard pass** (Tab through every interactive element; nothing is reachable only by mouse).
 
 ## 7. Verify
 ```bash

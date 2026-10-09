@@ -13,8 +13,9 @@ build.
 ## 1. Audit — what does the branch ship, and does a PR exist?
 
 ```bash
-git log main..HEAD --oneline          # substitute the repo's default branch
-git diff main --stat                  # or: git show <sha>, for a PR shipping one existing commit
+BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)   # or: git symbolic-ref --short refs/remotes/origin/HEAD
+git log "origin/$BASE"..HEAD --oneline
+git diff "origin/$BASE"...HEAD --stat  # or: git show <sha>, for a PR shipping one existing commit
 ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
    .github/PULL_REQUEST_TEMPLATE/ 2>/dev/null
 gh pr view --json number,title,body 2>/dev/null
@@ -59,7 +60,8 @@ remainder under Notes. Edge cases (refactors, mixed branches): `./pr-patterns.md
 6. **Verification** — commands run and observed output.
 7. **Notes** — tradeoffs, follow-ups, review hints.
 
-Both shapes close with the merge checklist, posted unticked:
+Non-trivial PRs close with the merge checklist, posted unticked (skip it for one-line
+fixes and when the repo template has its own):
 
 ```markdown
 ## Before merge
@@ -74,7 +76,9 @@ CI for the rest. A pre-ticked box with nothing behind it is decoration, not evid
 No invented headings, no omissions: content that fits no section goes under Notes or
 stays out. For Verification, run the commands *now* and paste the lines that prove the
 point; anything not run is declared — "Not run: needs staging" — an honest gap beats a
-fabricated pass. Write the assembled body to `/tmp/pr-body.md`; step 5 posts that file.
+fabricated pass. Write the assembled body to a temp file (`mktemp`, keep its path in `BODY`); step 5 posts that file. Any
+attribution trailer your tooling requires goes last, after the checklist; it is not a
+section.
 
 ## 4. Self-check against the audience contract
 
@@ -95,9 +99,9 @@ Show the title and body for approval first — pushing and opening a PR publish 
 
 ```bash
 git push -u origin HEAD               # if not yet pushed
-gh pr create --title "<subject>" --body-file /tmp/pr-body.md
+gh pr create --title "<subject>" --body-file "$BODY"
 # or, when step 1 found an existing PR:
-gh pr edit <number> --body-file /tmp/pr-body.md
+gh pr edit <number> --body-file "$BODY"
 ```
 
 The title carries the branch's dominant commit subject; a subject past ~72 characters
@@ -112,7 +116,7 @@ gh pr view
 ```
 
 Expected: one PR for the branch; six (bug fix) or seven (feature) sections in the fixed
-order, closed by the Before-merge checklist — or the repo template's own; every
+order, closed by the Before-merge checklist (non-trivial PRs) — or the repo template's own; every
 Verification entry is a command plus its observed output, not an adjective.
 
 ## References

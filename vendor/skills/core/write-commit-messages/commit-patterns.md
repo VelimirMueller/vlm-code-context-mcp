@@ -23,7 +23,8 @@ without tribal knowledge. A prose wall serves only the reader who reads all of i
 most days, nobody.
 **How to apply:** `Why:` the motivation. `What:` the change at a glance — surface, files,
 behavior. `How:` the approach and its trade-offs. Bullets under each label; a group with
-nothing non-obvious to say gets one line, not padding.
+nothing non-obvious to say is omitted — except `Why:`, which is never omitted on a
+non-trivial commit.
 **Anti-example:** The baseline body is three dense paragraphs in which What and How
 interleave mid-sentence ("Template ships six categories … Every finding carries all
 three parts"); no reader can skim it, so every reader must study it.
@@ -44,8 +45,9 @@ clause, no anchor a newcomer could follow.
 **Why:** The log is a UI: GitHub's commit list truncates subjects around 72 characters,
 and conventional-changelog tooling groups entries by their prefix. One commit in a
 foreign convention breaks scanning for every commit around it.
-**How to apply:** Match the convention the audit detected (this repo: conventional
-commits, `feat(skills): …`); imperative mood — "applying this commit will <subject>"
+**How to apply:** Match the convention the audit detected (this repo: Conventional
+Commits 1.0.0, `feat(skills): …`; mark breaking changes with `!` before the colon or a
+`BREAKING CHANGE:` footer — the spec's only hooks for tooling); imperative mood — "applying this commit will <subject>"
 must read as a sentence; aim ≤72 characters; one concern, so an "and" in the subject
 means the split was skipped.
 **Anti-example:** The shipped subject runs 85 characters — GitHub's commit list cuts it
@@ -100,6 +102,8 @@ How:
 ```
 
 ## When to deviate
+- **Squash-merge repos:** the PR title and description become the commit; write the
+  Why/What/How there, and keep the branch's own commits terse.
 - **Typo-class commits: subject only.** `fix(docs): correct 0.4.0 date in CHANGELOG`
   carries its whole story; a ceremonial body would be filler. The contract scales with
   the blast radius (`../_shared/audience.md`).

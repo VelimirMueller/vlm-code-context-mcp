@@ -1,6 +1,6 @@
 ---
 name: audit-content-quality
-description: Use when reviewing a content page, article, guide, or landing page for quality before publishing or republishing — scores the page against a rubric (the project's .claude/rubrics/content-quality.md if present, else the bundled default covering intent match, direct answers, E-E-A-T trust signals, schema, internal linking, freshness) and fixes only the failed criteria. Audit-first and idempotent; supports knockout criteria.
+description: Use when reviewing an article, guide, or landing page before publishing or republishing — scores it against a rubric (project's .claude/rubrics/content-quality.md, else the bundled default) with quoted evidence and fixes only the failed criteria.
 ---
 
 # Audit Content Quality

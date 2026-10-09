@@ -1,6 +1,6 @@
 ---
 name: set-up-design-system
-description: Use when establishing a design system for a frontend project — defines Tailwind v4 @theme tokens (colors/spacing/radius/fonts), class-based dark mode driven by a persisted theme store, a cn() class merger, and variant-driven primitives via class-variance-authority, with shadcn/ui as the optional component registry.
+description: Use when establishing a design system — Tailwind v4 @theme tokens, class-based dark mode from a persisted theme store (CSP-safe pre-paint script), a cn() merger, and cva variant primitives; shadcn/ui is the optional component registry.
 ---
 
 # Set Up Design System
@@ -8,12 +8,13 @@ description: Use when establishing a design system for a frontend project — de
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, package_manager
 grep -E '"(class-variance-authority|clsx|tailwind-merge|tailwindcss|tailwind-variants)"' package.json 2>/dev/null
 grep -n "@theme\|@custom-variant" src/index.css src/style.css 2>/dev/null
 ls components.json 2>/dev/null   # shadcn/ui marker
 ```
 
-Detect existing tokens, a variant lib, and dark-mode wiring. **Prerequisites:** Tailwind v4 installed (`scaffold-frontend-project`), `@/` alias, and `set-up-state-management` (the theme toggle is a UI-state store).
+Read `frontend.framework` (React store = Zustand, Vue = Pinia) and `package_manager` (commands use pnpm). Detect existing tokens, a variant lib, and dark-mode wiring. **Prerequisites:** Tailwind v4 installed (`scaffold-frontend-project`), `@/` alias, and `set-up-state-management` (the theme toggle is a UI-state store).
 
 ## 2. Decide what to do
 - No tokens/primitives → full setup.
@@ -27,6 +28,7 @@ React → primitives as `.tsx` with cva. Vue → primitives as SFCs using the sa
 ```bash
 pnpm add class-variance-authority clsx tailwind-merge
 ```
+`tailwind-merge` must be v3 or newer for Tailwind 4 class names. Why cva + `cn()`: `design-tokens.md`.
 (Optional, React: `pnpm dlx shadcn@latest init` — generates owned, cva-based primitives into your tree. Then skip hand-writing step 7.)
 
 ## 5. Define tokens in `@theme` (CSS-first)
@@ -40,10 +42,15 @@ Tailwind v4 reads tokens from CSS and generates the matching utilities (`bg-bran
 /* class-based dark mode: `dark:` applies under .dark on <html> */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* native form controls and scrollbars follow the theme */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
 @theme {
   --color-brand-50: oklch(0.97 0.02 255);
   --color-brand-500: oklch(0.62 0.19 255);
   --color-brand-600: oklch(0.54 0.20 255);
+  --color-brand-700: oklch(0.47 0.19 255);
   --radius-card: 0.75rem;
   --font-sans: "Inter", system-ui, sans-serif;
 }
@@ -87,13 +94,13 @@ import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/utils/cn';
 
 const button = cva(
-  'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        solid: 'bg-brand-600 text-white hover:bg-brand-500',
-        outline: 'border border-brand-600 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/10',
-        ghost: 'text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/10',
+        solid: 'bg-brand-600 text-white hover:bg-brand-700',
+        outline: 'border border-brand-600 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-500 dark:hover:bg-brand-500/10',
+        ghost: 'text-brand-600 hover:bg-brand-50 dark:text-brand-500 dark:hover:bg-brand-500/10',
       },
       size: { sm: 'h-8 px-3 text-sm', md: 'h-10 px-4', lg: 'h-12 px-6 text-lg' },
     },
@@ -104,9 +111,11 @@ const button = cva(
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof button>;
 
 export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <button className={cn(button({ variant, size }), className)} {...props} />;
+  return <button type="button" className={cn(button({ variant, size }), className)} {...props} />; // type before the spread: a form's submit button says type="submit" itself
 }
 ```
+
+Contrast is part of the token choice: white on `brand-600` is 5.1:1, but white on `brand-500` is only 3.7:1 (fails AA 4.5:1), so hover darkens to `brand-700`; `brand-600` text on a near-black surface is about 4:1, so dark mode uses `brand-500`. Tailwind 4 renamed the old `outline-none` to `outline-hidden` (it keeps a transparent outline visible in forced-colors mode); the new `outline-none` removes it entirely. Recheck contrast whenever a token changes (`configure-accessibility`).
 
 For Vue, mirror with an SFC: define the same `button` cva map, then `:class="cn(button({ variant, size }), $attrs.class)"`.
 
@@ -114,20 +123,23 @@ For Vue, mirror with an SFC: define the same `button` cva map, then `:class="cn(
 
 The theme is UI state — a small persisted store — but it must reach `<html>` **before the bundle paints**, or dark-mode users get a flash of light. Two parts:
 
-**1. Pre-paint, inline in `index.html`** (runs before the JS bundle loads):
+**1. Pre-paint, as a same-origin file** — `public/theme-init.js`, loaded from `<head>` before the bundle:
 ```html
-<script>
-  (() => {
-    let t = 'system';
-    try { t = JSON.parse(localStorage.getItem('theme') ?? '{}')?.state?.theme ?? 'system'; } catch {}
-    const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.classList.toggle('dark', dark);
-  })();
-</script>
+<!-- index.html <head>: classic blocking script on purpose; a module or defer script runs after first paint -->
+<script src="/theme-init.js"></script>
 ```
-(It parses Zustand's persisted shape stored under the `theme` key — keep that key in sync with the store.)
+```js
+// public/theme-init.js
+(() => {
+  let t = 'system';
+  try { t = JSON.parse(localStorage.getItem('theme') ?? '{}')?.state?.theme ?? 'system'; } catch {}
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+})();
+```
+It is a file, not an inline `<script>`, because `set-up-security-headers` ships `script-src 'self'` without `'unsafe-inline'`; an inline theme script would be blocked in production and dark-mode users would see a flash of light. (It parses Zustand's persisted shape stored under the `theme` key — keep that key in sync with the store.)
 
-**2. The store** — `'light' | 'dark' | 'system'`, defaulting to `system` (a named theme, if any, is a second field applied as `data-theme` on `<html>` by the same pre-paint script):
+**2. The store** — `'light' | 'dark' | 'system'`, defaulting to `system` (a named theme, if any, is a second field applied as `data-theme` on `<html>` by the same `theme-init.js`):
 ```ts
 // src/stores/useThemeStore.ts (React — Zustand)
 import { create } from 'zustand';
@@ -155,11 +167,11 @@ useEffect(() => {
   return () => { unsub(); mq.removeEventListener('change', apply); };
 }, []);
 ```
-Vue: the same store as a Pinia setup-store + a `watchEffect` + the same `matchMedia` listener; the inline script's `theme` key must match the store's `persist` name.
+Vue: the same store as a Pinia setup-store + a `watchEffect` + the same `matchMedia` listener; `theme-init.js` reads the `theme` key, so a Pinia persistence plugin must write the same key and shape (`{"state":{"theme":"dark"}}`) or `theme-init.js` must be adapted to it.
 
 ## 9. Verify
 ```bash
-pnpm tsc --noEmit
+pnpm typecheck
 pnpm dev
 ```
 `<Button variant="outline" size="lg">` renders with tokens; toggling the theme store flips `.dark` on `<html>` and `dark:` utilities apply. Reload preserves the choice (persisted).

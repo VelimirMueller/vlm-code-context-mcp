@@ -102,7 +102,8 @@ describe("buildSkillSetIndex", () => {
     expect(index.join("\n")).toContain("wf:write-pull-requests");
     expect(index.join("\n")).toContain("wf:write-commit-messages");
     expect(index.join("\n")).not.toContain("wf:_shared");
-    expect(index.join("\n")).not.toContain("/"); // no companion paths
+    // no companion paths among the skill NAMES (a description may contain "/")
+    expect(index.join("\n")).not.toMatch(/`wf:[^`]*\//);
   });
 });
 
@@ -132,7 +133,7 @@ describe("playbook composition", () => {
     expect(buildWorkflowPlaybook(db)).toBeNull();
     setEnabledSkillSets(db, { workflow: true });
     const wf = buildWorkflowPlaybook(db);
-    expect(wf).toContain("Workflow Skills");
+    expect(wf).toContain("Core Skills");
     expect(wf).toContain("wf:write-commit-messages");
   });
 });

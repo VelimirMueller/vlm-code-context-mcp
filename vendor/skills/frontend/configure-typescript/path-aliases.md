@@ -1,37 +1,33 @@
 # Path Aliases
 
-Reference for `configure-typescript`. The `@/*` prefix needs to be configured in *every* config that resolves modules — otherwise builds, tests, type-checks, and stories diverge.
+Reference for `configure-typescript`. The `@/*` prefix must resolve in every tool that reads imports, or builds, tests, type-checks and stories diverge.
 
-## Rule: a single prefix, configured everywhere
-**Why:** Multiple aliases (`@/`, `~/`, `@components/`) confuse readers and tooling. One prefix consistently applied is the goal.
-**How to apply:** `@/*` mapping to `./src/*` everywhere. The configs that need it:
+## Rule: one prefix, declared once in tsconfig, mirrored in Vite
+**Why:** Several prefixes (`@/`, `~/`, `@components/`) force a reader to learn a map before reading code; one prefix needs none. `paths` is what the editor and `tsc` read, and Vite does not read it by default, so Vite needs the same mapping. Everything downstream (Vitest, Storybook, Playwright) inherits from one of those two.
+**How to apply:**
 
-| Config | Field |
+| Tool | How it gets `@/` |
 |---|---|
-| `tsconfig.json` (or `tsconfig.app.json`) | `compilerOptions.paths` + `baseUrl` |
-| `vite.config.ts` | `resolve.alias` |
-| `vitest.config.ts` | inherited via `mergeConfig`, or duplicate `resolve.alias` |
-| `.storybook/main.ts` (Vite builder) | inherited; for non-Vite builder, add `viteFinal` |
-| `playwright.config.ts` | use `tsconfig-paths` `globalSetup` if specs use `@/*` |
+| `tsc`, editor | `compilerOptions.paths` in `tsconfig.app.json` (no `baseUrl`; removed in TS 7) |
+| Vite | `resolve.alias` in `vite.config.ts` |
+| Vitest 5 | inherited: inline `projects` extend the root config; use `mergeConfig(viteConfig, …)` |
+| Storybook 10 (`*-vite` framework) | inherited from `vite.config.ts` |
+| Playwright 1.64 | reads `paths` from the nearest tsconfig itself; nothing to add |
+| `tests/` type-check | `tests/tsconfig.json` extends the app config and inherits `paths` |
 
-## Snippets
-
-### `tsconfig.json` (or `tsconfig.app.json`)
-
+### `tsconfig.app.json`
 ```json
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   }
 }
 ```
 
 ### `vite.config.ts`
-
 ```ts
-import { defineConfig } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   resolve: {
@@ -40,73 +36,44 @@ export default defineConfig({
 });
 ```
 
-### `vitest.config.ts` (preferred — inherit Vite config)
-
+### `vitest.config.ts` (inherit the Vite config)
 ```ts
 import { defineConfig, mergeConfig } from 'vitest/config';
-import viteConfig from './vite.config';
+import viteConfig from './vite.config.ts';
 
 export default mergeConfig(
   viteConfig,
   defineConfig({
-    test: {
-      environment: 'jsdom',
-      globals: true,
-      setupFiles: ['./tests/setup/ui.ts'],
-    },
+    test: { projects: [/* see configure-test-stack */] },
   }),
 );
 ```
+Import `./vite.config.ts` with the extension: Vite 8 warns about extension-less config imports (`configLoader: 'native'` becomes the default in a later major). A single-project suite can set `test.environment`, `setupFiles` and so on directly instead of `projects`.
 
-### `.storybook/main.ts` (Vite builder — inherits)
-
+### `.storybook/main.ts` (Vite framework: inherits)
 ```ts
 import type { StorybookConfig } from '@storybook/react-vite';
 
 const config: StorybookConfig = {
   framework: '@storybook/react-vite',
   stories: ['../src/**/*.stories.@(ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
+  addons: [],
 };
 export default config;
 ```
+`addons` stays empty until you add some: `@storybook/addon-essentials` no longer exists past Storybook 8 (its features are in core), and `storybook init` writes the addon list that matches the installed major. Vue: `@storybook/vue3-vite`, `*.stories.ts`.
 
-### `playwright.config.ts` + `tsconfig-paths` (only if specs use `@/*`)
-
-```ts
-// playwright.config.ts
-import { defineConfig } from '@playwright/test';
-
-export default defineConfig({
-  testDir: './tests/e2e',
-  globalSetup: require.resolve('./tests/setup/global-setup.ts'),
-});
-```
-
-```ts
-// tests/setup/global-setup.ts
-import { register } from 'tsconfig-paths';
-import tsconfig from '../../tsconfig.json' with { type: 'json' };
-
-register({
-  baseUrl: '.',
-  paths: tsconfig.compilerOptions.paths,
-});
-```
+## Alternative: `resolve.tsconfigPaths`
+Vite 8 reads `paths` itself with `resolve.tsconfigPaths: true`, so `vite.config.ts` needs no alias. Choose it when `tsconfig.json` is the only place you want the mapping. The Vite docs state a performance cost and that `paths` only applies to files matched by a tsconfig `include`/`files`, so an `@/` import inside a `.css` or `.vue` file needs those extensions listed ([docs](https://vite.dev/config/shared-options#resolve-tsconfigpaths)).
 
 ## Anti-pattern: per-folder aliases
-
 ```ts
-// bad: explosion of aliases that compound over time
-'@components': ...
-'@hooks': ...
-'@utils': ...
-'@libs': ...
+// bad: '@components', '@hooks', '@utils', '@libs' — one entry per folder, in every config
 ```
-
-A single `@/*` covers all of these (`@/components`, `@/hooks`, etc.) without the maintenance burden.
+`@/*` already reaches `@/components`, `@/hooks`, `@/utils`. Each extra alias must be added to tsconfig, Vite and every tool that does not inherit.
 
 ## When to deviate
 
-- **Existing project on `~/`:** if the project already uses `~/` (Nuxt convention) or another prefix, keep it. Don't churn imports.
-- **Monorepo packages:** in a workspace, each package may have its own `@/*` mapped to its own `src/`. That's fine — the prefix is project-local.
+- **Existing project on `~/`** (Nuxt convention) **or another prefix:** keep it; do not churn imports.
+- **Monorepo packages:** each package may map its own `@/*` to its own `src/`; the prefix is package-local.
+- **Playwright specs that import app code across the alias** while a tsconfig does not match them: add `tests/tsconfig.json` (it inherits `paths`) instead of a registration hook.

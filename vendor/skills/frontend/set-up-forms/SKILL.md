@@ -8,10 +8,11 @@ description: Use when adding forms and validation to a frontend project — wire
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, package_manager
 grep -E '"(react-hook-form|vee-validate|formik|zod|valibot|@hookform/resolvers|@vee-validate/zod)"' package.json 2>/dev/null
 ```
 
-Detect an existing form/validation lib. **Prerequisites:** `set-up-state-management` (form submit calls its `useMutation` hook) and `@/` alias.
+Read `frontend.framework` (react → React Hook Form, vue → VeeValidate) and `package_manager` (commands below use pnpm). Detect an existing form/validation lib. **Prerequisites:** `set-up-state-management` (form submit calls its `useMutation` hook) and `@/` alias.
 
 ## 2. Decide what to do
 - No form lib → full setup.
@@ -19,7 +20,7 @@ Detect an existing form/validation lib. **Prerequisites:** `set-up-state-managem
 - Form lib + Zod present → confirm the schema-first + accessibility rules (`forms-patterns.md`).
 
 ## 3. Detect framework
-React → **React Hook Form** + `@hookform/resolvers`. Vue → **VeeValidate** + `@vee-validate/zod`. Both validate with **Zod**.
+React → **React Hook Form** + `@hookform/resolvers`. Vue → **VeeValidate** + `@vee-validate/zod`. Both validate with **Zod** (4.x). Why this pairing: `forms-patterns.md`.
 
 ## 4. Install
 
@@ -32,6 +33,7 @@ pnpm add react-hook-form zod @hookform/resolvers
 ```bash
 pnpm add vee-validate zod @vee-validate/zod
 ```
+`@vee-validate/zod` 4.15 declares `zod@^3.24` as its peer, so pnpm warns with Zod 4. The runtime and type inference below were checked against zod 4.6 with vee-validate 4.15.1 (a parse error maps to the schema message; `values` is typed). If a project treats peer warnings as errors, install `zod@^3.25` instead — the schema file is identical. VeeValidate 5 (beta) reads any Standard Schema directly and drops `@vee-validate/zod`: migrate then.
 
 ## 5. Schema first — one source of truth
 
@@ -132,7 +134,7 @@ const onSubmit = handleSubmit(async (values) => {
 
 ## 8. Verify
 ```bash
-pnpm tsc --noEmit
+pnpm typecheck
 ```
 Expected: 0 errors — the form's values type is inferred from the schema and matches the mutation input. Submitting an empty field shows the schema's message; a valid submit calls the mutation and resets.
 

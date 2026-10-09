@@ -1,6 +1,6 @@
 ---
 name: set-up-realtime
-description: Use when adding realtime / live server-push updates to a frontend SPA — wires a transport-agnostic WebSocket seam (reconnect with backoff, offline-aware, no-op without config) and a hook/composable that writes pushed server data into the TanStack Query cache (patch entity + invalidate lists, re-sync on reconnect), with connection status as the only UI-state store.
+description: Use when adding live server-push updates to a frontend SPA - a WebSocket seam with backoff reconnect that writes validated pushed data into the TanStack Query cache and exposes connection status as UI state.
 ---
 
 # Set Up Realtime
@@ -13,254 +13,64 @@ Scope: server→client push (live lists, dashboards, notification badges). Colla
 
 ```bash
 grep -rnE "new WebSocket|EventSource|socket\.io|pusher|ably|@supabase.*realtime" src/ 2>/dev/null   # existing realtime to wrap
-ls src/libs/realtime.ts src/stores/useRealtimeStatusStore.ts 2>/dev/null
+ls src/libs/realtime.ts src/stores/useRealtimeStatusStore.ts .claude/stack-profile.md 2>/dev/null
 grep -n "lists:" src/libs/queryKeys.ts 2>/dev/null      # is the lists() factory accessor present?
 grep -n "VITE_REALTIME_URL" src/libs/env.ts 2>/dev/null
 ```
 
+Read `.claude/stack-profile.md` if present: `frontend.framework` decides the branch in step 3; `backend.track` of `supabase` means use Supabase Realtime behind the same seam (`realtime-patterns.md`, "When to deviate"); `package_manager` replaces `pnpm`.
+
 **Prerequisites:** `set-up-state-management` (the `queryClient`, the `queryKeys` factory, the cache-as-truth boundary). Recommended: `set-up-auth` (the connection authenticates the same way the `fetcher` does) and `validate-env` (owns the `VITE_REALTIME_URL` read). Scattered `new WebSocket` / vendor calls in components are an audit finding — wrap them behind the seam (step 5).
 
 ## 2. Decide what to do
-- No realtime → full setup (steps 4–10).
+- No realtime → full setup (steps 4–7).
 - Vendor SDK or raw `WebSocket` called from components → introduce the seam and route calls through it.
-- Seam present but no reconnect/status handling → add the missing resilience (steps 5, 7).
+- Seam present but no reconnect/status handling → add the missing resilience (step 5).
 - Everything present → confirm live data writes to the cache (not a store) and exit "Realtime already in place."
 
 ## 3. Detect framework
 React → hook (`src/hooks/`) + Zustand status store. Vue → composable (`src/composables/`) + Pinia status store. The seam (`src/libs/realtime.ts`) is plain TS, identical for both.
 
-## 4. Extend the env schema and the query-key factory
+## 4. Extend the env schema and the cache types
 
-**Env (if `validate-env` is in place — preferred).** Add `VITE_REALTIME_URL` as **optional**, so its absence cleanly disables realtime instead of failing the boot check:
+**Env (`validate-env` in place — preferred).** Add `VITE_REALTIME_URL` as **optional** (a `ws:`/`wss:` URL), so its absence disables realtime instead of failing the boot check:
 ```ts
-// src/libs/env.ts — add to the schema object
-VITE_REALTIME_URL: z.string().url().optional(),
+// src/libs/env.ts — add to the schema object (blankToUndefined is defined at the top of that file)
+VITE_REALTIME_URL: z.preprocess(blankToUndefined, z.url({ protocol: /^wss?$/ }).optional()),
 ```
-```ts
-// src/types/env.d.ts — add to ImportMetaEnv
-readonly VITE_REALTIME_URL?: string;
-```
-If `validate-env` is not present, the seam reads `import.meta.env.VITE_REALTIME_URL` directly — note the deviation in the project README and consider running `validate-env`.
+Without `validate-env`, the seam reads `import.meta.env.VITE_REALTIME_URL` directly; note the deviation in the README and consider running `validate-env`.
 
-**Query-key factory.** Add an intermediate `lists()` accessor so a realtime event can invalidate every list without clobbering a just-patched detail (the standard TanStack `lists()/details()` pattern), and export a `TodoSchema` so the bridge can validate pushed payloads (Zod is already present via `validate-env` / `set-up-forms`):
+**Cache types.** `set-up-state-management` already built the `lists()` / `details()` key factory the bridge needs (`grep` above). Replace the hand-written `Todo` type with a Zod schema, so pushed payloads can be validated by the same type the cache holds (in a feature layout the schema lives in `features/todos/schemas/`):
 ```ts
-// src/libs/queryKeys.ts
+// src/libs/queryKeys.ts — replaces `export type Todo = …`; keep the rest of the file
 import { z } from 'zod';
 
 export const TodoSchema = z.object({ id: z.string(), text: z.string(), done: z.boolean() });
-export type Todo = z.infer<typeof TodoSchema>;   // replaces the hand-written Todo type
-export type TodoStatus = 'all' | 'active' | 'done';
-export type TodoFilters = { status: TodoStatus };
-
-export const queryKeys = {
-  todos: {
-    all: ['todos'] as const,
-    lists: () => [...queryKeys.todos.all, 'list'] as const,                          // NEW
-    list: (filters: TodoFilters) => [...queryKeys.todos.lists(), filters] as const,  // now built on lists()
-    detail: (id: string) => [...queryKeys.todos.all, 'detail', id] as const,
-  },
-} as const;
+export type Todo = z.infer<typeof TodoSchema>;
 ```
 
-## 5. Generate the seam — `src/libs/realtime.ts` (both frameworks)
+## 5. Write the seam, the status store and the bridge
 
-A transport-agnostic seam over a single shared WebSocket: lazy-connects on first subscribe, routes `{topic,data}` messages to handlers, reconnects with backoff, pauses while offline, and no-ops without a URL.
+Copy these from [`./realtime-code.md`](./realtime-code.md), framework branch as detected:
+- `src/libs/realtime.ts` — the seam: one shared WebSocket, topic routing, backoff reconnect with jitter, waits while offline, closes when the last listener leaves, no-op without a URL, validates the envelope of every frame.
+- `src/stores/useRealtimeStatusStore.ts` — connection status (`idle | connecting | open | reconnecting | offline`), the only state realtime puts in a store.
+- `src/hooks/useRealtimeSync.ts` (React) or `src/composables/useRealtimeSync.ts` (Vue) — the cache bridge: validates each pushed payload with `TodoSchema`, patches the entity with `setQueryData`, invalidates `lists()`, mirrors status into the store, and refetches after every re-open that follows a gap.
+- `src/components/atoms/ConnectionStatus/` — an announced `role="status"` badge for `connecting`, `reconnecting`, `offline`.
 
-```ts
-// src/libs/realtime.ts
-import { env } from '@/libs/env'; // if validate-env is absent: const REALTIME_URL = import.meta.env.VITE_REALTIME_URL;
+The `{ topic, data }` envelope and the `subscribe` / `unsubscribe` frames are an assumed protocol: change them in `realtime.ts` only, to match your backend or a vendor SDK (`./realtime-patterns.md`). The server must check the `Origin` header on the handshake: a browser sends same-site cookies on a WebSocket upgrade, so an unchecked endpoint is open to cross-site hijacking (`../../core/_shared/security-baseline.md`).
 
-const REALTIME_URL = env.VITE_REALTIME_URL;
+`captureError` is the seam from `set-up-error-boundaries`. If that skill has not run, run it first, or use `console.error` in the bridge.
 
-export type RealtimeStatus = 'connecting' | 'open' | 'reconnecting' | 'offline';
-export type RealtimeMessage = { topic: string; data: unknown };
-type Handler = (msg: RealtimeMessage) => void;
+## 6. Wire it at the app root
 
-const handlers = new Map<string, Set<Handler>>();
-const statusListeners = new Set<(s: RealtimeStatus) => void>();
-let socket: WebSocket | null = null;
-let status: RealtimeStatus = 'connecting';
-let attempt = 0;
-
-function setStatus(next: RealtimeStatus) {
-  status = next;
-  statusListeners.forEach((cb) => cb(next));
-}
-
-function connect() {
-  if (!REALTIME_URL || socket) return;
-  setStatus(attempt === 0 ? 'connecting' : 'reconnecting');
-  const ws = new WebSocket(REALTIME_URL); // same-origin → the httpOnly auth cookie rides the handshake
-  socket = ws;
-
-  ws.addEventListener('open', () => {
-    attempt = 0;
-    setStatus('open');
-    handlers.forEach((_, topic) => ws.send(JSON.stringify({ type: 'subscribe', topic }))); // re-subscribe
-  });
-  ws.addEventListener('message', (e) => {
-    let msg: RealtimeMessage;
-    try { msg = JSON.parse(e.data as string); } catch { return; }
-    handlers.get(msg.topic)?.forEach((h) => h(msg));
-  });
-  ws.addEventListener('close', () => {
-    socket = null;
-    if (!REALTIME_URL) return;
-    if (!navigator.onLine) { setStatus('offline'); return; }
-    const delay = Math.min(1000 * 2 ** attempt, 30_000) + Math.random() * 1000; // backoff + jitter
-    attempt += 1;
-    setStatus('reconnecting');
-    setTimeout(connect, delay);
-  });
-  ws.addEventListener('error', () => ws.close()); // → 'close' → reconnect
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('offline', () => setStatus('offline'));
-  window.addEventListener('online', () => { attempt = 0; if (!socket) connect(); });
-}
-
-export const realtime = {
-  /** Subscribe to a topic; lazily opens the shared socket. Returns an unsubscribe fn. No-op without VITE_REALTIME_URL. */
-  subscribe(topic: string, handler: Handler): () => void {
-    if (!REALTIME_URL) return () => {};
-    const existing = handlers.get(topic);
-    const set = existing ?? new Set<Handler>();   // const capture → narrowed inside the closure on any TS version
-    if (!existing) handlers.set(topic, set);
-    set.add(handler);
-    if (!socket) connect();
-    else if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'subscribe', topic }));
-    return () => {
-      set.delete(handler);
-      if (set.size === 0) {
-        handlers.delete(topic);
-        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'unsubscribe', topic }));
-      }
-    };
-  },
-  /** Observe status; emits the current value immediately, then on every change. */
-  onStatusChange(cb: (s: RealtimeStatus) => void): () => void {
-    statusListeners.add(cb);
-    cb(status);
-    return () => statusListeners.delete(cb);
-  },
-};
-```
-
-The `{topic, data}` envelope and the `subscribe` / `unsubscribe` control frames are the assumed protocol — adapt them to your backend (or a vendor SDK) in this one file. See `./realtime-patterns.md` for the SSE and vendor variants.
-
-## 6. Generate the status store (the only store realtime touches)
-
-### React — `src/stores/useRealtimeStatusStore.ts`
-```ts
-import { create } from 'zustand';
-import type { RealtimeStatus } from '@/libs/realtime';
-
-type State = { status: RealtimeStatus; setStatus: (s: RealtimeStatus) => void };
-export const useRealtimeStatusStore = create<State>()((set) => ({
-  status: 'connecting',
-  setStatus: (status) => set({ status }),
-}));
-```
-
-### Vue — `src/stores/useRealtimeStatusStore.ts`
-```ts
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import type { RealtimeStatus } from '@/libs/realtime';
-
-export const useRealtimeStatusStore = defineStore('realtimeStatus', () => {
-  const status = ref<RealtimeStatus>('connecting');
-  const setStatus = (next: RealtimeStatus) => { status.value = next; };
-  return { status, setStatus };
-});
-```
-
-## 7. Generate the cache bridge
-
-Subscribes topics → writes server data into the cache (patch entity + invalidate lists); mirrors status into the store; re-syncs on reconnect. Mounted **once** near the app root.
-
-### React — `src/hooks/useRealtimeSync.ts`
-```ts
-import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { realtime, type RealtimeStatus } from '@/libs/realtime';
-import { useRealtimeStatusStore } from '@/stores/useRealtimeStatusStore';
-import { queryKeys, TodoSchema } from '@/libs/queryKeys';
-import { captureError } from '@/libs/error-reporter';
-
-export function useRealtimeSync() {
-  const queryClient = useQueryClient();
-  const prev = useRef<RealtimeStatus>('connecting');
-
-  useEffect(() => {
-    const unsubTodos = realtime.subscribe('todos', (msg) => {
-      const result = TodoSchema.safeParse(msg.data);                        // validate wire payload
-      if (!result.success) { captureError(result.error); return; }          // malformed push → report, don't crash
-      const todo = result.data;
-      queryClient.setQueryData(queryKeys.todos.detail(todo.id), todo);       // patch entity — instant
-      queryClient.invalidateQueries({ queryKey: queryKeys.todos.lists() });  // server owns list membership/order
-    });
-    const unsubStatus = realtime.onStatusChange((status) => {
-      useRealtimeStatusStore.getState().setStatus(status);
-      if (status === 'open' && prev.current === 'reconnecting') {
-        queryClient.invalidateQueries({ queryKey: queryKeys.todos.all });   // recover missed events
-      }
-      prev.current = status;
-    });
-    return () => { unsubTodos(); unsubStatus(); };
-  }, [queryClient]);
-}
-```
-
-### Vue — `src/composables/useRealtimeSync.ts`
-```ts
-import { onMounted, onUnmounted } from 'vue';
-import { useQueryClient } from '@tanstack/vue-query';
-import { realtime, type RealtimeStatus } from '@/libs/realtime';
-import { useRealtimeStatusStore } from '@/stores/useRealtimeStatusStore';
-import { queryKeys, TodoSchema } from '@/libs/queryKeys';
-import { captureError } from '@/libs/error-reporter';
-
-export function useRealtimeSync() {
-  const queryClient = useQueryClient();
-  const store = useRealtimeStatusStore();
-  let prev: RealtimeStatus = 'connecting';
-  let unsubTodos = () => {};
-  let unsubStatus = () => {};
-
-  onMounted(() => {
-    unsubTodos = realtime.subscribe('todos', (msg) => {
-      const result = TodoSchema.safeParse(msg.data);
-      if (!result.success) { captureError(result.error); return; }
-      const todo = result.data;
-      queryClient.setQueryData(queryKeys.todos.detail(todo.id), todo);
-      queryClient.invalidateQueries({ queryKey: queryKeys.todos.lists() });
-    });
-    unsubStatus = realtime.onStatusChange((status) => {
-      store.setStatus(status);
-      if (status === 'open' && prev === 'reconnecting') {
-        queryClient.invalidateQueries({ queryKey: queryKeys.todos.all });
-      }
-      prev = status;
-    });
-  });
-  onUnmounted(() => { unsubTodos(); unsubStatus(); });
-}
-```
-
-> `captureError` is the seam from `set-up-error-boundaries` (`src/libs/error-reporter.ts`). If that skill hasn't run yet, either run it first or substitute `console.error` in the two bridges above.
-
-## 8. Wire it at the app root
-
-The bridge must run inside the Query provider. Mount it once.
+The bridge runs inside the Query provider. Mount it once.
 
 ### React — in `src/App.tsx`
 ```tsx
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 export default function App() {
-  useRealtimeSync(); // once, under <QueryClientProvider> (see set-up-state-management)
+  useRealtimeSync(); // once, under <QueryClientProvider> (set-up-state-management)
   // …rest of the app
 }
 ```
@@ -273,36 +83,18 @@ useRealtimeSync(); // once; VueQueryPlugin + Pinia are installed in main.ts
 </script>
 ```
 
-## 9. Show connection status (accessibly)
-
-A small, announced badge so offline/reconnecting is perceivable — including by screen readers.
-
-### React — `src/components/atoms/ConnectionStatus.tsx`
-```tsx
-import { useRealtimeStatusStore } from '@/stores/useRealtimeStatusStore';
-
-export function ConnectionStatus() {
-  const status = useRealtimeStatusStore((s) => s.status);
-  if (status === 'open') return null;
-  return (
-    <div role="status" aria-live="polite">
-      {status === 'reconnecting' ? 'Reconnecting…' : status === 'offline' ? 'Offline' : 'Connecting…'}
-    </div>
-  );
-}
-```
-Vue: read `const { status } = storeToRefs(useRealtimeStatusStore())` and render the same `role="status"` `aria-live="polite"` element.
-
-## 10. Verify
+## 7. Verify
 
 ```bash
-pnpm tsc --noEmit   # seam, bridge, store, and factory additions compile
+pnpm typecheck   # seam, bridge, store and cache types compile
 ```
-Manual: with `VITE_REALTIME_URL` set, run `pnpm dev`, push a `todos` event from the server (or a `wscat` / mock), and confirm the list updates with no manual refresh. Kill the connection → the badge shows "Reconnecting…" → restore it → data re-syncs (broad invalidate). Unset `VITE_REALTIME_URL` → no socket opens and the app runs normally.
 
-Realtime e2e (a mock WS server via MSW's `ws` API) is deferred to `configure-test-stack`, matching the `set-up-state-management` / `set-up-error-boundaries` precedent. Until then, the type-check is the gate.
+Add the browser test from `./realtime-code.md` ("Test") once `configure-test-stack` has run: it checks that valid frames reach the handler, malformed frames (`null`, non-JSON) are ignored, and a dropped socket reconnects and re-subscribes.
+
+Manual: with `VITE_REALTIME_URL` set, run `pnpm dev`, push a `todos` event from the server, and confirm the list updates without a refresh. Kill the connection: the badge shows "Reconnecting…"; restore it: data refetches. Toggle the browser offline, then online: the same refetch happens. Unset `VITE_REALTIME_URL`: no socket opens and the app runs normally.
 
 ## References
+- ./realtime-code.md — the seam, store, bridge, badge and test, framework by framework.
 - ./realtime-patterns.md — the cache-not-store rule, hybrid write, reconnect recovery, payload validation, and the SSE / vendor / high-volume / collaborative deviations.
 - ../set-up-state-management/SKILL.md — the `queryClient` + `queryKeys` factory this writes through; the server/UI boundary.
 - ../set-up-auth/SKILL.md — how the connection authenticates (cookie on the handshake; token-as-first-frame variant).

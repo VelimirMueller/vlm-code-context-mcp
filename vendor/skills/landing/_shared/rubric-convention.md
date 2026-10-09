@@ -43,3 +43,9 @@ knockout: failing it fails the page outright, regardless of the rest. The body s
 Compliance-style rubrics may shape the body as **Rule / Check / Violation / Rewrite**
 instead — failure-enumerating rather than pass-stating; the procedure follows whatever
 the file's criteria define.
+
+## Why total replacement, and when to deviate
+**Why:** Merging two rubrics hides which law produced a verdict; a failed audit must be
+traceable to one file.
+**When to deviate:** if a team wants the default plus two extra criteria, they copy the
+default and add the two — the merge happens in the project's file, once, on purpose.

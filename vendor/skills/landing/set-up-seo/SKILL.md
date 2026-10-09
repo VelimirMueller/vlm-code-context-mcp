@@ -1,6 +1,6 @@
 ---
 name: set-up-seo
-description: Use when a public page must be found — search and answer-engine discoverability for landing, marketing, and content pages. The crawlability gate (content present in served HTML), per-page metadata (title, description, canonical, Open Graph), JSON-LD structured data by page type, sitemap.xml + robots.txt, and answer-engine-readable content structure. Framework-agnostic — audits built HTML from any stack.
+description: Use when a public page must be found by search and answer engines — crawlability gate (content in served HTML), metadata, JSON-LD by page type, sitemap, robots.txt incl. AI crawlers, answer-ready structure. Audits built HTML from any stack.
 ---
 
 # Set Up SEO
@@ -34,10 +34,11 @@ the patterns assume double-quoted attributes; treat them as presence checks, not
 
 ## 3. Metadata per page
 
-- **`<title>`** — unique per page, the page's promise, ~50–60 chars, brand last
-  ("Outcome the visitor gets — Brand").
-- **`<meta name="description">`** — the snippet pitch, ~150–160 chars, contains the
-  page's one job.
+- **`<title>`** — unique per page, the page's promise, brand last ("Outcome the visitor
+  gets — Brand"). ~60 chars is a display heuristic: Google truncates by pixel width and
+  may rewrite the title; it is not a rule.
+- **`<meta name="description">`** — the snippet pitch containing the page's one job.
+  Google often substitutes its own snippet; write it for the click, not for a length.
 - **`<link rel="canonical">`** — absolute URL, on every public page (self-referencing is
   correct); one canonical per duplicate-reachable content.
 - **Open Graph / Twitter** — `og:title`, `og:description`, `og:image` (1200×630),
@@ -63,9 +64,9 @@ visible content, never invents it**. Example for an article page:
 </script>
 ```
 
-`FAQPage` only for real, visible FAQ sections — its rich result is gone (May 2026), the
-markup still serves answer engines (`./structured-data.md`). Never `HowTo` (deprecated
-rich result).
+`FAQPage` only for real, visible FAQ sections — Google stopped showing FAQ rich results
+on 2026-05-07 for all sites, so the markup earns no SERP feature; it is optional
+(`./structured-data.md`). No `HowTo` markup: that rich result went away in 2023.
 
 ## 5. sitemap.xml + robots.txt
 
@@ -82,6 +83,9 @@ Sitemap: https://example.com/sitemap.xml
   `Sitemap:` line is discovery enough.
 - **`Disallow` is not `noindex`** — to de-index, serve `<meta name="robots"
   content="noindex">` on a crawlable page (`./crawlability.md`).
+- **AI crawlers are a policy decision, not a default.** Training bots and search/answer
+  bots are separate user agents — allow or block each on purpose (`./crawlability.md`).
+  Landing pages that want to be cited keep the search bots allowed.
 
 ## 6. Answer-engine readability
 
@@ -96,7 +100,9 @@ tags:
 - One idea per paragraph; the page answers its `<title>`'s promise.
 
 This is the generic core of GEO/AEO; project-specific scoring belongs in a rubric
-(`../audit-content-quality/SKILL.md`).
+(`../audit-content-quality/SKILL.md`). No special tag, file, or schema is known to make
+answer engines cite a page — `llms.txt` included (`./crawlability.md`). Clear, visible,
+crawlable content is the whole lever.
 
 ## 7. Verify
 
@@ -105,7 +111,8 @@ curl -s "$URL" | grep -c "ld+json"        # ≥1
 curl -s "$ORIGIN/robots.txt" | grep -ci "^Sitemap:"   # 1
 ```
 
-Paste the URL into `validator.schema.org` (0 errors) and the Rich Results Test. Fetch
+Paste the URL into `validator.schema.org` (0 errors) and, for Product/Article/Breadcrumb,
+the Rich Results Test. Fetch
 with JS disabled: title, description, content all present. Share the URL in a chat
 client: the OG preview renders.
 

@@ -1,6 +1,6 @@
 ---
 name: build-landing-page
-description: Use when building or restructuring a landing page, marketing page, or any public conversion page — audits the page against a section grammar (hero, social proof, features-as-benefits, pricing, FAQ, final CTA), enforces one conversion goal per page, a semantic HTML skeleton, and a hero LCP/CLS budget. Framework-agnostic — works on built HTML from any stack.
+description: Use when building or restructuring a landing, marketing, or other public conversion page — checks it against a section grammar, one conversion goal, a semantic skeleton, and a hero LCP/CLS budget. Works on built HTML from any stack.
 ---
 
 # Build Landing Page
@@ -57,7 +57,7 @@ Walk top to bottom; details and anti-patterns in `./section-grammar.md`.
 | Problem → solution | mirror the pain | the problem in the visitor's words, then the turn | product self-evident (waitlist) |
 | Features as benefits | capability → outcome | each item leads with what the visitor gets | single-feature page |
 | Pricing | remove the price question | real numbers or honest "from …"; one recommended tier | no self-serve price |
-| FAQ | answer created objections | 4–8 real questions, direct answers (feeds `FAQPage` schema) | nothing left open |
+| FAQ | answer created objections | 4–8 real questions, direct answers (visible text first; schema is optional, see `../set-up-seo/structured-data.md`) | nothing left open |
 | Final CTA | catch the convinced scroller | one line of value + the same primary action; no new links | single-screen page |
 
 ## 6. Semantic skeleton
@@ -83,8 +83,10 @@ navigate by them.
 
 ## 7. Hero performance budget
 
-The hero owns LCP and most CLS risk. Targets: **LCP ≤ 2.5 s, CLS ≤ 0.1** (mobile,
-mid-tier device).
+The hero owns LCP and most CLS risk. Core Web Vitals "good" thresholds, judged at the
+75th percentile of real page loads (mobile and desktop separately): **LCP ≤ 2.5 s,
+CLS ≤ 0.1, INP ≤ 200 ms** (web.dev/articles/vitals, verified 2026-10-09). A public page
+with near-zero JS rarely fails INP; LCP and CLS are where it is won or lost.
 
 ```html
 <!-- the LCP image: dimensions reserve space (CLS), priority wins the network race -->
@@ -103,7 +105,8 @@ mid-tier device).
   Bare AVIF accepts a small no-support tail; wrap in `<picture>` with WebP/JPEG
   `<source>` fallbacks when the audience skews to older browsers.
 - `width`/`height` (or CSS `aspect-ratio`) on **every** image so nothing shifts.
-- No carousel, no video, no JS-gated rendering in the hero. Scripts use `defer` (or
+- No carousel, no autoplay video, no JS-gated rendering in the hero — each delays the LCP
+  element or shifts layout. Scripts use `defer` (or
   `type="module"`) and sit below the fold; a public page's JS budget starts at zero
   (`../_shared/page-types.md`).
 
@@ -114,9 +117,10 @@ curl -s "$URL" | grep -ci "<h1"          # 1
 curl -s "$URL" | grep -ci "fetchpriority"   # ≥1 (the hero image)
 ```
 
-View the page with JS disabled: full content, readable order. Load on a throttled
-mobile profile: text visible immediately (no font flash of invisible text), nothing
-shifts. Run Lighthouse on the deployed URL: LCP ≤ 2.5 s, CLS ≤ 0.1.
+View the page with JS disabled: full content, readable order. Run Lighthouse (mobile
+profile) on the deployed URL: LCP ≤ 2.5 s, CLS ≤ 0.1. Lighthouse is a lab run on one
+device; the pass/fail Google uses is field data (CrUX, or RUM via `configure-analytics`),
+which a new page only has after about four weeks of traffic.
 
 ## References
 - ./section-grammar.md — per-section rules, anti-examples, when to deviate.

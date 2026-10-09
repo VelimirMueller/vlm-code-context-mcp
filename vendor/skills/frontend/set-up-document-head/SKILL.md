@@ -8,11 +8,12 @@ description: Use when managing the document head of a frontend SPA — per-route
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, frontend.meta, package_manager
 grep -rn "<title>\|useHead\|head:\|HeadContent\|document.title" src/ index.html 2>/dev/null | head
 grep -n "<html" index.html 2>/dev/null
 ```
 
-Check whether routes set titles, whether `<html lang>` is set, and whether OG/canonical exist. **Prerequisite:** ideally `set-up-routing` (per-route head); pairs with `set-up-i18n` (sync `lang` to the active locale).
+Read `frontend.meta`: `nuxt` (`useHead` / `useSeoMeta`) and `next` (`metadata` API) own the head — stop and use theirs. Commands use pnpm; translate for `package_manager`. Check whether routes set titles, whether `<html lang>` is set, and whether OG/canonical exist. **Prerequisite:** ideally `set-up-routing` (per-route head); pairs with `set-up-i18n` (sync `lang` to the active locale).
 
 ## 2. Decide what to do
 - No head management → full setup.
@@ -69,7 +70,15 @@ export const Route = createFileRoute('/todos/$id')({
 ```bash
 pnpm add @unhead/react
 ```
-Wrap the app in `<UnheadProvider>` (from `createHead()`), then in any component:
+Unhead 3 needs React ≥ 19.2.4 and Vite ≥ 6.4.2 (its peers). Create one head and wrap the app in `<UnheadProvider>`; `createHead` comes from the `/client` entry:
+```tsx
+// src/main.tsx
+import { createHead, UnheadProvider } from '@unhead/react/client';
+
+const head = createHead();
+// render: <UnheadProvider value={head}><App /></UnheadProvider>
+```
+Then in any component:
 ```tsx
 import { useHead } from '@unhead/react';
 useHead({ title: 'Dashboard — MyApp', meta: [{ name: 'description', content: '…' }] });
@@ -82,7 +91,7 @@ pnpm add @unhead/vue
 ```
 ```ts
 // src/main.ts
-import { createHead } from '@unhead/vue';
+import { createHead } from '@unhead/vue/client';
 app.use(createHead());
 ```
 ```vue
@@ -97,7 +106,7 @@ Reactive sources (a `ref`/`computed`) update the head automatically.
 
 - **`<html lang>`** in `index.html` (`<html lang="en">`). With `set-up-i18n`, sync it to the active locale: `document.documentElement.lang = locale` on change. This is an a11y requirement (screen readers pick voice/pronunciation from it).
 - **Open Graph / Twitter** for shareable pages: `og:title`, `og:description`, `og:image`, `twitter:card`. Set per route alongside the title.
-- **Canonical** (`<link rel="canonical">`) on pages reachable by multiple URLs.
+- **Canonical** (`<link rel="canonical">`) on pages reachable by multiple URLs. TanStack Router: `head: () => ({ links: [{ rel: 'canonical', href: 'https://example.com/todos' }] })`. Unhead: `useHead({ link: [{ rel: 'canonical', href }] })`. Use the absolute production URL, never the preview host.
 
 ## 8. Verify
 ```bash

@@ -10,8 +10,8 @@ sections they displace — a description with a "How to review" heading but no
 Verification tells the reviewer how to check work the author never showed they checked.
 And omissions read as answers: a missing Tests section says "none".
 **How to apply:** Bug fix: Problem, Root cause, Fix, Tests, Verification, Notes.
-Feature: Summary, Problem, Solution, Implementation, Tests, Verification, Notes. Both
-close with the Before-merge checklist — Manual review, Smoke tested, Pipeline green —
+Feature: Summary, Problem, Solution, Implementation, Tests, Verification, Notes. Non-trivial
+PRs close with the Before-merge checklist — Manual review, Smoke tested, Pipeline green —
 posted unticked. Review hints belong under Notes; content that fits no section goes
 there too, or stays out.
 When a section is genuinely empty, keep the heading and say why ("Tests: none added —

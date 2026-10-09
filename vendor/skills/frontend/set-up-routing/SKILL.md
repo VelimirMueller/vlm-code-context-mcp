@@ -8,11 +8,12 @@ description: Use when adding client-side routing to a frontend SPA — wires Tan
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, frontend.meta, package_manager
 grep -E '"(@tanstack/react-router|react-router|vue-router|@tanstack/router-plugin)"' package.json 2>/dev/null
 ls src/routes src/router src/routeTree.gen.ts 2>/dev/null
 ```
 
-Detect an existing router (react-router, TanStack Router, vue-router). **Prerequisites:** `@/` alias, `set-up-state-management` (loaders prefetch into its query cache), and ideally `set-up-error-boundaries` (route `errorComponent` reuses its `ErrorFallback`).
+Read `frontend.framework` (react → TanStack Router, vue → Vue Router) and `package_manager` (commands below use pnpm; translate). `frontend.meta` of `nuxt` or `next` means the framework owns routing: stop and say so, this skill is for Vite SPAs. Detect an existing router (react-router, TanStack Router, vue-router). **Prerequisites:** `@/` alias, `set-up-state-management` (loaders prefetch into its query cache), and ideally `set-up-error-boundaries` (route `errorComponent` reuses its `ErrorFallback`).
 
 ## 2. Decide what to do
 - No router → full setup.
@@ -20,7 +21,7 @@ Detect an existing router (react-router, TanStack Router, vue-router). **Prerequ
 - Router present → add the missing pieces (loaders, guards, per-route error UI).
 
 ## 3. Detect framework
-React → **TanStack Router** (file-based, fully typed). Vue → **Vue Router** (note: `unplugin-vue-router` adds typed file-based routing — see `routing-patterns.md`).
+React → **TanStack Router** (file-based, fully typed). Vue → **Vue Router 5** (typed file-based routing is built in via `vue-router/vite`; opt in per `routing-patterns.md`). Why each: `routing-patterns.md`.
 
 ## 4. Install
 
@@ -39,6 +40,7 @@ pnpm add vue-router
 
 Add the router plugin **before** the React plugin in `vite.config.ts`:
 ```ts
+import { defineConfig } from 'vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -88,6 +90,8 @@ export const Route = createFileRoute('/')({
 Wire the generated route tree, inject context, and register the type:
 ```tsx
 // src/main.tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { routeTree } from './routeTree.gen';
@@ -97,6 +101,8 @@ const router = createRouter({
   routeTree,
   context: { queryClient },
   defaultPreload: 'intent', // preload on hover/focus — instant navigation
+  defaultPreloadStaleTime: 0, // Query owns freshness; the router must not keep a second cache
+  scrollRestoration: true,
 });
 
 declare module '@tanstack/react-router' {
@@ -114,7 +120,7 @@ createRoot(document.getElementById('root')!).render(
 );
 ```
 
-`autoCodeSplitting` lazy-loads each route; the file-based plugin generates `routeTree.gen.ts` — add `src/routeTree.gen.ts` to `.gitignore`.
+`autoCodeSplitting` lazy-loads each route; the file-based plugin generates `routeTree.gen.ts`. **Commit it** and exclude it from Biome: `tsc` in CI runs before any build and needs the file (`configure-ci`).
 
 ## 6. Vue — Vue Router (lazy + guards)
 
@@ -139,7 +145,7 @@ export const router = createRouter({
 // src/main.ts
 app.use(router);
 ```
-Components fetch with the `useTodos` composable; Vue Router's experimental Data Loaders (via `unplugin-vue-router`) bring loader-style prefetch when you want it.
+Components fetch with the `useTodos` composable. Optional, still experimental in Vue Router 5: typed file-based routes (`vue-router/vite` plugin, replaces `unplugin-vue-router`) and Data Loaders (`vue-router/experimental`).
 
 ## 7. Protected routes — guard, don't gate in components
 
@@ -158,15 +164,20 @@ export const Route = createFileRoute('/dashboard')({
 ```
 ```ts
 // Vue: src/router/index.ts
-router.beforeEach((to) => {
-  if (to.meta.requiresAuth && !isAuthenticated()) return { name: 'login' };
+import { queryClient } from '@/libs/queryClient';
+import { currentUserQueryOptions } from '@/libs/auth'; // provided by set-up-auth
+
+router.beforeEach(async (to) => {
+  if (!to.meta.requiresAuth) return true;
+  const user = await queryClient.ensureQueryData(currentUserQueryOptions);
+  return user ? true : { name: 'login', query: { redirect: to.fullPath } };
 });
 ```
-`currentUserQueryOptions` (React) and the Vue `isAuthenticated()` come from `set-up-auth`; the guard reads the user through the query cache (deduped with the component's `useCurrentUser`). This skill defines the guard *shape*; auth wires the source.
+`currentUserQueryOptions` comes from `set-up-auth`; the guard reads the user through the query cache (deduped with the component's `useCurrentUser`). This skill defines the guard *shape*; auth wires the source. A guard only hides UI: the API must enforce authorization too.
 
 ## 8. Verify
 ```bash
-pnpm tsc --noEmit   # typed routes compile
+pnpm typecheck   # typed routes compile
 pnpm dev            # navigate; loaders prefetch, hover preloads
 ```
 

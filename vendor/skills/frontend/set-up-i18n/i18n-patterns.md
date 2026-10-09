@@ -2,9 +2,29 @@
 
 Reference for `set-up-i18n`. The senior choices for a maintainable, fast i18n layer.
 
+## Rule: i18next + react-i18next for React, vue-i18n for Vue
+**Why:** i18next has the largest plugin and tooling ecosystem (extraction, translation-management integrations, backends) and typed keys through `CustomTypeOptions`; react-i18next is its React binding. vue-i18n is the Vue team's i18n library, with SFC integration and the same `Intl` formatting. Both use the platform's `Intl.PluralRules`, so plural forms follow CLDR instead of hand-written rules.
+**How to apply:** React → `i18next` + `react-i18next`. Vue → `vue-i18n` 11 in Composition API mode (`legacy: false`). Catalog files stay plain JSON in `src/locales/<lng>/<ns>.json` so translators and tools can edit them.
+
 ## Rule: type the message keys
 **Why:** Stringly-typed `t('some.key')` silently returns the key (or empty) when it's misspelled or removed — a bug that ships. Typed resources make a wrong key a compile error and give autocomplete.
-**How to apply:** i18next `CustomTypeOptions` (declare module) typed from the catalog; vue-i18n message schema type param. The default locale's catalog is the source of truth for the key shape.
+**How to apply:** i18next `CustomTypeOptions` (declare module) typed from the catalog — a typo is a compile error. vue-i18n `DefineLocaleMessage` typed from the catalog — autocomplete only, a typo still compiles (vue-i18n's `t` takes any string), so add `@intlify/eslint-plugin-vue-i18n` `no-missing-keys`. In both, the default locale's catalog is the source of truth for the key shape, and a key missing from `de` silently falls back to `en`. Catch that gap with a parity test:
+```ts
+// tests/unit/locales.test.ts
+import { expect, test } from 'vitest';
+import en from '@/locales/en/common.json';
+import de from '@/locales/de/common.json';
+
+const keys = (o: object, p = ''): string[] =>
+  Object.entries(o).flatMap(([k, v]) =>
+    typeof v === 'object' && v !== null ? keys(v, `${p}${k}.`) : [`${p}${k}`],
+  );
+
+test('de has exactly the keys of en', () => {
+  expect(keys(de).sort()).toEqual(keys(en).sort());
+});
+```
+(i18next plural keys differ per language — `de` and `en` both use `_one`/`_other`; add the extra forms before adding a language with more, e.g. Polish.)
 
 ## Rule: lazy-load locales
 **Why:** Bundling every language ships dead weight to every user — most see one locale. Catalogs are perfect dynamic-import boundaries.

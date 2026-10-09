@@ -8,12 +8,13 @@ description: Use when internationalizing a frontend project — sets up i18next 
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, frontend.meta, package_manager
 grep -E '"(i18next|react-i18next|vue-i18n)"' package.json 2>/dev/null
 ls src/locales 2>/dev/null
 grep -rn ">[A-Z][a-z]\+ [a-z]" src/components 2>/dev/null | head   # hardcoded UI strings (rough)
 ```
 
-**Prerequisite:** `@/` alias. The locale switcher is UI state (per `set-up-state-management`).
+Read `frontend.framework` (react → i18next, vue → vue-i18n) and `frontend.meta`: `nuxt` → `@nuxtjs/i18n`, `next` → `next-intl` or the framework's routing i18n; this skill is the Vite-SPA path. Commands use pnpm; translate for `package_manager`. **Prerequisite:** `@/` alias. The locale switcher is UI state (per `set-up-state-management`).
 
 ## 2. Decide what to do
 - No i18n → full setup.
@@ -21,7 +22,7 @@ grep -rn ">[A-Z][a-z]\+ [a-z]" src/components 2>/dev/null | head   # hardcoded U
 - Set up, no lazy loading → split catalogs per locale (step 6).
 
 ## 3. Detect framework
-React → **i18next** + **react-i18next**. Vue → **vue-i18n** (Composition API). Both format with the **`Intl`** APIs.
+React → **i18next** + **react-i18next**. Vue → **vue-i18n** (Composition API). Both format with the **`Intl`** APIs. Why these libraries: `i18n-patterns.md`.
 
 ## 4. Install
 
@@ -85,7 +86,7 @@ export async function loadLocale(lng: Locale) {
 
 export default i18n;
 ```
-Only `en` ships in the bundle; `main.tsx` awaits `loadLocale(persistedLocale ?? initialLocale)` before the first render, so a German visitor never sees English first. `persistedLocale` comes from the locale store (step 9); `initialLocale` covers first visits. In Nuxt/Next, `navigator` does not exist on the server — use `@nuxtjs/i18n` / the request's `Accept-Language` instead of this module. Vue: `createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { en } })` + dynamic `import()` + `i18n.global.setLocaleMessage` to lazy-add.
+Only `en` ships in the bundle (the `@/` alias in the dynamic `import()` must be an absolute path in `vite.config.ts`, as the `configure-typescript` alias setup has it; Vite prints an `INEFFECTIVE_DYNAMIC_IMPORT` notice for `en` because it is also imported statically — harmless, `loadLocale` skips it); `main.tsx` awaits `loadLocale(persistedLocale ?? initialLocale)` before the first render, so a German visitor never sees English first. `persistedLocale` comes from the locale store (step 9); `initialLocale` covers first visits. In Nuxt/Next, `navigator` does not exist on the server — use `@nuxtjs/i18n` / the request's `Accept-Language` instead of this module. Vue: `createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { en } })` + dynamic `import()` + `i18n.global.setLocaleMessage` to lazy-add.
 
 ## 7. Type the keys (autocomplete + no missing-key bugs)
 
@@ -101,7 +102,26 @@ declare module 'i18next' {
   }
 }
 ```
-Now `t('greeting')` autocompletes and `t('typo')` is a type error. Vue: pass a message schema type param to `createI18n` / `useI18n<{ message: typeof en }>()`.
+Now `t('greeting')` autocompletes and `t('typo')` is a type error. Limit: i18next infers interpolation variables only from `as const` TS resources or `.d.ts` interfaces, not from JSON, so `t('greeting', { nam: 'x' })` is not caught.
+
+Vue (vue-i18n 11): declare the schema globally from the default catalog. Do not use `createI18n<[MessageSchema], 'en' | 'de'>` here: it requires every listed locale in `messages`, which defeats lazy loading.
+```ts
+// src/libs/i18n.ts
+import { createI18n } from 'vue-i18n';
+import enMessages from '@/locales/en/common.json';
+
+declare module 'vue-i18n' {
+  export interface DefineLocaleMessage extends Readonly<typeof enMessages> {}
+}
+
+export const i18n = createI18n({
+  legacy: false, // Composition API
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: { en: enMessages },
+});
+```
+Limit (checked against vue-i18n 11.4): `t()` accepts any string key, so the schema gives autocomplete and typed results, **not** a compile error on `t('typo')`. Close the gap in lint with `@intlify/eslint-plugin-vue-i18n` (`no-missing-keys`) and with the key-parity test in `i18n-patterns.md`. Vue catalogs use `{name}` and pipe plurals (`"no todos | one todo | {count} todos"`), not the `{{name}}` / `_one` form from step 5.
 
 ## 8. Format with `Intl`, not by hand
 
@@ -117,12 +137,13 @@ i18next (`t('k', { val, formatParams })`) and vue-i18n (`$n`/`$d`) wrap `Intl` �
 A small store holds the chosen locale; switching lazy-loads then sets it:
 ```ts
 // on switch: await loadLocale(next); store.setLocale(next);  (loadLocale also changes the language)
+document.documentElement.lang = next; // screen readers pick the voice from <html lang>; see set-up-document-head
 ```
 Persist the choice (like the theme store) and default to the browser locale on first visit.
 
 ## 10. Verify
 ```bash
-pnpm tsc --noEmit   # typed keys compile; a wrong key fails
+pnpm typecheck   # typed keys compile; a wrong key fails
 pnpm dev            # switch locale → catalog lazy-loads, strings + formats update
 ```
 

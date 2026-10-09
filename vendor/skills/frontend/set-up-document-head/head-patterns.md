@@ -2,6 +2,10 @@
 
 Reference for `set-up-document-head`. The head is accessibility and SEO, not an afterthought.
 
+## Rule: TanStack Router's `head` for React, Unhead for Vue (and React without TanStack Router)
+**Why:** The router already knows the matched routes and their loader data, so its built-in `head` option merges per-route tags with deepest-wins dedupe and no extra dependency. Vue has no router-level head API; Unhead is the maintained head manager of the Vue ecosystem (Nuxt uses it), with reactive sources and the same dedupe.
+**How to apply:** React + TanStack Router → `head` + `<HeadContent />`. Otherwise Unhead (`@unhead/react` / `@unhead/vue`), one `createHead()` from the `/client` entry. Never run two head managers.
+
 ## Rule: every route sets a title
 **Why:** The `<title>` is the tab name, the bookmark name, the search-result heading — and, crucially, **screen readers announce it on navigation**. An SPA that never updates `document.title` leaves assistive-tech users with no signal that the page changed. This is an a11y bug, not just an SEO one.
 **How to apply:** Set a default title at the root and override per route (`head` option in TanStack Router; `useHead` elsewhere). Format consistently: `Page — App`.

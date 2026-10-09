@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.8.0] - 2026-10-09
 
+### Fixed
+- **Skill sync follows the claude_development_skills 0.7.0 layout.** Upstream moved the commit and PR skills from `skills/workflow/` to `skills/core/`. The runtime sync skipped a missing set without a word, so after the upstream `v0.7.0` tag the `wf:` rows would have frozen at 0.6.0. The `workflow` set now reads `skills/core/` (names stay `wf:write-commit-messages` etc.; the set also brings `wf:set-up-stack-profile`, `wf:extend-skillset`, `wf:audit-toolchain`, `wf:audit-security`).
+- `scripts/sync-skills.mjs` vendors only the catalogues `skill-set-registry.json` names (upstream now ships eight).
+- The commit contract reads the first sentence of the subject paragraph, so re-wrapped markdown no longer cuts the rule. The body line stays "exactly three labeled bullet groups": the QA commit gate (`COMMIT_BODY_LABELS`) enforces all three. The workflow playbook heading is "Core Skills".
+
 ### Added
 - **Python symbols and import edges in the indexer** (`src/server/indexer.ts`, regex-based like the JS/TS parsers, no new dependencies). `.py`/`.pyi` files now get rows in `exports` and edges in `dependencies`, so `find_symbol` and the dependency graph work for Python repos.
   - **Exports:** module-level `def`/`async def` (`function`), `class` (`class`) and `UPPER_CASE =` constants (`const`), with the first line of the symbol's docstring as description. `_`-prefixed names are skipped unless listed in `__all__`. `__all__ = [...]`/`(...)` filters the list and adds unknown listed names as `re-export`. Symbols inside module-level triple-quoted strings are ignored.

@@ -1,6 +1,6 @@
 ---
 name: set-up-lead-capture
-description: Use when adding or hardening a lead, signup, contact, newsletter, or waitlist form on a public page — the form contract (labels, autocomplete, error and success states), a single destination seam (form service / serverless function / own API), layered spam defenses (honeypot, time-trap, escalation to Turnstile), consent at the point of capture, and double opt-in. Framework-agnostic.
+description: Use when adding or hardening a signup, contact, newsletter, or waitlist form on a public page — form contract, one destination seam, layered spam defense (honeypot, time-trap, Turnstile), GDPR/TDDDG-aware consent, double opt-in.
 ---
 
 # Set Up Lead Capture
@@ -50,6 +50,8 @@ read the page, don't trust the counts.)
        a build-time value on a static page never trips the check -->
   <input type="hidden" name="form_ts" value="{{render_timestamp}}">
 
+  <!-- newsletter/marketing forms only. A contact form that just answers the request
+       needs no marketing checkbox — a privacy notice link beside the button instead. -->
   <label class="consent">
     <input type="checkbox" name="consent" required>
     I'd like to receive the newsletter — see the <a href="/privacy">privacy policy</a>.
@@ -80,7 +82,9 @@ The handler's contract — whatever implements it:
 
 1. Reject silently (normal success response, record dropped) if `company2` is non-empty,
    or if `form_ts` is present and `now − form_ts < 3 s`. A missing `form_ts` (JS off on
-   a static page) degrades gracefully — the honeypot still guards.
+   a static page) degrades gracefully — the honeypot still guards. A bot can forge a
+   plain timestamp; if the time-trap matters, issue it server-side signed (HMAC), and
+   verify the signature.
 2. Validate the email server-side; honest inline error for real mistakes.
 3. Rate-limit by IP.
 4. Store: `{ email, consent: true, consent_text_version, submitted_at, source_page }`.
@@ -92,19 +96,26 @@ The honeypot is free, invisible, and static-safe — it goes in always. The time
 needs a **per-load** `form_ts` (SSR per request, or a one-line inline script setting
 `Date.now()` on load); on a fully static page a build-time timestamp never trips the
 check, so treat the time-trap as an upgrade where rendering allows, not a given.
-Escalate to Cloudflare Turnstile (managed/invisible mode) only when measured spam
-pressure demands; an interactive challenge is the last resort, because every challenge
-costs real conversions. Rationale and rejection etiquette: `./capture-patterns.md`.
+Escalate to Cloudflare Turnstile (managed mode) only when measured spam pressure
+demands; an interactive challenge is the last resort, because every challenge costs
+real conversions. Turnstile is a third-party script and has privacy consequences in the
+EU (`./capture-patterns.md`) — one more reason it is the escalation, not the default.
+Server-side `siteverify` is mandatory; the widget alone protects nothing. Snippets and
+rejection etiquette: `./capture-patterns.md`.
 
 ## 6. Consent + double opt-in
 
 - Checkbox **unticked** by default; specific text; policy linked. Pre-ticked or bundled
-  consent isn't consent.
-- Record consent (timestamp + text version) with the lead.
+  consent isn't consent (GDPR recital 32; CJEU *Planet49*, C-673/17).
+- Record consent (timestamp + text version) with the lead. The advertiser must be able
+  to prove consent (GDPR Art. 7(1)); a bare "ticked" boolean proves little.
 - Double opt-in: store unconfirmed → confirmation email → only confirmed addresses enter
-  the list. Established proof-of-consent practice in the EU. (Engineering guidance, not
-  legal advice — a regulated project encodes its counsel's rules via
-  `../audit-copy-compliance/SKILL.md`.)
+  the list. Not required by statute, but in Germany it is the accepted way to prove
+  consent for marketing email (UWG §7(2) no. 3 needs prior express consent). Keep the
+  confirmation email free of promotion — German courts have treated promotional
+  confirmation mails as unsolicited advertising — and log the confirmation click.
+- Engineering guidance, not legal advice. A regulated project encodes its counsel's
+  rules via `../audit-copy-compliance/SKILL.md`.
 
 ## 7. Verify
 

@@ -7,7 +7,7 @@ Reference for `set-up-state-management`. Patterns for the UI-state half. UI stat
 **How to apply:** `useTodoFiltersStore`, `useThemeStore`, `useSidebarStore` — each owns one concern, each in its own file under `src/stores/`, named `use<Domain>Store`.
 
 ## Rule (React): select with inline functions; never codegen selectors
-**Why:** Inline selectors (`useStore((s) => s.x)`) subscribe the component to just that slice, so it re-renders only when `x` changes. The auto-generated `useStore.use.x()` helper **breaks under React Compiler** and is not recommended.
+**Why:** Inline selectors (`useStore((s) => s.x)`) subscribe the component to just that slice, so it re-renders only when `x` changes, and they need no helper code. Zustand's docs offer a `createSelectors` helper that adds `useStore.use.x()`; this catalogue skips it because it is ~15 lines of generic typing to maintain, and `use.x()` is not shaped like a hook (`useX`), so the Rules-of-Hooks lint cannot check calls to it. (We did not verify a React Compiler incompatibility; the reason is lint visibility and extra code.)
 **How to apply:**
 ```ts
 import { useShallow } from 'zustand/react/shallow';
@@ -22,7 +22,7 @@ const { status, setStatus } = useTodoFiltersStore(            // many values
 ```ts
 // bad: subscribes to the whole store; re-renders on every change
 const store = useTodoFiltersStore();
-// bad: codegen selector — breaks with React Compiler
+// bad here: generated selector — extra helper, invisible to the hooks lint
 const status = useTodoFiltersStore.use.status();
 ```
 
@@ -36,7 +36,7 @@ const store = useTodoFiltersStore();
 const { status } = storeToRefs(store); // reactive state
 const { setStatus, reset } = store;    // actions: plain destructure
 ```
-Pinia 4 is ESM-only and needs `@vue/devtools-api` v8 installed beside it; the store API is unchanged from v3.
+Pinia 4 is ESM-only and lists `@vue/devtools-api` ^8.1.5 as a peer dependency (`npm view pinia@4.0.3 peerDependencies`), so install it beside Pinia. The setup-store code here compiles unchanged on 4.0.3.
 
 ## Growing a store: the slices pattern (React)
 When one store legitimately needs several cohesive parts, compose typed slices rather than splitting into coupled stores.
@@ -70,5 +70,6 @@ Persist UI preferences (theme, collapsed panels), never server data.
 
 ## When to deviate
 
+- **Zustand's `devtools` and a one-store app:** the middleware is optional; drop it until you debug store traffic, and keep stores plain `create<T>()((set) => …)`.
 - **A single boolean** shared by a parent and one child rarely needs a store — lift state or use context. Reach for a store when the value is read across unrelated parts of the tree.
 - **Server-derived UI state** (for example "is this row selected", keyed by server id): the selection set is UI state (store); the rows are server state (cache). Keep them separate per `state-boundaries.md`.
