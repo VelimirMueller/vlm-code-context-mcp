@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createTestDb } from './helpers/db.js';
 import { initScrumSchema, runMigrations } from '../src/scrum/schema.js';
 import { registerScrumTools } from '../src/scrum/tools.js';
@@ -115,6 +116,54 @@ describe('sessionlog format', () => {
     fs.writeFileSync(blocker, '');
     process.env.OVERDRIVE_SESSION_LOG_DIR = path.join(blocker, 'sub');
     expect(() => log('CRITICAL', 'boom')).not.toThrow();
+  });
+});
+
+describe('sessionlog refuses anything but a regular file', () => {
+  const logFile = (): string => path.join(dir, 'test-session.log');
+
+  it('does not follow a symlink planted at the log path', () => {
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(path.dirname(dir), 'victim.txt');
+    fs.writeFileSync(target, 'untouched\n');
+    fs.symlinkSync(target, logFile());
+    expect(() => log('CRITICAL', 'must not land in the target')).not.toThrow();
+    expect(fs.readFileSync(target, 'utf-8')).toBe('untouched\n');
+    expect(fs.lstatSync(logFile()).isSymbolicLink()).toBe(true);
+  });
+
+  it('does not create the target of a dangling symlink', () => {
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(path.dirname(dir), 'would-be-created.txt');
+    fs.symlinkSync(target, logFile());
+    log('INFO', 'x');
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it('writes nothing into a directory at the log path, no throw', () => {
+    fs.mkdirSync(logFile(), { recursive: true });
+    expect(() => log('INFO', 'x')).not.toThrow();
+    expect(fs.readdirSync(logFile())).toEqual([]);
+  });
+
+  it('writes nothing into a fifo at the log path, with or without a reader', () => {
+    fs.mkdirSync(dir, { recursive: true });
+    execFileSync('mkfifo', [logFile()]);
+    expect(() => log('INFO', 'no reader')).not.toThrow(); // O_NONBLOCK: fails fast, no hang
+    const reader = fs.openSync(logFile(), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    try {
+      log('INFO', 'with reader'); // opens, but the handle is not a regular file
+      let got = 0;
+      try {
+        got = fs.readSync(reader, Buffer.alloc(4096), 0, 4096, null);
+      } catch {
+        got = 0; // EAGAIN: nothing in the pipe
+      }
+      expect(got).toBe(0);
+    } finally {
+      fs.closeSync(reader);
+    }
+    expect(fs.lstatSync(logFile()).isFIFO()).toBe(true);
   });
 });
 

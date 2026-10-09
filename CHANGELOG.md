@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-09
+
+### Added
+- **Read-time freshness guard** (`src/server/freshness.ts`). `search_files`, `find_symbol` and `get_file_context` stat every row before answering: size or mtime differ from what was indexed → the file is re-indexed (exports, deps, change log); gone → dropped; the query then re-runs. Every row shows `indexed <ts>`. `get_file_context` on a file inside an indexed repo that is not in the index yet indexes it on the fly (unless denied or git-ignored).
+- **Per-repo HEAD check.** `index_directory` records the commit it indexed in the new `indexed_repos` table. At most every 2 s, each repo's HEAD is read straight from `.git` (no process spawn); when it moved, the files `git diff --name-only <old>..HEAD` lists are re-indexed and the response leads with one `⚠ STALE <repo>: HEAD a→b — re-indexed N changed files` line. Over 500 files (or an unknown old commit) it does not block: the warning repeats on every call until `code-context-reindex.sh <repo>` runs.
+- **`code-context-reindex` CLI** (`dist/server/reindex-cli.js`): re-indexes every git repo under `--root` (default `~/Desktop/Workspace/dev`) or the repos given, skips dot-dirs and repos with a `.code-context-ignore` file (purging their rows), purges rows the ignore policy now denies, `--prune-missing` drops repos/files gone from disk, `--vacuum` compacts. Prints before/after files, dependency share, repos covered and db size; exit 0 = all indexed, 1 = a repo failed, 2 = bad usage.
+- **Toolsets.** `CODE_CONTEXT_TOOLSETS` (comma list, or `all`) enables optional tool groups; by default `fun` (`record_mood`, `get_mood_trends`, `generate_vision_animation`) and `stream` (`send_step_progress`, `send_claude_output`, `send_claude_step`) are not registered — 92 instead of 98 tools in every session's context. Tables, dashboard and HTTP API are untouched.
+- **Overdrive flair** (FLAIR.md) through one wrapper at registration (`src/server/tool-wrap.ts`): text responses get one `● code-context ▸ <tool> ░▒▓` header and one `<kaomoji> <ms> ms` footer; JSON responses get none; errors keep their text first with a fail kaomoji; `OVERDRIVE_FLAIR=0` turns it off. Each finished call writes `done <tool> in N ms` to the session log.
+
+### Changed
+- **Indexer honours `.gitignore` the way git does.** Inside a git work tree files come from `git ls-files --cached --others --exclude-standard` (nested `.gitignore`, `info/exclude`, global excludes; submodules and nested checkouts recursed with their own rules); outside git the old walk remains. Rows a `.gitignore` now excludes are pruned on the next index.
+- **Hard deny on top** (`src/server/index-policy.ts`, indexer only — the watcher policy in `src/shared/ignore.ts` is unchanged, so watcher ⊇ indexer still holds): lockfiles, `*.min.js`/`*.min.css`, source maps, more binary types, NUL-byte sniffing, a 512 KB size cap (`CODE_CONTEXT_MAX_FILE_KB`, was 5 MB), and Laravel `storage/` wherever an `artisan` file sits next to it.
+- Change-log snapshots are scoped to the indexed root instead of reading every stored file's content twice per run; directory stats reuse the line counts from phase 1.
+- `busy_timeout = 5000` on the server connection, so a read-time refresh waits for a running reindex instead of failing.
+
+### Measured (shared db, 2026-10-09)
+- Files 26 749 → 16 388; node_modules/vendor 19 085 (71.3 %) → 0; repos covered under `~/Desktop/Workspace/dev` 9 → 19; db + WAL 411.7 MB → 155 MB after VACUUM; full reindex of 19 repos 8 s.
+- `search_files` p50 on the same post-reindex data 0.95 → 1.08 ms (+14 %, 5×400 calls alternating); on the old data +7 %.
+
+## [2.5.1] - 2026-10-09
+
+### Security
+- **Session log refuses anything but a regular file** (overdrive contract rule 2). `src/sessionlog.ts` now opens the log with `O_WRONLY|O_APPEND|O_CREAT|O_NOFOLLOW|O_NONBLOCK` (mode `0600`) and checks the open handle with `fstat` before its one write. A symlink planted at the log path no longer redirects the append into its target; a directory or fifo at the log path gets nothing written and never blocks. Errors stay swallowed. On a platform without `O_NOFOLLOW` the helper writes nothing.
+
 ## [2.5.0] - 2026-10-09
 
 ### Added

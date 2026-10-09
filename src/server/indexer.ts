@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-import { SKIP_DIR_NAMES, isUnderSkippedPath } from "../shared/ignore.js";
+import { SKIP_DIR_NAMES } from "../shared/ignore.js";
+import { admitFile, isDeniedDir, isDeniedFileName, looksBinary } from "./index-policy.js";
+import { gitListFiles, isGitCheckout, readGitHead } from "./git.js";
 
 // ─── .gitignore support ─────────────────────────────────────────────────────
 interface GitignorePattern {
@@ -54,24 +56,12 @@ function matchesGitignore(relativePath: string, isDirectory: boolean, patterns: 
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
-// Single source of truth in src/shared/ignore.ts — the watcher reads the same
-// set, because the two lists drifting apart is what took the dashboard down
-// twice. The addition that matters here is `vendor`: on 2026-09-08 Composer
-// dependencies were 19,052 of the 24,777 indexed files (77%), so symbol search
-// was mostly third-party code.
+// Directory policy: src/shared/ignore.ts (shared with the watcher). File policy
+// (binaries, lockfiles, minified bundles, size cap, Laravel storage/):
+// src/server/index-policy.ts. On top of both, a git checkout is listed through
+// `git ls-files`, so every .gitignore at any depth is honoured exactly as git
+// reads it. On 2026-10-09, 71 % of the shared index was node_modules/vendor.
 const SKIP_DIRS = SKIP_DIR_NAMES;
-
-const SKIP_FILES = new Set([".DS_Store", "Thumbs.db", ".gitkeep"]);
-
-const BINARY_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".avif", ".bmp", ".svg",
-  ".woff", ".woff2", ".ttf", ".eot", ".otf",
-  ".mp3", ".mp4", ".wav", ".ogg", ".webm",
-  ".zip", ".tar", ".gz", ".br", ".zst",
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-  ".exe", ".dll", ".so", ".dylib", ".wasm",
-  ".db", ".sqlite", ".db-shm", ".db-wal",
-]);
 
 const PARSEABLE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
@@ -287,7 +277,7 @@ function extractSummary(content: string, filePath: string, ext: string): string 
  * (not string prefixing) so "/home/user" does not match "/home/userland", and
  * rejects any path that climbs out via "..". Guards against path traversal (#14).
  */
-function isPathInside(child: string, parent: string): boolean {
+export function isPathInside(child: string, parent: string): boolean {
   const rel = path.relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
@@ -331,7 +321,7 @@ function extractExternalImports(imports: ParsedImport[]): string[] {
 }
 
 // ─── File metadata ───────────────────────────────────────────────────────────
-function toISOLocal(date: Date): string {
+export function toISOLocal(date: Date): string {
   return date.toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
 }
 
@@ -350,36 +340,61 @@ function countLines(content: string): number {
 }
 
 // ─── Walk directory ──────────────────────────────────────────────────────────
+/**
+ * Fallback walk for a directory git does not manage. Its output goes through
+ * admitFile like the git listing; this only adds the root .gitignore approximation.
+ */
 function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePattern[]): string[] {
   const root = rootDir ?? dir;
   const patterns = gitignorePatterns ?? loadGitignore(root);
   const results: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    // Always skip these regardless of .gitignore
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".")) continue;
     const full = path.join(dir, entry.name);
     const relativePath = path.relative(root, full);
     if (entry.isSymbolicLink()) continue; // skip symlinks to avoid loops
     if (entry.isDirectory()) {
-      // Generated or churning subtrees whose directory NAME is too generic to
-      // list — storage/framework (compiled Blade) and storage/logs.
-      if (isUnderSkippedPath(full)) continue;
-      // Check .gitignore patterns for directories
+      if (isDeniedDir(full)) continue;
       if (patterns.length > 0 && matchesGitignore(relativePath, true, patterns)) continue;
       try { results.push(...walkDir(full, root, patterns)); } catch { /* skip inaccessible dirs */ }
     } else {
-      const ext = path.extname(entry.name).toLowerCase();
-      if (BINARY_EXTENSIONS.has(ext)) continue;
-      if (SKIP_FILES.has(entry.name)) continue;
-      // Check .gitignore patterns for files
+      if (isDeniedFileName(entry.name)) continue;
       if (patterns.length > 0 && matchesGitignore(relativePath, false, patterns)) continue;
-      // Skip files > 5MB
-      try { if (fs.statSync(full).size > 5 * 1024 * 1024) { console.warn(`[indexer] Skipping large file: ${full}`); continue; } } catch { continue; }
       results.push(full);
     }
   }
   return results;
+}
+
+/**
+ * Every file the indexer should store under `rootDir`, absolute and sorted.
+ * Inside a git work tree this is `git ls-files --cached --others
+ * --exclude-standard` (nested .gitignores, info/exclude and the global excludes
+ * file all apply), filtered by the hard policy. Outside git it is the walk.
+ */
+export function listIndexableFiles(rootDir: string): string[] {
+  const root = path.resolve(rootDir);
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); } catch { return []; }
+  const listed = gitListFiles(root) ?? walkDir(root);
+  return listed.filter((f) => admitFile(f, root, realRoot).ok).sort();
+}
+
+/** True only when the file could be read and is binary (NUL bytes). Read errors → false. */
+function isBinaryOnDisk(filePath: string): boolean {
+  try { return looksBinary(fs.readFileSync(filePath)); } catch { return false; }
+}
+
+/** Read a file as UTF-8 text, or null when it is unreadable or binary. */
+function readText(filePath: string): string | null {
+  try {
+    const buf = fs.readFileSync(filePath);
+    if (looksBinary(buf)) return null;
+    return buf.toString("utf-8");
+  } catch {
+    return null;
+  }
 }
 
 // ─── Simple unified diff ────────────────────────────────────────────────────
@@ -488,14 +503,28 @@ interface FileSnapshot {
   content: string;
 }
 
-function snapshotFromDb(db: Database.Database): Map<string, FileSnapshot> {
-  const rows = db.prepare(`
+/**
+ * Content + exports of indexed files, for the change log. Scoped: a whole-db
+ * snapshot read every stored file's content (205 MB on 2026-10-09) once per
+ * indexed repo, before and after, although only rows under the root can change.
+ */
+function snapshotFromDb(db: Database.Database, scope: { root?: string; paths?: string[] } = {}): Map<string, FileSnapshot> {
+  const select = `
     SELECT f.path, f.summary, f.line_count, f.size_bytes,
       COALESCE(f.content, '') as content,
       COALESCE(GROUP_CONCAT(e.name || ' ' || e.kind, ', '), '') as exports
-    FROM files f LEFT JOIN exports e ON e.file_id = f.id
-    GROUP BY f.id
-  `).all() as FileSnapshot[];
+    FROM files f LEFT JOIN exports e ON e.file_id = f.id`;
+  let rows: FileSnapshot[];
+  if (scope.paths) {
+    rows = [];
+    const stmt = db.prepare(`${select} WHERE f.path = ? GROUP BY f.id`);
+    for (const p of scope.paths) rows.push(...(stmt.all(p) as FileSnapshot[]));
+  } else if (scope.root) {
+    const prefix = scope.root.endsWith(path.sep) ? scope.root : scope.root + path.sep;
+    rows = db.prepare(`${select} WHERE substr(f.path, 1, ?) = ? GROUP BY f.id`).all(prefix.length, prefix) as FileSnapshot[];
+  } else {
+    rows = db.prepare(`${select} GROUP BY f.id`).all() as FileSnapshot[];
+  }
   const map = new Map<string, FileSnapshot>();
   for (const r of rows) map.set(r.path, r);
   return map;
@@ -730,10 +759,176 @@ function allowedIndexRoots(): string[] {
   return roots;
 }
 
+interface FileStatements {
+  upsertFile: Database.Statement;
+  getFileId: Database.Statement;
+  getDescription: Database.Statement;
+  setDescription: Database.Statement;
+  clearExports: Database.Statement;
+  insertExport: Database.Statement;
+  clearDeps: Database.Statement;
+  insertDep: Database.Statement;
+}
+
+function prepareFileStatements(db: Database.Database): FileStatements {
+  return {
+    upsertFile: db.prepare(`
+      INSERT INTO files (path, language, extension, size_bytes, line_count, summary, external_imports, content, created_at, modified_at, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(path) DO UPDATE SET
+        language=excluded.language, extension=excluded.extension,
+        size_bytes=excluded.size_bytes, line_count=excluded.line_count,
+        summary=excluded.summary, external_imports=excluded.external_imports,
+        content=excluded.content,
+        created_at=excluded.created_at, modified_at=excluded.modified_at,
+        indexed_at=excluded.indexed_at
+    `),
+    getFileId: db.prepare(`SELECT id FROM files WHERE path = ?`),
+    getDescription: db.prepare(`SELECT description FROM files WHERE id = ?`),
+    setDescription: db.prepare(`UPDATE files SET description = ? WHERE id = ?`),
+    clearExports: db.prepare(`DELETE FROM exports WHERE file_id = ?`),
+    insertExport: db.prepare(`INSERT INTO exports (file_id, name, kind, description) VALUES (?, ?, ?, ?)`),
+    clearDeps: db.prepare(`DELETE FROM dependencies WHERE source_id = ?`),
+    insertDep: db.prepare(`INSERT OR IGNORE INTO dependencies (source_id, target_id, symbols) VALUES (?, ?, ?)`),
+  };
+}
+
+/**
+ * Upsert one file row and its exports. Returns its line count and export
+ * count, or null when the file is unreadable or binary (no row written).
+ */
+function storeFile(st: FileStatements, filePath: string): { lines: number; exports: number; content: string } | null {
+  const ext = path.extname(filePath).toLowerCase();
+  const lang = LANG_MAP[ext] ?? "unknown";
+  let meta: ReturnType<typeof getFileMeta>;
+  try { meta = getFileMeta(filePath); } catch { return null; }
+  const content = readText(filePath);
+  if (content === null) return null;
+
+  const lineCount = countLines(content);
+  const summary = extractSummary(content, filePath, ext);
+
+  let externals: string | null = null;
+  if (PARSEABLE_EXTENSIONS.has(ext)) {
+    externals = extractExternalImports(parseImports(content)).join(", ") || null;
+  }
+
+  st.upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, content, meta.createdAt, meta.modifiedAt);
+  const row = st.getFileId.get(filePath) as { id: number };
+
+  // Auto-generate description if none set manually
+  const existing = st.getDescription.get(row.id) as { description: string | null };
+  if (!existing.description) {
+    const autoDesc = generateFileDescription(filePath, lang, ext, lineCount, content, summary, externals);
+    if (autoDesc) st.setDescription.run(autoDesc, row.id);
+  }
+
+  st.clearExports.run(row.id);
+  let exportCount = 0;
+  if (PARSEABLE_EXTENSIONS.has(ext)) {
+    for (const exp of parseExports(content)) {
+      st.insertExport.run(row.id, exp.name, exp.kind, exp.description);
+      exportCount++;
+    }
+  }
+  return { lines: lineCount, exports: exportCount, content };
+}
+
+/** Rebuild the outgoing dependency edges of one JS/TS file. */
+function storeDeps(st: FileStatements, filePath: string, content: string, rootDir: string): number {
+  if (!PARSEABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return 0;
+  const sourceRow = st.getFileId.get(filePath) as { id: number } | undefined;
+  if (!sourceRow) return 0;
+  st.clearDeps.run(sourceRow.id);
+  let n = 0;
+  for (const imp of parseImports(content)) {
+    const resolved = resolveImportPath(imp.source, filePath, rootDir);
+    if (!resolved) continue;
+    const targetRow = st.getFileId.get(resolved) as { id: number } | undefined;
+    if (!targetRow) continue;
+    st.insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
+    n++;
+  }
+  return n;
+}
+
+/** Delete file rows (and their exports/edges) by path. Returns rows removed. */
+export function removeFiles(db: Database.Database, paths: Iterable<string>): number {
+  const getId = db.prepare(`SELECT id FROM files WHERE path = ?`);
+  const delExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
+  const delDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ? OR target_id = ?`);
+  const delFile = db.prepare(`DELETE FROM files WHERE id = ?`);
+  let n = 0;
+  db.transaction(() => {
+    for (const p of paths) {
+      const row = getId.get(p) as { id: number } | undefined;
+      if (!row) continue;
+      delExports.run(row.id);
+      delDeps.run(row.id, row.id);
+      delFile.run(row.id);
+      n++;
+    }
+  })();
+  return n;
+}
+
+/**
+ * Bring a handful of files up to date without walking their repo: re-read the
+ * ones that exist and pass the policy, drop the ones that are gone or now
+ * denied. Changes land in the change log like a full index would log them.
+ * `rootDir` bounds import resolution and the policy's ancestor check.
+ */
+export function refreshFiles(
+  db: Database.Database,
+  filePaths: string[],
+  rootDir: string,
+  isIgnored?: (file: string) => boolean,
+): { reindexed: number; dropped: number } {
+  const root = path.resolve(rootDir);
+  const unique = Array.from(new Set(filePaths.map((p) => path.resolve(p)))).filter((p) => isPathInside(p, root));
+  if (unique.length === 0) return { reindexed: 0, dropped: 0 };
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); } catch { return { reindexed: 0, dropped: 0 }; }
+  const before = snapshotFromDb(db, { paths: unique });
+  const st0 = prepareFileStatements(db);
+  const keep: { path: string; content: string }[] = [];
+  const drop: string[] = [];
+  db.transaction(() => {
+    for (const p of unique) {
+      // One gate for every index write (admitFile): normalisation, deny list on
+      // every segment of the lexical AND the resolved path, no symlinks,
+      // realpath containment. Drop only on evidence; `unreadable` (EACCES,
+      // EBUSY, mid-write) keeps the existing row — a stale answer beats a
+      // silently missing file.
+      const adm = admitFile(p, root, realRoot);
+      if (!adm.ok) { if (adm.reason !== "unreadable") drop.push(p); continue; }
+      if (isIgnored?.(p)) { drop.push(p); continue; }
+      const stored = storeFile(st0, p);
+      if (stored) keep.push({ path: p, content: stored.content });
+      else if (readText(p) === null && fs.existsSync(p) && isBinaryOnDisk(p)) drop.push(p);
+    }
+    for (const k of keep) storeDeps(st0, k.path, k.content, root);
+  })();
+  const dropped = removeFiles(db, drop);
+  diffAndLogChanges(db, before, snapshotFromDb(db, { paths: unique }));
+  return { reindexed: keep.length, dropped };
+}
+
+/** Remember the commit a repo root was indexed at (null for non-git roots). */
+export function recordIndexedRoot(db: Database.Database, rootDir: string, head: string | null, fileCount: number): void {
+  db.prepare(`
+    INSERT INTO indexed_repos (root, head, indexed_at, file_count) VALUES (?, ?, datetime('now'), ?)
+    ON CONFLICT(root) DO UPDATE SET head=excluded.head, indexed_at=excluded.indexed_at, file_count=excluded.file_count
+  `).run(path.resolve(rootDir), head, fileCount);
+}
+
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number; prunedFiles: number; prunedDirs: number } {
   const rootDir = path.resolve(dirPath);
   const roots = allowedIndexRoots();
-  if (!roots.some(r => isPathInside(rootDir, r))) {
+  // Lexical AND resolved: a symlinked root pointing outside the sandbox is refused.
+  const realOf = (p: string): string => { try { return fs.realpathSync(p); } catch { return p; } };
+  const realRootDir = realOf(rootDir);
+  if (!roots.some(r => isPathInside(rootDir, r) && isPathInside(realRootDir, realOf(r)))) {
     throw new Error(
       `Refusing to index '${rootDir}': outside the allowed sandbox. ` +
         `Allowed roots: ${roots.join(", ")}. Set CODE_CONTEXT_ALLOWED_ROOTS ` +
@@ -744,95 +939,41 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   const stat = fs.statSync(rootDir);
   if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${rootDir}`);
 
-  // Snapshot before indexing (reads old content from DB)
-  const before = snapshotFromDb(db);
+  // HEAD is read before the listing: a commit landing mid-index then shows up
+  // as a HEAD change on the next read and gets diffed, never silently skipped.
+  const head = isGitCheckout(rootDir) ? readGitHead(rootDir) : null;
 
-  const filePaths = walkDir(rootDir);
+  // Snapshot before indexing (reads old content from DB), scoped to this root
+  const before = snapshotFromDb(db, { root: rootDir });
 
-  const upsertFile = db.prepare(`
-    INSERT INTO files (path, language, extension, size_bytes, line_count, summary, external_imports, content, created_at, modified_at, indexed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(path) DO UPDATE SET
-      language=excluded.language, extension=excluded.extension,
-      size_bytes=excluded.size_bytes, line_count=excluded.line_count,
-      summary=excluded.summary, external_imports=excluded.external_imports,
-      content=excluded.content,
-      created_at=excluded.created_at, modified_at=excluded.modified_at,
-      indexed_at=excluded.indexed_at
-  `);
-  const getFileId = db.prepare(`SELECT id FROM files WHERE path = ?`);
-  const clearExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
-  const clearDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ?`);
-  const insertExport = db.prepare(`INSERT INTO exports (file_id, name, kind, description) VALUES (?, ?, ?, ?)`);
-  const insertDep = db.prepare(`INSERT OR IGNORE INTO dependencies (source_id, target_id, symbols) VALUES (?, ?, ?)`);
+  const candidates = listIndexableFiles(rootDir);
+  const st = prepareFileStatements(db);
 
   let exportCount = 0;
   let depCount = 0;
+  const filePaths: string[] = [];
+  const lineCounts = new Map<string, number>();
 
   // Phase 1: index all files
-  const indexAll = db.transaction(() => {
-    for (const filePath of filePaths) {
-      const ext = path.extname(filePath).toLowerCase();
-      const lang = LANG_MAP[ext] ?? "unknown";
-      const meta = getFileMeta(filePath);
-
-      let content = "";
-      try { content = fs.readFileSync(filePath, "utf-8"); } catch { continue; }
-
-      const lineCount = countLines(content);
-      const summary = extractSummary(content, filePath, ext);
-
-      let externals: string | null = null;
-      if (PARSEABLE_EXTENSIONS.has(ext)) {
-        const imports = parseImports(content);
-        externals = extractExternalImports(imports).join(", ") || null;
-      }
-
-      upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, content, meta.createdAt, meta.modifiedAt);
-      const row = getFileId.get(filePath) as { id: number };
-
-      // Auto-generate description if none set manually
-      const existing = db.prepare(`SELECT description FROM files WHERE id = ?`).get(row.id) as { description: string | null };
-      if (!existing.description) {
-        const autoDesc = generateFileDescription(filePath, lang, ext, lineCount, content, summary, externals);
-        if (autoDesc) {
-          db.prepare(`UPDATE files SET description = ? WHERE id = ?`).run(autoDesc, row.id);
-        }
-      }
-
-      clearExports.run(row.id);
-
-      if (PARSEABLE_EXTENSIONS.has(ext)) {
-        for (const exp of parseExports(content)) {
-          insertExport.run(row.id, exp.name, exp.kind, exp.description);
-          exportCount++;
-        }
-      }
+  db.transaction(() => {
+    for (const filePath of candidates) {
+      const stored = storeFile(st, filePath);
+      if (!stored) continue;
+      filePaths.push(filePath);
+      lineCounts.set(filePath, stored.lines);
+      exportCount += stored.exports;
     }
-  });
-  indexAll();
+  })();
 
   // Phase 2: resolve dependencies (JS/TS only)
-  const indexDeps = db.transaction(() => {
+  db.transaction(() => {
     for (const filePath of filePaths) {
-      const ext = path.extname(filePath).toLowerCase();
-      if (!PARSEABLE_EXTENSIONS.has(ext)) continue;
-
-      const content = fs.readFileSync(filePath, "utf-8");
-      const sourceRow = getFileId.get(filePath) as { id: number };
-      clearDeps.run(sourceRow.id);
-
-      for (const imp of parseImports(content)) {
-        const resolved = resolveImportPath(imp.source, filePath, rootDir);
-        if (!resolved) continue;
-        const targetRow = getFileId.get(resolved) as { id: number } | undefined;
-        if (!targetRow) continue;
-        insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
-        depCount++;
-      }
+      if (!PARSEABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) continue;
+      const content = readText(filePath);
+      if (content === null) continue;
+      depCount += storeDeps(st, filePath, content, rootDir);
     }
-  });
-  indexDeps();
+  })();
 
   // Phase 3: index directories
   const seenDirs = new Set<string>();
@@ -853,8 +994,9 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
       let dir = path.dirname(filePath);
       const ext = path.extname(filePath).toLowerCase();
       const lang = LANG_MAP[ext] ?? "unknown";
-      const stat = fs.statSync(filePath);
-      const lineCount = countLines(fs.readFileSync(filePath, "utf-8"));
+      let size = 0;
+      try { size = fs.statSync(filePath).size; } catch { /* vanished mid-index */ }
+      const lineCount = lineCounts.get(filePath) ?? 0;
 
       // Walk up from the file's directory to the root, aggregating stats
       while (dir.length >= rootDir.length) {
@@ -863,7 +1005,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
         }
         const entry = dirMap.get(dir)!;
         entry.files++;
-        entry.size += stat.size;
+        entry.size += size;
         entry.lines += lineCount;
         entry.langs.set(lang, (entry.langs.get(lang) ?? 0) + 1);
 
@@ -894,26 +1036,18 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   });
   indexDirs();
 
-  // Phase 3.5: prune rows whose files/directories vanished from disk.
-  // Scoped to rootDir — indexing a subdirectory must never evict sibling rows
-  // outside it. Child rows are deleted explicitly so pruning does not depend
-  // on the caller's foreign_keys pragma. Runs before the Phase-4 snapshot so
-  // pruned files land in the changes log as "delete" events.
+  // Phase 3.5: prune rows whose files/directories vanished from disk — or are
+  // now excluded by the policy or a .gitignore, which is the same thing from
+  // the index's point of view. Scoped to rootDir — indexing a subdirectory
+  // must never evict sibling rows outside it. Child rows are deleted explicitly
+  // so pruning does not depend on the caller's foreign_keys pragma. Runs before
+  // the Phase-4 snapshot so pruned files land in the changes log as "delete".
   const seenFiles = new Set(filePaths);
   const pruned = { files: 0, dirs: 0 };
-  const pruneDeleted = db.transaction(() => {
-    const fileRows = db.prepare(`SELECT id, path FROM files`).all() as { id: number; path: string }[];
-    const deleteFileExports = db.prepare(`DELETE FROM exports WHERE file_id = ?`);
-    const deleteFileDeps = db.prepare(`DELETE FROM dependencies WHERE source_id = ? OR target_id = ?`);
-    const deleteFile = db.prepare(`DELETE FROM files WHERE id = ?`);
-    for (const row of fileRows) {
-      if (!isPathInside(row.path, rootDir) || seenFiles.has(row.path)) continue;
-      deleteFileExports.run(row.id);
-      deleteFileDeps.run(row.id, row.id);
-      deleteFile.run(row.id);
-      pruned.files++;
-    }
-
+  const prefix = rootDir.endsWith(path.sep) ? rootDir : rootDir + path.sep;
+  const fileRows = db.prepare(`SELECT path FROM files WHERE substr(path, 1, ?) = ?`).all(prefix.length, prefix) as { path: string }[];
+  db.transaction(() => {
+    pruned.files = removeFiles(db, fileRows.map(r => r.path).filter(p => !seenFiles.has(p)));
     const dirRows = db.prepare(`SELECT id, path FROM directories`).all() as { id: number; path: string }[];
     const deleteDir = db.prepare(`DELETE FROM directories WHERE id = ?`);
     for (const row of dirRows) {
@@ -921,12 +1055,13 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
       deleteDir.run(row.id);
       pruned.dirs++;
     }
-  });
-  pruneDeleted();
+  })();
 
   // Phase 4: diff and log changes (after snapshot reads new content from DB)
-  const after = snapshotFromDb(db);
+  const after = snapshotFromDb(db, { root: rootDir });
   diffAndLogChanges(db, before, after);
+
+  recordIndexedRoot(db, rootDir, head, filePaths.length);
 
   return { files: filePaths.length, exports: exportCount, deps: depCount, prunedFiles: pruned.files, prunedDirs: pruned.dirs };
 }
