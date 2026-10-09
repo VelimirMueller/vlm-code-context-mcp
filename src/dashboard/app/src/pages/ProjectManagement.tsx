@@ -5,6 +5,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePlanningStore } from '@/stores/planningStore';
 import { put } from '@/lib/api';
 import type { Milestone } from '@/types';
+import { EpicList } from '@/components/organisms/EpicList';
+
+const smallButton = (busy: boolean): React.CSSProperties => ({
+  background: 'none',
+  border: '1px solid var(--border2)',
+  borderRadius: 6,
+  padding: '3px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: busy ? 'var(--text3)' : 'var(--text2)',
+  cursor: busy ? 'not-allowed' : 'pointer',
+  fontFamily: 'var(--font)',
+});
 
 function ProgressBar({ value, color = 'var(--accent)' }: { value: number; color?: string }) {
   return (
@@ -19,9 +32,18 @@ function ProgressBar({ value, color = 'var(--accent)' }: { value: number; color?
   );
 }
 
-function MilestoneCard({ milestone, onClose }: { milestone: Milestone; onClose: (id: number) => Promise<void> }) {
+interface MilestoneCardProps {
+  milestone: Milestone;
+  onClose: (id: number) => Promise<void>;
+  onArchive?: (id: number) => Promise<void>;
+  onUnarchive?: (id: number) => Promise<void>;
+}
+
+function MilestoneCard({ milestone, onClose, onArchive, onUnarchive }: MilestoneCardProps) {
   const [closing, setClosing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const isActive = milestone.status !== 'completed';
+  const isArchived = !!milestone.archived_at;
   const pct = milestone.ticket_count > 0
     ? Math.round((milestone.done_count / milestone.ticket_count) * 100)
     : milestone.progress ?? 0;
@@ -41,6 +63,17 @@ function MilestoneCard({ milestone, onClose }: { milestone: Milestone; onClose: 
       await onClose(milestone.id);
     } finally {
       setClosing(false);
+    }
+  };
+
+  const handleArchiveToggle = async () => {
+    const action = isArchived ? onUnarchive : onArchive;
+    if (archiving || !action) return;
+    setArchiving(true);
+    try {
+      await action(milestone.id);
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -74,23 +107,16 @@ function MilestoneCard({ milestone, onClose }: { milestone: Milestone; onClose: 
           }}>
             {milestone.status}
           </span>
-          {isActive && (
-            <button
-              onClick={handleClose}
-              disabled={closing}
-              style={{
-                background: 'none',
-                border: '1px solid var(--border2)',
-                borderRadius: 6,
-                padding: '3px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                color: closing ? 'var(--text3)' : 'var(--text2)',
-                cursor: closing ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font)',
-              }}
-            >
+          {isActive && !isArchived && (
+            <button onClick={handleClose} disabled={closing} style={smallButton(closing)}>
               {closing ? '…' : 'Close'}
+            </button>
+          )}
+          {/* Archive is offered once completed (server enforces the same rule);
+              Unarchive is always available on an archived milestone. */}
+          {((!isActive && !isArchived && onArchive) || (isArchived && onUnarchive)) && (
+            <button onClick={handleArchiveToggle} disabled={archiving} style={smallButton(archiving)}>
+              {archiving ? '…' : isArchived ? 'Unarchive' : 'Archive'}
             </button>
           )}
         </div>
@@ -112,12 +138,18 @@ function MilestoneCard({ milestone, onClose }: { milestone: Milestone; onClose: 
 export function ProjectManagement() {
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
+  const archiveMilestone = usePlanningStore((s) => s.archiveMilestone);
+  const unarchiveMilestone = usePlanningStore((s) => s.unarchiveMilestone);
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => { fetchMilestones(); }, []);
 
-  const active = milestones.filter((m) => m.status !== 'completed');
-  const archived = milestones.filter((m) => m.status === 'completed');
+  // Archive state is orthogonal to status (same model as sprints): completed milestones
+  // stay visible until archived; archived ones live behind the toggle.
+  const visible = milestones.filter((m) => !m.archived_at);
+  const active = visible.filter((m) => m.status !== 'completed');
+  const completed = visible.filter((m) => m.status === 'completed');
+  const archived = milestones.filter((m) => !!m.archived_at);
 
   const handleClose = async (id: number) => {
     await put(`/api/milestone/${id}`, { status: 'completed', progress: 100 });
@@ -143,6 +175,20 @@ export function ProjectManagement() {
           </div>
         )}
       </div>
+
+      {/* Completed, not yet archived */}
+      {completed.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: 14 }}>
+            Completed ({completed.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {completed.map((m) => (
+              <MilestoneCard key={m.id} milestone={m} onClose={handleClose} onArchive={archiveMilestone} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Archived milestones */}
       {archived.length > 0 && (
@@ -178,7 +224,7 @@ export function ProjectManagement() {
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {archived.map((m) => (
-                    <MilestoneCard key={m.id} milestone={m} onClose={handleClose} />
+                    <MilestoneCard key={m.id} milestone={m} onClose={handleClose} onUnarchive={unarchiveMilestone} />
                   ))}
                 </div>
               </motion.div>
@@ -186,6 +232,11 @@ export function ProjectManagement() {
           </AnimatePresence>
         </div>
       )}
+
+      {/* Epics — same archive model: completed epics archivable, archived behind a toggle */}
+      <div style={{ marginTop: 32 }}>
+        <EpicList />
+      </div>
     </div>
   );
 }

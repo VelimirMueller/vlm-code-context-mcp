@@ -8,6 +8,17 @@ import type { Milestone, Sprint } from '@/types';
  *   **Status:** ... (Sprints ...)
  *   **Goal:** description text
  */
+/**
+ * Drop archived milestones/epics from a picker list, keeping the one that is currently
+ * selected (so an archived link still renders its name instead of a blank option).
+ */
+export function hideArchived<T extends { id: number; archived_at?: string | null }>(
+  items: T[],
+  keepId?: number | null,
+): T[] {
+  return items.filter((i) => !i.archived_at || i.id === keepId);
+}
+
 export function parseMilestoneMarkdown(content: string): Milestone[] {
   const milestones: Milestone[] = [];
   // Split on "## Milestone" headers

@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Epic, Milestone } from '@/types';
-import { get } from '@/lib/api';
+import { get, post } from '@/lib/api';
 import { usePlanningStore } from '@/stores/planningStore';
+import { useToastStore } from '@/stores/toastStore';
 
 const statusColors: Record<string, { bg: string; color: string; border: string; label: string }> = {
   active: {
@@ -54,10 +55,35 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ArchiveButton({ archived, busy, onClick }: { archived: boolean; busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      style={{
+        marginLeft: 'auto',
+        background: 'none',
+        border: '1px solid var(--border2)',
+        borderRadius: 6,
+        padding: '2px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        color: busy ? 'var(--text3)' : 'var(--text2)',
+        cursor: busy ? 'not-allowed' : 'pointer',
+        fontFamily: 'var(--font)',
+        flexShrink: 0,
+      }}
+    >
+      {busy ? '…' : archived ? 'Unarchive' : 'Archive'}
+    </button>
+  );
+}
+
 export function EpicList() {
   const [epics, setEpics] = useState<Epic[]>([]);
   const [loading, setLoading] = useState(true);
   const [showArchive, setShowArchive] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const milestones = usePlanningStore((s) => s.milestones);
   const fetchMilestones = usePlanningStore((s) => s.fetchMilestones);
@@ -74,6 +100,22 @@ export function EpicList() {
     }
   }, []);
 
+  // Archive / unarchive (POST /api/epic/:id/{archive,unarchive}); the server enforces
+  // that only completed epics can be archived.
+  const toggleArchive = useCallback(async (epic: Epic) => {
+    const verb = epic.archived_at ? 'unarchive' : 'archive';
+    setBusyId(epic.id);
+    try {
+      await post(`/api/epic/${epic.id}/${verb}`, {});
+      await fetchEpics();
+      useToastStore.getState().addToast(verb === 'archive' ? 'Epic archived' : 'Epic restored', 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
+    } finally {
+      setBusyId(null);
+    }
+  }, [fetchEpics]);
+
   useEffect(() => {
     fetchEpics();
     if (milestones.length === 0) fetchMilestones();
@@ -85,46 +127,35 @@ export function EpicList() {
     return map;
   }, [milestones]);
 
+  // Archive state is orthogonal to status (same model as sprints): every non-archived
+  // epic stays visible, grouped by milestone; archived epics live behind the toggle.
   const { activeGroups, archivedGroups } = useMemo(() => {
-    const active: { milestone: Milestone | null; epics: Epic[] }[] = [];
-    const archived: { milestone: Milestone | null; epics: Epic[] }[] = [];
-    const byMilestone = new Map<number | null, Epic[]>();
-
-    for (const epic of epics) {
-      const key = epic.milestone_id;
-      if (!byMilestone.has(key)) byMilestone.set(key, []);
-      byMilestone.get(key)!.push(epic);
-    }
-
-    const activeMilestones = milestones.filter((m) => m.status !== 'completed');
-    const completedMilestones = milestones.filter((m) => m.status === 'completed');
-
-    for (const m of activeMilestones) {
-      const epicGroup = byMilestone.get(m.id);
-      if (epicGroup) {
-        active.push({ milestone: m, epics: epicGroup });
-        byMilestone.delete(m.id);
+    const group = (list: Epic[]) => {
+      const byMilestone = new Map<number | null, Epic[]>();
+      for (const epic of list) {
+        const key = epic.milestone_id ?? null;
+        if (!byMilestone.has(key)) byMilestone.set(key, []);
+        byMilestone.get(key)!.push(epic);
       }
-    }
-
-    for (const m of completedMilestones) {
-      const epicGroup = byMilestone.get(m.id);
-      if (epicGroup) {
-        archived.push({ milestone: m, epics: epicGroup });
-        byMilestone.delete(m.id);
+      const groups: { milestone: Milestone | null; epics: Epic[] }[] = [];
+      // Milestone order follows the milestones list; unknown/archived milestones fall
+      // through to the generic lookup below so no epic is ever dropped.
+      for (const m of milestones) {
+        const g = byMilestone.get(m.id);
+        if (g) { groups.push({ milestone: m, epics: g }); byMilestone.delete(m.id); }
       }
-    }
-
-    const noMilestone = byMilestone.get(null);
-    if (noMilestone) {
-      const hasActive = noMilestone.some((e) => e.status !== 'completed');
-      if (hasActive) active.push({ milestone: null, epics: noMilestone.filter((e) => e.status !== 'completed') });
-      const completedOrphans = noMilestone.filter((e) => e.status === 'completed');
-      if (completedOrphans.length) archived.push({ milestone: null, epics: completedOrphans });
-    }
-
-    return { activeGroups: active, archivedGroups: archived };
-  }, [epics, milestones]);
+      for (const [key, g] of byMilestone) {
+        if (key !== null) groups.push({ milestone: milestoneLookup.get(key) ?? null, epics: g });
+      }
+      const none = byMilestone.get(null);
+      if (none) groups.push({ milestone: null, epics: none });
+      return groups;
+    };
+    return {
+      activeGroups: group(epics.filter((e) => !e.archived_at)),
+      archivedGroups: group(epics.filter((e) => !!e.archived_at)),
+    };
+  }, [epics, milestones, milestoneLookup]);
 
   if (loading) {
     return (
@@ -139,18 +170,18 @@ export function EpicList() {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
         Epics
         <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text3)', marginLeft: 8 }}>
-          {epics.filter(e => e.status !== 'completed').length} active
+          {epics.filter(e => !e.archived_at && e.status !== 'completed').length} active
         </span>
       </h2>
 
       {activeGroups.length === 0 && (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-          No active epics. Run <code style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>/kickoff</code> to create epics.
+          No epics outside the archive. Run <code style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>/kickoff</code> to create epics.
         </div>
       )}
 
       {activeGroups.map((group, gi) => (
-        <div key={group.milestone?.id ?? 'none'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div key={group.milestone?.id ?? `none-${gi}`} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div
             style={{
               fontSize: 13,
@@ -196,6 +227,9 @@ export function EpicList() {
                     }}>
                       {epic.done_count}/{epic.ticket_count} tickets
                     </span>
+                    {epic.status === 'completed' && (
+                      <ArchiveButton archived={false} busy={busyId === epic.id} onClick={() => toggleArchive(epic)} />
+                    )}
                   </div>
 
                   {epic.description && (
@@ -244,12 +278,12 @@ export function EpicList() {
               cursor: 'pointer', fontFamily: 'var(--font)', fontWeight: 500, textAlign: 'center',
             }}
           >
-            {showArchive ? 'Hide' : 'Show'} Archive ({archivedGroups.reduce((a, g) => a + g.epics.length, 0)} completed epics)
+            {showArchive ? 'Hide' : 'Show'} Archive ({archivedGroups.reduce((a, g) => a + g.epics.length, 0)} archived epics)
           </button>
           {showArchive && (
             <div style={{ marginTop: 12, opacity: 0.7 }}>
               {archivedGroups.map((group, gi) => (
-                <div key={group.milestone?.id ?? 'none'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div key={group.milestone?.id ?? `none-${gi}`} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text3)', borderBottom: '1px solid var(--border)', paddingBottom: 6, marginTop: gi > 0 ? 8 : 0 }}>
                     {group.milestone ? group.milestone.name : 'No Milestone'}
                   </div>
@@ -261,8 +295,9 @@ export function EpicList() {
                         <div style={{ flex: 1, padding: '12px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text3)' }}>{epic.name}</span>
-                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(59,130,246,.10)', color: 'var(--blue)', fontWeight: 600 }}>Completed</span>
+                            <StatusBadge status={epic.status} />
                             <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{epic.done_count}/{epic.ticket_count} tickets</span>
+                            <ArchiveButton archived busy={busyId === epic.id} onClick={() => toggleArchive(epic)} />
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                             <div style={{ flex: 1, height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>

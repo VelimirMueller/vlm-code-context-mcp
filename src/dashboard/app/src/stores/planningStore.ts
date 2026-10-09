@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { get, post, put } from '@/lib/api';
+import { useToastStore } from '@/stores/toastStore';
 import { parseMilestoneMarkdown } from '@/lib/utils';
 import type { Sprint, Ticket, Milestone, Discovery, DiscoveryCoverage, DiscoverySprint } from '@/types';
 
@@ -37,6 +38,8 @@ export interface PlanningStore {
   fetchMilestones: () => Promise<void>;
   createMilestone: (data: CreateMilestoneInput) => Promise<void>;
   updateMilestone: (id: number, data: UpdateMilestoneInput) => Promise<void>;
+  archiveMilestone: (id: number) => Promise<void>;
+  unarchiveMilestone: (id: number) => Promise<void>;
   fetchVision: () => Promise<void>;
   updateVision: (content: string) => Promise<void>;
   fetchGantt: () => Promise<void>;
@@ -113,6 +116,26 @@ export const usePlanningStore = create<PlanningStore>((set, getState) => ({
       // Rollback on error -- re-fetch authoritative state
       getState().fetchMilestones();
       throw e;
+    }
+  },
+
+  archiveMilestone: async (id: number) => {
+    try {
+      await post(`/api/milestone/${id}/archive`, {});
+      await getState().fetchMilestones();
+      useToastStore.getState().addToast('Milestone archived', 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
+    }
+  },
+
+  unarchiveMilestone: async (id: number) => {
+    try {
+      await post(`/api/milestone/${id}/unarchive`, {});
+      await getState().fetchMilestones();
+      useToastStore.getState().addToast('Milestone restored', 'success');
+    } catch (e) {
+      useToastStore.getState().addToast((e as Error).message, 'error');
     }
   },
 

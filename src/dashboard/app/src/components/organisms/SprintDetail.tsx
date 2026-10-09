@@ -11,6 +11,7 @@ import { PHASE_ORDER, getPhaseStyle, getPhaseLabel } from '@/lib/phases';
 import { PhaseGateStepper } from '../molecules/PhaseGateStepper';
 import { Badge } from '@/components/atoms/Badge';
 import type { RetroFinding } from '@/types';
+import { hideArchived } from '@/lib/utils';
 
 interface GateInfo { gate: string; passed: boolean; detail: string }
 interface GateStatus { sprint_id: number; phase: string; next_phase: string | null; gates: GateInfo[]; all_passed: boolean }
@@ -176,7 +177,7 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
             }}
           >
             <option value="">No milestone</option>
-            {milestones.map((m) => (
+            {hideArchived(milestones, sprintDetail.milestone_id).map((m) => (
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </select>

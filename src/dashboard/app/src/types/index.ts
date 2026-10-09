@@ -104,6 +104,8 @@ export interface Epic {
   ticket_count: number;
   done_count: number;
   created_at: string;
+  /** Set when archived (schema v24); hidden from default views. */
+  archived_at?: string | null;
 }
 
 export interface RetroFinding {
@@ -135,6 +137,8 @@ export interface Milestone {
   ticket_count: number;
   done_count: number;
   sprints?: MilestoneSprint[];
+  /** Set when archived (schema v24); hidden from default views. */
+  archived_at?: string | null;
 }
 
 export interface MilestoneSprintGroup {

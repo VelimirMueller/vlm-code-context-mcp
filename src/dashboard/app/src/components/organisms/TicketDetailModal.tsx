@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Ticket, TicketAssignment, Milestone, Epic } from '@/types';
+import { hideArchived } from '@/lib/utils';
 import { get, put } from '@/lib/api';
 import { useSprintStore } from '@/stores/sprintStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -147,9 +148,10 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
     }
   };
 
+  const selectableEpics = hideArchived(epics, ticket?.epic_id);
   const filteredEpics = ticket?.milestone_id
-    ? epics.filter((e) => e.milestone_id === ticket.milestone_id || e.milestone_id === null)
-    : epics;
+    ? selectableEpics.filter((e) => e.milestone_id === ticket.milestone_id || e.milestone_id === null)
+    : selectableEpics;
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (!ticket) return;
@@ -406,7 +408,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                   }}
                 >
                   <option value="">None</option>
-                  {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {hideArchived(milestones, ticket.milestone_id).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </div>
             </div>
