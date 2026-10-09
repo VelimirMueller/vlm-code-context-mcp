@@ -9,19 +9,20 @@ Reference for `configure-test-stack`. The 2026 tool choices and why each is the 
 ```tsx
 // tests/ui/Button.test.tsx
 import { render } from 'vitest-browser-react';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { Button } from '@/components/atoms/Button';
 
-test('fires onClick', async () => {
-  const screen = render(<Button>Save</Button>);
+test('calls onClick when pressed', async () => {
+  const onClick = vi.fn();
+  const screen = await render(<Button onClick={onClick}>Save</Button>); // render is async
   await screen.getByRole('button', { name: 'Save' }).click();
-  await expect.element(screen.getByRole('button')).toBeEnabled();
+  expect(onClick).toHaveBeenCalledOnce();
 });
 ```
 
 ## Rule: stories are tests (Storybook Vitest addon)
 **Why:** A story already describes a component in a state. The Storybook Vitest addon (`@storybook/addon-vitest`) runs each story as a browser test — render + `play()` interactions become assertions. You write the story once and get a test for free, in the same real-browser engine as `tests/ui`.
-**How to apply:** `pnpm dlx storybook add @storybook/addon-vitest`; keep stories co-located. Reserve `tests/ui` for behavior a story doesn't express.
+**How to apply:** `pnpm exec storybook add @storybook/addon-vitest` (Storybook 10.6 docs; requires Vitest 3 or newer and MSW 2 or newer); keep stories co-located. Reserve `tests/ui` for behavior a story doesn't express.
 
 ## Rule: mock the network, not the module
 **Why:** `vi.mock('@/libs/fetcher')` couples tests to the implementation — refactor the fetch layer and every test breaks, and you never exercise the real request/parse path. MSW intercepts at the network boundary, so tests hit the actual `fetcher` → URL → response path with controllable data.
@@ -33,15 +34,7 @@ test('fires onClick', async () => {
 vi.mock('@/libs/fetcher', () => ({ fetcher: () => Promise.resolve([]) }));
 ```
 
-For browser-mode (`ui`) mocking, MSW uses a worker via a test fixture:
-```ts
-// tests/setup/ui-msw.ts — register in the ui project's setupFiles
-import { setupWorker } from 'msw/browser';
-import { handlers } from '../mocks/handlers';
-
-export const worker = setupWorker(...handlers);
-await worker.start({ onUnhandledRequest: 'error' });
-```
+For browser-mode (`ui`) mocking, MSW uses a service worker: `tests/mocks/browser.ts` exports `setupWorker(...handlers)`, `tests/setup/ui-msw.ts` starts and resets it, and `msw init tests/public --no-save` writes the worker script (`SKILL.md` step 8). Export the worker from the mocks file, not the setup file: a test that imports the setup file creates a second worker.
 
 ## Rule: one Vitest config with `projects`, not one config per kind
 **Why:** `test.projects` runs unit (Node), integration (Node), and ui (browser) from a single `vitest.config.ts` and a single `vitest run` — shared coverage, shared alias, no duplicated Vite setup.
@@ -53,9 +46,10 @@ await worker.start({ onUnhandledRequest: 'error' });
 
 ## Rule: coverage via v8, on behavior not lines
 **Why:** `@vitest/coverage-v8` uses the engine's native coverage — fast, no instrumentation. Chase meaningful paths, not a 100% number that rewards testing getters.
-**How to apply:** `coverage: { provider: 'v8' }`; gate CI on a realistic threshold for changed code, not a global vanity target.
+**How to apply:** `coverage: { provider: 'v8', include: ['src/**'] }` (without `include`, helpers under `tests/` are counted); gate CI on a realistic threshold for changed code, not a global vanity target.
 
 ## When to deviate
+- **A small app:** start with one Node `unit` project and the `ui` project; add `integration` when the first hook-against-MSW test exists, and e2e when there is a flow worth a browser. The `integration` project differs from `unit` only by folder.
 - **Speed over fidelity:** a huge unit suite that never touches layout can use `environment: 'jsdom'` for a `ui-fast` project; keep the real-browser project for interaction/a11y tests.
 - **No Storybook:** write `tests/ui` specs directly with `vitest-browser-*`; skip step 9.
 - **CI browsers:** install only `chromium` for PR runs; add `firefox`/`webkit` instances for a nightly cross-browser job.

@@ -1,150 +1,80 @@
 # Error Boundaries
 
-Reference for `set-up-error-boundaries`. Why try/catch isn't enough, framework-specific implementations, placement strategy, fallback UI design, and the logging seam.
+Reference for `set-up-error-boundaries`. What a boundary catches, where to put it, how the fallback behaves, and how reports leave the app. The code is in `boundary-code.md`; it was compiled and run on 2026-10-09 (React 19.3, Vue 3.5).
 
-## Why try/catch isn't enough
+## Why try/catch is not enough, and what a boundary does not catch
 
-`try/catch` works for synchronous code in event handlers and effects. It does **not** catch:
-- Errors thrown during the render phase.
-- Errors in lifecycle hooks (`useEffect`, `componentDidMount`).
-- Async errors that don't bubble back to the original `try` (Promise rejections, microtasks).
+`try/catch` covers synchronous code in a handler. It does not see an error thrown while rendering, in a lifecycle hook or in a Vue watcher; a boundary does (React error boundaries, Vue `onErrorCaptured`).
 
-Error boundaries (React) and `errorCaptured` (Vue) bridge that gap by intercepting render-phase errors at the framework level.
+A boundary does **not** catch:
+- errors in event handlers (React; Vue routes handler errors to `errorCaptured` and `app.config.errorHandler`),
+- errors in timers and rejected promises that nobody awaits,
+- errors thrown by the boundary's own fallback.
 
-## Rule: place boundaries at three depths
-**Why:** A single root-level boundary catches everything but loses isolation — the whole app reverts to a fallback for any error. Multiple boundaries at strategic depths preserve as much working UI as possible.
+Those need the global path: `window` `error` and `unhandledrejection` listeners, React 19's `onUncaughtError`, Vue's `app.config.errorHandler`. All of them end in `captureError`.
+
+## Rule: place boundaries at three depths, and make the middle one a single outlet boundary
+**Why:** One root boundary catches everything but replaces the whole app for any error. Finer boundaries keep the rest of the UI usable. The page depth needs one boundary around the router outlet, not one per page: the outlet is the only place every page passes through, a `key` on it resets the error on navigation, and a per-page wrapper is a convention that the next page forgets.
 **How to apply:**
-- **App-shell boundary:** at the root (`main.tsx` / `main.ts`). Last line of defense.
-- **Page-level boundary:** inside each page-template. A failing page doesn't blank the rest of the app.
-- **Component-level boundary:** wrap third-party widgets, data-driven cards, or other risky regions.
+- **App shell** in the entry (`main.tsx` / `App.vue`), outside the data providers.
+- **Page:** `<ErrorBoundary key={pathname}><Outlet /></ErrorBoundary>` in the layout.
+- **Component:** third-party widgets and regions fed by untrusted data.
 
 ```tsx
-// good: nested boundaries preserve outer UI
-<ErrorBoundary> {/* app-shell */}
+// good: header and footer survive a page error
+<ErrorBoundary>
   <Header />
-  <ErrorBoundary> {/* page-level */}
-    <ProductPage />
-  </ErrorBoundary>
+  <ErrorBoundary key={pathname}><Outlet /></ErrorBoundary>
   <Footer />
 </ErrorBoundary>
-
-// bad: only an app-shell boundary — a ProductPage error blanks Header + Footer
-<ErrorBoundary>
-  <Header /><ProductPage /><Footer />
-</ErrorBoundary>
 ```
 
-## Rule: React boundaries must be class components
-**Why:** `getDerivedStateFromError` and `componentDidCatch` are class lifecycle methods. As of React 19, function-component error boundaries do not exist (despite hooks elsewhere).
-**How to apply:** Use a class. Wrap with a function component if needed for prop conveniences.
+## Rule: React boundaries are classes (hand-rolled, 25 lines, over `react-error-boundary`)
+**Why:** `getDerivedStateFromError` and `componentDidCatch` exist only on classes; React 19 has no function-component boundary. `react-error-boundary` (6.1) wraps that class and adds `resetKeys`, `useErrorBoundary` (route an async error into the nearest boundary) and `FallbackComponent`. The hand-rolled class needs no dependency and covers the default case (catch, report, reset); the library earns its place when you need `resetKeys` across many boundaries or `showBoundary` for async errors.
+**How to apply:** Use the class from `boundary-code.md`. It reports in `componentDidCatch`, resets through `onReset`, and needs `override` under `noImplicitOverride`. Switching to the library later changes the molecule's internals, not its callers.
+
+## Rule: a boundary resets what failed, not only its own state
+**Why:** "Try again" that only clears the boundary re-renders the same failing query from the cached error. The retry must reset the source.
+**How to apply:** Pass `onReset`. With TanStack Query suspense queries, put `QueryErrorResetBoundary` outside and hand its `reset` to the boundary:
 
 ```tsx
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-
-export class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: Error, info: ErrorInfo) { /* report */ }
-  render() { return this.state.hasError ? <Fallback /> : this.props.children; }
-}
+<QueryErrorResetBoundary>
+  {({ reset }) => (
+    <ErrorBoundary onReset={reset}>
+      <Suspense fallback={<p>Loading…</p>}>{children}</Suspense>
+    </ErrorBoundary>
+  )}
+</QueryErrorResetBoundary>
 ```
 
-## Rule: Vue boundaries use `errorCaptured` and `return false`
-**Why:** `errorCaptured` is the official Vue 3 hook. Returning `false` halts propagation up the parent chain — without it, the same error fires for every ancestor with a hook.
-**How to apply:**
-```vue
-<script setup lang="ts">
-import { ref, onErrorCaptured } from 'vue';
+## Rule: Vue boundaries use `onErrorCaptured` and return `false`
+**Why:** It is Vue's own hook for descendant errors (render, setup, hooks, watchers, handlers). Returning `false` stops propagation to ancestor hooks and to `app.config.errorHandler`; without it the same error is reported once per ancestor.
+**How to apply:** The SFC in `boundary-code.md`. The boundary reports itself (`captureError`) because the error never reaches `app.config.errorHandler`.
 
-const error = ref<Error | null>(null);
-onErrorCaptured((err) => {
-  error.value = err as Error;
-  return false; // halt propagation
-});
-</script>
-```
+## Rule: the boundary reports in one place, and the root options report only what it did not
+**Why:** React 19 added `onCaughtError`, `onUncaughtError` and `onRecoverableError` to `createRoot`. `onCaughtError` fires for errors a boundary caught, which `componentDidCatch` already reported, so wiring both counts every caught error twice.
+**How to apply:** `componentDidCatch` → `captureError`; `onUncaughtError` and `onRecoverableError` → `captureError`; `onCaughtError` stays unset (React logs it to the console).
 
-## Rule: vanilla JS uses a render wrapper with safe DOM mutation
-**Why:** No framework hooks, but you can still isolate render with `try/catch` around the render call. Do not write `innerHTML` with arbitrary strings — use safe DOM APIs (`textContent`, `createElement`, `replaceChildren`) so error messages can never inject markup.
-**How to apply:**
-```js
-function renderWithErrorBoundary(renderFn) {
-  try {
-    renderFn();
-  } catch (err) {
-    console.error(err);
-    document.body.replaceChildren();
-    const heading = document.createElement('h1');
-    heading.textContent = 'Something went wrong.';
-    document.body.append(heading);
-  }
-}
-```
+## Rule: classify the boundary as a molecule
+**Why:** It composes one atom (the fallback) with one behaviour (catch, report, reset), which is the molecule definition in `../_shared/glossary.md`. Some teams file boundaries under organisms because they wrap regions; here the boundary is small and reusable, and the wrapped content is the organism.
 
-(The plugin's frontend skills target React/Vue, so this is for completeness only.)
+## Rule: the fallback is friendly and actionable
+**Why:** "Something broke" with no next step frustrates users; a retry recovers many transient errors.
+**How to apply:** headline, one sentence, a "Try again" button wired to the boundary's reset, and the stack only when `import.meta.env.DEV` (never in production: stacks leak internals). Use `role="alert"` so assistive technology announces it.
 
-## Rule: classify boundary as molecule (with documented exception)
-**Why:** A boundary composes one atom (the fallback UI) with one behavior (catch + report). That's a molecule by the methodology in `../_shared/glossary.md`.
-**Alternative classification:** some teams place boundaries at the organism layer because they wrap whole regions. Both are defensible. This plugin's convention is *molecule* because the boundary itself is small and reusable; the *organism* is the wrapped content, not the boundary.
+## Rule: one `captureError` seam, taking `unknown`
+**Why:** Trackers come and go (Sentry, Datadog, Honeycomb); a seam makes the swap one file. Anything can be thrown (`throw 'x'`, a rejected `undefined`), so the seam normalises to an `Error` instead of trusting every caller to cast.
+**How to apply:** `src/libs/error-reporter.ts` exports `captureError(error: unknown, context?)` and `installGlobalErrorHandlers()`. Only that file imports a tracker.
 
-## Rule: fallback UI is friendly + actionable
-**Why:** "Something broke" with no recovery path frustrates users. A retry button (or a clear next action) recovers many transient errors.
-**How to apply:**
-- Friendly headline ("Something went wrong.")
-- Brief explanation ("Please try again.")
-- Action ("Try again" button calling a retry callback or `window.location.reload()`)
-- Dev-only error detail (gated by `import.meta.env.DEV`) — never shown to users in prod.
-
-## Rule: logging seam, not direct logging
-**Why:** Logging providers come and go (Sentry, LogRocket, Datadog, Honeycomb). A `captureError` indirection means swapping providers is a one-file change, not a codebase-wide find-replace.
-**How to apply:** Boundary calls `captureError(error, info)`. The function lives in `src/libs/error-reporter.ts` and currently logs to console. Future tracking-install skill (Tier 2) replaces the implementation.
-
-## Anti-pattern: one mega-boundary at the root only
-
-Already covered above. The user experience cost is real: a single error in a footer widget blanks the whole app instead of just the footer.
-
-## Anti-pattern: boundaries that swallow without logging
-
-```tsx
-componentDidCatch() { /* do nothing — error vanishes */ }
-```
-
-Production errors that never reach a logger are invisible. Always call `captureError`.
-
-## Anti-pattern: catching `null`/`undefined` access by adding boundaries
-
-If you find yourself adding a boundary because "this component throws on missing data," fix the data layer instead. Boundaries are for unexpected errors, not for routing around missing-data branches.
-
-## Testing the boundary itself
-
-A boundary that's never been exercised is a boundary you can't trust. Test with a deliberately-throwing component:
-
-```tsx
-// in a Vitest test
-function Bomb(): never { throw new Error('boom'); }
-
-test('ErrorBoundary catches render-phase errors', () => {
-  // expect the fallback to render and captureError to be called
-});
-```
-
-## Logging integration roadmap
-
-When the project adopts Sentry/LogRocket, replace `captureError`'s body:
-
-```ts
-import * as Sentry from '@sentry/react';
-
-export function captureError(error: Error, context: ErrorContext = {}): void {
-  Sentry.captureException(error, { contexts: { app: context } });
-}
-```
-
-The boundaries don't change.
+## Anti-patterns
+- **A boundary that swallows:** `componentDidCatch() {}` hides production errors. Always call `captureError`.
+- **A boundary to route around missing data:** "this component throws when `user` is undefined" is a data-layer bug; fix the type or the loader. Boundaries are for the unexpected.
+- **A boundary inside a published component library:** the consuming app decides placement.
 
 ## When to deviate
 
-- **Existing boundary library:** if the project already uses `react-error-boundary` (or a similar wrapper), adopt its API — the strategy is the same, the syntax differs. Don't introduce a parallel implementation.
-- **Vue with an app-level error handler:** projects that registered `app.config.errorHandler` already have an app-shell-equivalent. Audit the handler before adding the molecule wrapper at the same depth; layered wraps fire twice unless the inner one returns `false`.
-- **No page templates yet:** if the app has no `src/components/pages/` or templates yet, skip the page-level placement and revisit when structure is in place. The app-shell boundary alone is enough until then.
-- **Library code (not an app):** boundaries belong in the consuming app, not in a published component library. Library code should let the consumer decide placement.
+- **Existing `react-error-boundary`:** adopt its API and add only the seam and global handlers; do not run two boundary implementations.
+- **Vue app with `app.config.errorHandler` already set:** audit it before adding the molecule at the same depth; a boundary that returns `false` keeps errors from reaching it, so report in the boundary or let the error propagate.
+- **No router yet:** the app-shell boundary is enough; add the page boundary with the router.
+- **A small app with one screen:** a root boundary and the seam are the whole job; skip component-level boundaries until a widget fails on its own.
+- **Server rendering (Next/Nuxt):** use the framework's `error.tsx` / `error.vue` for route errors and keep the seam; these client boundaries cover the client tree only.

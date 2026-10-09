@@ -1,24 +1,22 @@
 ---
 name: clean-frontend-scaffolding
-description: Use when cleaning up a freshly scaffolded frontend project — purges default boilerplate (demo components, default styles, placeholder routes, sample assets) before laying down real structure.
+description: Use when a freshly scaffolded Vite app still has the demo App, default styles, sample assets and placeholder title; reduces them to a minimal shell before real structure is added.
 ---
 
 # Clean Frontend Scaffolding
 
 ## 1. Audit current state
 
-Detect framework from `package.json`:
-- `react` in dependencies → React project.
-- `vue` in dependencies → Vue project.
+Read `.claude/stack-profile.md` if present: `frontend.framework` (`react` | `vue`) decides the branch; otherwise detect it from `package.json` (`react` or `vue` in dependencies). `frontend.meta` of `nuxt` or `next` → exit; those scaffolds have their own layout.
 
-For each item below, check if it still has Vite scaffold default content (heuristic: file size + scaffolded import patterns):
-- `src/App.tsx` (React) or `src/App.vue` (Vue)
-- `src/main.tsx` / `src/main.ts`
-- `src/App.css` / `src/style.css` / `src/index.css` (default Vite content)
-- `public/vite.svg`, `src/assets/react.svg`, `src/assets/vue.svg`
-- `index.html` (default `<title>Vite + React</title>` etc.)
+Look for the markers of the create-vite templates (Vite 8):
+```bash
+grep -l "assets/hero.png\|assets/react.svg\|assets/vue.svg\|HelloWorld\|Get started" src/App.* src/components/*.vue 2>/dev/null
+grep -l "Vite + " index.html 2>/dev/null          # <title>Vite + React + TS</title>
+ls src/assets src/App.css public 2>/dev/null       # hero.png, react.svg, vue.svg, vite.svg, favicon.svg, icons.svg
+```
 
-If every checked file is already custom, exit early with: "Scaffold cleanup not needed — files appear customized."
+If none of these exist or match, exit early with: "Scaffold cleanup not needed — files appear customized."
 
 ## 2. Decide what to do
 
@@ -53,15 +51,15 @@ If every checked file is already custom, exit early with: "Scaffold cleanup not 
    );
    ```
 
-3. Replace `src/App.css` content with a single comment: `/* Project styles (Tailwind handles most layout). */`
+3. Delete `src/App.css`; the reduced `App.tsx` no longer imports it, and nothing else does.
 4. Replace `src/index.css` content with the Tailwind v4 import (v4 dropped the three `@tailwind` directives for a single `@import`):
 
    ```css
    @import "tailwindcss";
    ```
 
-5. Delete `src/assets/react.svg` and `public/vite.svg`.
-6. Update `index.html` `<title>` to the project name (ask via AskUserQuestion if unknown).
+5. Delete `src/assets/` (`hero.png`, `react.svg`, `vite.svg`) and `public/icons.svg` (the demo's social-icon sprite). Keep `public/favicon.svg` until the project has its own icon; it is the Vite logo.
+6. Update `index.html` `<title>` (`Vite + React + TS`) to the project name (ask via AskUserQuestion if unknown).
 
 ### Vue
 
@@ -84,9 +82,9 @@ If every checked file is already custom, exit early with: "Scaffold cleanup not 
    createApp(App).mount('#app');
    ```
 
-3. Replace `src/style.css` with the Tailwind directives only (see React step 4).
-4. Delete `src/assets/vue.svg`, `public/vite.svg`, `src/components/HelloWorld.vue` (if present).
-5. Update `index.html` `<title>` to the project name.
+3. Replace `src/style.css` with the Tailwind v4 import only (see React step 4).
+4. Delete `src/assets/` (`hero.png`, `vite.svg`, `vue.svg`), `public/icons.svg` and `src/components/HelloWorld.vue`. Keep `public/favicon.svg` until the project has its own icon.
+5. Update `index.html` `<title>` (`Vite + Vue + TS`) to the project name.
 
 ## 4. Verify
 
@@ -94,7 +92,7 @@ If every checked file is already custom, exit early with: "Scaffold cleanup not 
 pnpm dev
 ```
 
-Expected: dev server starts; visiting the app shows the empty shell with no console errors. Stop the server.
+Expected: dev server starts; visiting the app shows the empty shell with no console errors. Stop the server. `pnpm build` must also pass: it runs `tsc -b`/`vue-tsc -b`, which catches an import of a deleted asset.
 
 ## References
 - ./boilerplate-removal.md — exact files and patterns per framework, with examples and anti-patterns.

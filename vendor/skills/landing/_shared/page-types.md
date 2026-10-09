@@ -22,9 +22,11 @@ curl -s "$URL" | grep -ci "<a distinctive phrase from the page's main content>"
 grep -rli "<distinctive phrase>" dist/ build/ .output/ out/ 2>/dev/null
 ```
 
-`0` matches → the content is not in the HTML; non-JS crawlers, scrapers, and answer
-engines see an empty shell. On a public page, that is always **finding #1** — before any
-other optimization. Never infer crawlability from the framework — measure the output.
+`0` matches → the content is not in the HTML. Googlebot renders JS, but in a delayed second
+pass; most AI crawlers are reported not to execute JS at all (Vercel/MERJ crawler study,
+2024 — re-check, this moves), and scrapers and link-preview bots never do. On a public page
+that is always **finding #1**, because every fix after it assumes a reader that can see the
+content. Never infer crawlability from the framework — measure the output.
 (The local-build form lists matching files — no output means zero matches.)
 
 ## Classification signals (when the owner isn't sure)
@@ -44,7 +46,7 @@ optimizing anything:
 |---|---|---|
 | Crawlability | load-bearing — ranking + answer-engine visibility | irrelevant |
 | LCP / CLS | **revenue and ranking** (hero image, font swap, layout shift) | UX polish |
-| INP | secondary (a public page should carry little JS) | the metric that matters |
+| INP (≤ 200 ms) | secondary (a public page should carry little JS) — but it still counts toward the CWV pass | the metric that matters |
 | JS budget | near zero by default; every script earns its place | whatever the task needs |
 | Metadata / schema | load-bearing | only for its few public routes |
 
@@ -53,3 +55,9 @@ optimizing anything:
 A landing skill whose gate fails **says so and redirects** — "this is an authenticated
 app surface; see `skills/frontend/`" — and stops. It never half-applies public-page rules
 to an app screen, and never silently skips the gate.
+
+## When to deviate
+- **Hybrid pages** (marketing page with an embedded live calculator or configurator): the
+  shell is public and passes the gate; the widget is an app surface. Gate each part.
+- **Noindex public pages** (campaign pages shared by link only): skip the ranking rows;
+  keep the no-JS readability test, since link previews and scrapers still need the HTML.

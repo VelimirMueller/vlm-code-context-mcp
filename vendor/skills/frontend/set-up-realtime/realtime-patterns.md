@@ -21,13 +21,16 @@ queryClient.invalidateQueries({ queryKey: queryKeys.todos.lists() }); // server 
 ```
 For a delete: `queryClient.removeQueries({ queryKey: queryKeys.todos.detail(id) })`, then invalidate lists.
 
-## Rule: on reconnect, invalidate broadly to recover missed events
-**Why:** While the socket was down, the server kept changing. Events fired in that window never reached the client — the cache is now silently stale, and re-subscribing alone will not fix it. A broad invalidate on reconnect refetches current truth.
-**How to apply:** Invalidate on the `reconnecting → open` transition only — not the first connect (initial queries are already fresh/loading):
+## Rule: after every re-open, invalidate broadly to recover missed events
+**Why:** While the socket was down, the server kept changing. Events fired in that window never reached the client — the cache is now silently stale, and re-subscribing alone will not fix it. A broad invalidate refetches current truth. The trigger is "this is not the first `open`", not "the previous status was `reconnecting`": after the browser goes offline and back online, the status path is `offline → connecting → open`, which a `prev === 'reconnecting'` test misses (found while testing the seam).
+**How to apply:** Track whether the connection has been open before; skip only the first open, because the initial queries are already fresh or loading:
 ```ts
-if (status === 'open' && prev === 'reconnecting') {
-  queryClient.invalidateQueries({ queryKey: queryKeys.todos.all });
-}
+let hasBeenOpen = false;
+realtime.onStatusChange((status) => {
+  if (status !== 'open') return;
+  if (hasBeenOpen) queryClient.invalidateQueries({ queryKey: queryKeys.todos.all });
+  hasBeenOpen = true;
+});
 ```
 
 ## Rule: one seam, transport- and vendor-agnostic; no-op without config
@@ -36,15 +39,16 @@ if (status === 'open' && prev === 'reconnecting') {
 
 ## Rule: validate every wire payload before it touches the cache
 **Why:** A pushed message is untrusted input from the network, exactly like a fetch response. An unvalidated `msg.data` cast to `Todo` puts malformed server data straight into the cache, where it surfaces as a confusing render crash far from the cause.
-**How to apply:** Parse with the same Zod schema the rest of the app uses, and route a failure to the `captureError` seam instead of letting it throw inside the socket callback: `const result = TodoSchema.safeParse(msg.data); if (!result.success) { captureError(result.error); return; }` then use `result.data`.
+**How to apply:** Two layers. The seam checks the envelope (`{ topic: string }`) and drops anything else, because `JSON.parse('null')` is valid JSON and `null.topic` would throw inside the socket callback. The bridge parses `msg.data` with the Zod schema the rest of the app uses and routes a failure to the `captureError` seam: `const result = TodoSchema.safeParse(msg.data); if (!result.success) { captureError(result.error); return; }`, then uses `result.data`.
 
 ## Rule: connection status is UI state — and the only state realtime puts in a store
 **Why:** "Are we connected?" is ephemeral client state — no server owns it and you cannot fetch it. That makes it the one genuinely new piece of UI state realtime introduces, and it belongs in a small store, announced accessibly.
-**How to apply:** A `useRealtimeStatusStore` holding `'connecting' | 'open' | 'reconnecting' | 'offline'`, rendered in a `role="status"` `aria-live="polite"` badge so screen-reader users learn the app went offline.
+**How to apply:** A `useRealtimeStatusStore` holding `'idle' | 'connecting' | 'open' | 'reconnecting' | 'offline'` (`idle`: nobody is subscribed, no socket), rendered in a `role="status"` `aria-live="polite"` badge so screen-reader users learn the app went offline.
 
 ## When to deviate
 - **SSE for pure server→client:** `EventSource` behind the same seam interface gives free auto-reconnect over plain HTTP/2; its limits are cookie-only auth (no custom headers) and unidirectionality. The cache bridge is unchanged.
 - **Managed vendor:** for Pusher / Ably / Supabase Realtime, wrap the SDK in the seam's `subscribe` / `onStatusChange` rather than hand-rolling reconnection — keep the boundary, lose the plumbing.
 - **High event volume:** if invalidate-per-event causes refetch storms, patch lists directly with `setQueryData` (accepting the membership/ordering bookkeeping) or debounce the invalidate.
 - **Collaborative editing, presence, cursors:** out of scope here — these need conflict resolution (CRDT/OT) and a different architecture. Do not stretch this seam to cover them.
+- **A handful of live values, or a vendor already in the app:** skip the hand-rolled backoff and status badge; the vendor SDK already reconnects, and a poll (`refetchInterval` on the query) is often enough for data that changes every few seconds. Realtime earns its seam when updates must appear within about a second.
 - **Persisted cache (PWA):** with `persistQueryClient` (see `set-up-pwa`), the reconnect-invalidate also refreshes stale data restored from disk — desirable; just expect the first post-reconnect render to refetch.

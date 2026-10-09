@@ -1,11 +1,13 @@
 ---
 name: configure-linting
-description: Use when setting up linting and formatting in a frontend project — installs Biome as the one tool for lint, format, import sorting and Tailwind class sorting (Prettier and ESLint removed), with full Vue SFC support, a lefthook pre-commit hook and a CI check.
+description: Use when setting up lint and format in a frontend project - installs Biome as the only linter, formatter, import sorter and Tailwind class sorter (replacing ESLint/Prettier), with Vue SFC support, a lefthook pre-commit hook and a CI check.
 ---
 
 # Configure Linting
 
 ## 1. Audit current state
+
+Read `.claude/stack-profile.md` if present: `lint_format.ts` is `biome` by default. Any other value (an ESLint/Prettier or Oxlint setup the team chose) means follow it: say so, add nothing from this skill, and stop. `package_manager` replaces `pnpm` below (`../_shared/stack-versions.md`, "Stack profile").
 
 Detect what's already present:
 ```bash
@@ -16,7 +18,7 @@ grep -E '"(recommended)"\s*:' biome.json 2>/dev/null   # pre-2.5 config — run 
 
 - **Prettier present?** Port its options with `pnpm biome migrate prettier --write`, then delete the Prettier config, `.prettierignore`, `prettier` and `prettier-plugin-tailwindcss`. See `lint-and-format.md`.
 - **ESLint present?** Port the rules with `pnpm biome migrate eslint --write`, review the diff, then delete the ESLint config + deps. Don't silently delete a config someone tuned — say what moved and what Biome can't cover.
-- **`oxlint` from the Vite 8 React template?** Remove it — Biome owns lint.
+- **`oxlint` from the Vite 8 React template?** Remove `oxlint`, `.oxlintrc.json` and the `"lint": "oxlint"` script — Biome owns lint.
 
 ## 2. Decide what to do
 
@@ -96,16 +98,17 @@ Add `html` to the React file, **add** `useVueMultiWordComponentNames` to the exi
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
-    "check": "biome ci"
+    "check": "biome ci",
+    "prepare": "lefthook install"
   }
 }
 ```
 
-Local + pre-commit use `--write` (autofix); CI uses `biome ci` (report, never fix). Vue projects also run `vue-tsc --noEmit` in the type-check step.
+Local + pre-commit use `--write` (autofix); CI uses `biome ci` (report, never fix). Type errors are `pnpm typecheck` (`configure-typescript`), a separate CI step: Biome does not type-check, and Vue templates need `vue-tsc`. `prepare` installs the git hooks on every `pnpm install` (pnpm blocks dependency install scripts by default, so the lefthook package cannot do it).
 
 ## 6. Pre-commit with lefthook
 
-lefthook (a single Go binary, no npm post-install) over husky. Keep the hook fast — fix staged files only.
+lefthook (one Go binary, one YAML file) over husky. Keep the hook fast — fix staged files only.
 
 ### `lefthook.yml`
 ```yaml
@@ -119,7 +122,7 @@ pre-commit:
 
 Biome does not format Markdown or YAML; leave them to the editor (the old Prettier hook did format them).
 
-Install the git hooks once:
+Install the git hooks now (later clones get them through the `prepare` script):
 ```bash
 pnpm lefthook install
 ```

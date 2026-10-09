@@ -105,14 +105,17 @@ src/components/atoms/
 - `utils/clsx.ts` (pure class-string utility) → `utils/`
 
 ## Rule: barrel `index.ts` re-exports only; never defines inline
-**Why:** A file that defines AND re-exports does two jobs. Splits concerns.
+**Why:** A file that defines AND re-exports does two jobs. And a barrel is only worth its extra module where it hides internals (a component folder, a feature); over a whole layer it just widens what Vite must load.
 **How to apply:**
 ```ts
-// src/components/atoms/index.ts
+// src/components/atoms/Button/index.ts — one component folder
 export * from './Button';
-export * from './Input';
-export * from './ErrorFallback';
+
+// src/features/todos/index.ts — a feature's public surface
+export { TodoList } from './components/TodoList';
+export { useTodos } from './hooks/useTodos';
 ```
+No layer-level barrels (`components/atoms/index.ts`): see `../_shared/conventions.md` for the Vite cost.
 
 ## Rule: file names match the primary export's PascalCase identifier
 **Why:** Predictable imports.
@@ -121,7 +124,7 @@ export * from './ErrorFallback';
 ## When to deviate
 
 - **`pages/` for route components:** if using a file-based router (Next.js, Nuxt, TanStack Router), the routing layer dictates a `pages/` or `routes/` folder. In that case, the atomic-design `pages/` layer redundantly mirrors that — pick one. The skill audits and asks.
-- **Test location:** this project's default is the typed top-level `tests/` tree (Nuxt's own docs also keep tests in a top-level `test/`; Next and the Vitest examples colocate). A team that prefers co-located `*.test.*` can keep them in `src/` — follow what's there; don't churn an established choice.
+- **Test location:** this project's default is the typed top-level `tests/` tree (Nuxt's own docs also keep tests in a top-level `test/`; Next and the Vitest examples colocate). `tests.layout: colocated` in the stack profile, or an established colocated suite, wins — follow it; don't churn an established choice.
 - **Small app, one domain:** skip `features/`; promote the root `hooks|composables/` + `stores/` content into `features/<d>/` when the second domain arrives, in its own commit.
 
 ## Empty-folder placeholders

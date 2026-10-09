@@ -1,255 +1,72 @@
 ---
 name: set-up-error-boundaries
-description: Use when adding error boundaries to a frontend project — wires up an app-shell boundary, page-level boundaries, and a reusable component-level boundary with user-friendly fallback UIs and a logging-hook seam (Sentry/LogRocket-ready, but not installed).
+description: Use when adding error handling to a frontend app - app-shell, page and component error boundaries with a retryable fallback, a captureError seam, and global handlers, ready for an error tracker.
 ---
 
 # Set Up Error Boundaries
 
 ## 1. Audit current state
 
-Search for an existing `ErrorBoundary` component:
 ```bash
-grep -r "ErrorBoundary" src/ 2>/dev/null
+grep -rnE "ErrorBoundary|errorCaptured|onErrorCaptured|errorHandler|react-error-boundary|onUncaughtError" src/ package.json 2>/dev/null
+ls src/libs/error-reporter.ts .claude/stack-profile.md 2>/dev/null
 ```
 
-Check whether the root component (`src/main.tsx` for React, `src/main.ts` for Vue) already wraps its tree in a boundary.
+Read `.claude/stack-profile.md` if present: `frontend.framework` replaces the detection in step 3; `package_manager` replaces `pnpm`; `observability.backend: sentry` means run `configure-error-tracking` right after this skill.
 
-**Check prerequisites.** This skill writes into atomic-design folders and uses the `@/` import alias. If either is missing, run the relevant prerequisite skill first or fall back to a flat layout:
+Check the root (`src/main.tsx` / `src/main.ts`): is the tree wrapped in a boundary, and are errors outside any boundary reported?
 
-- `src/components/atoms/` and `src/components/molecules/` exist? If not, run `set-up-frontend-structure` first, or fall back to writing the boundary into `src/components/ErrorBoundary/` (flat) and note the deviation in the project README.
-- `@/*` path alias configured? Check with `grep '"@/\*"' tsconfig.json tsconfig.app.json 2>/dev/null`. If absent, run `configure-typescript` first — the snippets below import from `@/libs/error-reporter` and `@/components/...`.
+**Prerequisites:** `src/components/atoms/` and `molecules/` (`set-up-frontend-structure`; otherwise write the boundary into a flat `src/components/ErrorBoundary/` and note the deviation) and the `@/` alias (`configure-typescript`).
 
-If a boundary exists and is wired at the root, the audit may still find missing page-level placements; report those.
+If a boundary exists at the root, the audit may still find missing page-level placement or missing global handlers; report those. A project that already uses `react-error-boundary` keeps it: add only the `captureError` seam and the global handlers (`error-boundaries.md`, "When to deviate").
 
 ## 2. Decide what to do
 
-- No boundary → full setup (steps 3–7).
-- Boundary present but only at root → add page-level wraps.
-- Boundary present at every layer → confirm fallback UI and logging seam, exit if both fine.
+- No boundary → full setup (steps 4–6).
+- Boundary at the root only → add the page boundary (step 5).
+- Boundaries present, but no `captureError` seam or global handlers → add steps 4 (seam) and 5 only.
+- Everything present → exit "Error boundaries already in place."
 
 ## 3. Detect framework
 
-Read `package.json`. React or Vue? Branch the boundary implementation.
+React or Vue, from the profile or `package.json`. The seam and the fallback copy are the same; the boundary differs.
 
-## 4. Generate the molecule `ErrorBoundary`
+## 4. Write the boundary, the fallback and the seam
 
-Classified as a **molecule**: composes one atom (`ErrorFallback`) with one behavior (catch + report). Rationale and alternative classification documented in `error-boundaries.md`.
+Copy the files from [`./boundary-code.md`](./boundary-code.md), framework branch as detected:
+- `src/components/molecules/ErrorBoundary/` — a **molecule**: one atom (`ErrorFallback`) plus one behaviour (catch, report, reset). React: a class (React has no function-component boundary; `override` is required by `noImplicitOverride`). Vue: `onErrorCaptured` returning `false`. Both take a reset hook and clear their state on retry.
+- `src/components/atoms/ErrorFallback/` — friendly copy, a "Try again" button, stack detail in development only. The Vue version reads `import.meta.env.DEV` in `<script>`: `import.meta` inside a `<template>` fails the build, while `vue-tsc` accepts it.
+- `src/libs/error-reporter.ts` — `captureError(error: unknown, context?)` and `installGlobalErrorHandlers()`. One seam, so a provider swap is a one-file change; `configure-error-tracking` replaces the body (and removes the global handlers, because Sentry installs its own).
 
-### React
+## 5. Wire the boundaries
 
-```tsx
-// src/components/molecules/ErrorBoundary/ErrorBoundary.tsx
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { captureError } from '@/libs/error-reporter';
-import { ErrorFallback } from '@/components/atoms/ErrorFallback';
+Three depths (`error-boundaries.md`), wired once each:
+- **App shell:** wrap the whole tree in `main.tsx` (React) or `App.vue` (Vue), *outside* the Query/Pinia providers so a provider-setup error is still caught.
+- **Page:** one boundary around the router outlet in the layout, `key`ed by the route (`key={pathname}` / `:key="route.fullPath"`). A failing page shows the fallback while header and navigation keep working, and navigating away clears the error. Do not edit every page.
+- **Component:** only what can fail on its own data or a third party (chart, embedded editor, a card fed by an untrusted payload).
 
-type Props = { children: ReactNode; fallback?: ReactNode };
-type State = { hasError: boolean; error?: Error };
+Errors no boundary sees go to the seam as well:
+- React 19: `createRoot(el, { onUncaughtError, onRecoverableError })` call `captureError`. Leave `onCaughtError` unset: the boundary already reports what it catches, and wiring both double-reports.
+- Vue: `app.config.errorHandler = (error) => captureError(error)`.
+- Both: `installGlobalErrorHandlers()` once in the entry (event-handler errors in React, timers, rejected promises).
 
-export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+The entry-file code is in `./boundary-code.md`, "Wire the boundaries".
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    captureError(error, { componentStack: info.componentStack ?? undefined });
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback ?? <ErrorFallback error={this.state.error} />;
-    }
-    return this.props.children;
-  }
-}
-```
-
-```ts
-// src/components/molecules/ErrorBoundary/index.ts
-export * from './ErrorBoundary';
-```
-
-### Vue
-
-```vue
-<!-- src/components/molecules/ErrorBoundary/ErrorBoundary.vue -->
-<script setup lang="ts">
-import { ref, onErrorCaptured } from 'vue';
-import { captureError } from '@/libs/error-reporter';
-import ErrorFallback from '@/components/atoms/ErrorFallback/ErrorFallback.vue';
-
-const error = ref<Error | null>(null);
-
-onErrorCaptured((err) => {
-  error.value = err as Error;
-  captureError(err as Error, {});
-  return false; // halt propagation
-});
-</script>
-
-<template>
-  <ErrorFallback v-if="error" :error="error" />
-  <slot v-else />
-</template>
-```
-
-```ts
-// src/components/molecules/ErrorBoundary/index.ts
-export { default as ErrorBoundary } from './ErrorBoundary.vue';
-```
-
-## 5. Generate the atom `ErrorFallback`
-
-### React
-
-```tsx
-// src/components/atoms/ErrorFallback/ErrorFallback.tsx
-type Props = { error?: Error; onRetry?: () => void };
-
-export function ErrorFallback({ error, onRetry }: Props) {
-  return (
-    <div role="alert" className="p-4 border border-red-500 rounded-md bg-red-50 text-red-900">
-      <h2 className="font-semibold">Something went wrong.</h2>
-      <p className="text-sm">Please try again. If the problem persists, contact support.</p>
-      {import.meta.env.DEV && error && (
-        <pre className="mt-2 text-xs whitespace-pre-wrap">{error.stack ?? error.message}</pre>
-      )}
-      {onRetry && (
-        <button type="button" onClick={onRetry} className="mt-2 px-3 py-1 bg-red-600 text-white rounded">
-          Try again
-        </button>
-      )}
-    </div>
-  );
-}
-```
-
-### Vue
-
-```vue
-<!-- src/components/atoms/ErrorFallback/ErrorFallback.vue -->
-<script setup lang="ts">
-defineProps<{ error?: Error; onRetry?: () => void }>();
-</script>
-
-<template>
-  <div role="alert" class="p-4 border border-red-500 rounded-md bg-red-50 text-red-900">
-    <h2 class="font-semibold">Something went wrong.</h2>
-    <p class="text-sm">Please try again. If the problem persists, contact support.</p>
-    <pre v-if="import.meta.env.DEV && error" class="mt-2 text-xs whitespace-pre-wrap">{{ error.stack ?? error.message }}</pre>
-    <button
-      v-if="onRetry"
-      type="button"
-      class="mt-2 px-3 py-1 bg-red-600 text-white rounded"
-      @click="onRetry"
-    >
-      Try again
-    </button>
-  </div>
-</template>
-```
-
-## 6. Generate the logging seam `captureError`
-
-```ts
-// src/libs/error-reporter.ts
-type ErrorContext = {
-  componentStack?: string;
-  url?: string;
-  user?: { id: string };
-};
-
-/**
- * Reports an error to the configured logging service.
- * Stub: logs to console. Replace the body when a real logger is wired in.
- */
-export function captureError(error: Error, context: ErrorContext = {}): void {
-  // Future logger goes here, e.g.:
-  //   Sentry.captureException(error, { contexts: { app: context } });
-  console.error('[captureError]', error, context);
-}
-```
-
-The function exists as a single seam so swapping providers later is a one-file change. Future skill `configure-error-tracking` (Tier 2 / out of scope here) wires this to Sentry.
-
-## 7. Wire boundaries
-
-### React: app shell
-
-```tsx
-// src/main.tsx
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App';
-import { ErrorBoundary } from '@/components/molecules/ErrorBoundary';
-import './index.css';
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
-```
-
-For each page-level component (under `src/components/pages/`), wrap the page output in an `ErrorBoundary`. The skill scans `pages/` and adds the wrapper if missing.
-
-### Vue: app shell
-
-```ts
-// src/main.ts
-import { createApp } from 'vue';
-import App from './App.vue';
-import ErrorBoundary from '@/components/molecules/ErrorBoundary/ErrorBoundary.vue';
-import './style.css';
-
-const app = createApp(App);
-app.component('ErrorBoundary', ErrorBoundary);
-app.mount('#app');
-```
-
-Then wrap `<App />` content (or page-level components) with `<ErrorBoundary>` slots.
-
-## 8. Generate a Playwright placeholder test
-
-The spec calls for a test that renders a deliberately-throwing component and asserts the `ErrorFallback` is shown. That requires:
-1. A `?throw=1` query handler in `App` that throws on render.
-2. A spec that visits `/?throw=1` and asserts the fallback markup.
-
-Wiring both ends up entangled with the Playwright setup (config, dev-server proxy, page wrappers) that skill `configure-test-stack` (Plan 3) installs. Until that lands, generate a placeholder spec that confirms the page renders without crashing the app-shell boundary — it does NOT yet exercise the catch path:
-
-```ts
-// tests/e2e/error-boundary.spec.ts
-// PLACEHOLDER — the real catch-path test arrives with skill `configure-test-stack`.
-// This stub merely confirms the page renders without crashing the app-shell boundary.
-import { test, expect } from '@playwright/test';
-
-test('home page renders without crashing the app-shell boundary', async ({ page }) => {
-  await page.goto('/');
-  await expect(page).toHaveTitle(/.+/);
-});
-```
-
-Mark the file as a placeholder with the comment block above so it's obvious to a future reader that this test is a stub.
-
-## 9. Verify
+## 6. Verify
 
 ```bash
-pnpm tsc --noEmit
+pnpm typecheck
 ```
-
-Expected: 0 errors.
-
+Expected: exit 0. Add the component test from `./boundary-code.md` ("Test") once `configure-test-stack` has run:
 ```bash
-pnpm test:e2e
+pnpm vitest run --project ui tests/ui/ErrorBoundary.test.tsx   # Vue: ErrorBoundary.test.ts
 ```
+It asserts the fallback appears, `captureError` is called once, and "Try again" recovers.
 
-(If Playwright not yet configured, this will fail; that's wired up in skill `configure-test-stack`. Skip if not configured.)
+Manual: throw in a page component, confirm the fallback replaces only the page, remove the throw, press "Try again", and check the console shows one `[captureError]` line.
 
 ## References
-- ./error-boundaries.md — full per-framework patterns, placement strategy, fallback design rules, logging-hook integration, anti-patterns.
-- ../_shared/glossary.md — "molecule" vs "organism" criteria.
-- ../_shared/conventions.md — `@/` import prefix convention.
+- ./boundary-code.md — every file this skill writes, plus the React and Vue tests.
+- ./error-boundaries.md — why try/catch is not enough, the three depths, fallback design, the seam and global handlers, the Vue test, anti-patterns.
+- ../_shared/glossary.md — "molecule" vs "organism".
+- ../_shared/conventions.md — `@/` prefix, the `typecheck` rule.

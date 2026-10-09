@@ -49,7 +49,7 @@ A folder `src/features/<domain>/` that holds everything one domain owns — `api
 **Test:** would deleting this domain mean deleting this folder and nothing else? If yes, it's a well-cut feature module.
 
 ## Audit-first
-Convention used by every skill in this plugin: before installing or modifying anything, the skill reads the current project state and decides what (if anything) needs to change. See spec section 2.5.
+Convention used by every skill in this plugin: before installing or modifying anything, the skill reads the current project state and decides what (if anything) needs to change. See `RATIONALE.md`, section 2 (audit-first and idempotent).
 
 ## Idempotent
 A skill is idempotent if running it twice produces the same final state as running it once. Audit-first is the mechanism that makes skills idempotent.

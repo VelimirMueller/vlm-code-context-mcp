@@ -39,6 +39,17 @@ src/components/atoms/Button/Button.test.tsx   # bad (this project): test co-loca
 **Why:** One MSW handler set and one setup file per project keep mocking consistent and avoid per-test boilerplate.
 **How to apply:** `tests/mocks/handlers.ts` (+ `node.ts`/`browser.ts`), `tests/setup/*.ts` referenced from each Vitest project's `setupFiles`.
 
+## Colocated variant (`tests.layout: colocated`)
+Tests sit beside the code; the browser tests are told apart by a `.ui.` infix, because a Vue component test is also `.ts`. Run and verified (one unit and one ui file picked up by the right project):
+
+| Project | `include` | `exclude` |
+|---|---|---|
+| `unit` (Node) | `src/**/*.test.ts` | `src/**/*.ui.test.*`, `src/**/*.integration.test.*` |
+| `integration` (Node) | `src/**/*.integration.test.ts` | — |
+| `ui` (browser) | `src/**/*.ui.test.{ts,tsx}` | — |
+
+`e2e/`, `mocks/` and `setup/` stay in a top-level `tests/`; imports inside colocated tests may be relative.
+
 ## When to deviate
-- **Co-located preference:** a team that prefers co-located tests can keep `*.test.tsx` beside source and point Vitest `include` at `src/**`. This project chose `tests/` by type; pick one and be consistent.
+- **Co-located preference:** `tests.layout: colocated` in the stack profile, or an established colocated suite, selects the variant above. The default is `tests/` by type; pick one per repo and be consistent.
 - **No Storybook:** without the addon, write `tests/ui` specs directly with `vitest-browser-react` / `vitest-browser-vue`.

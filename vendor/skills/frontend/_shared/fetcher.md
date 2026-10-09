@@ -5,6 +5,10 @@ source for that code: `set-up-state-management` writes the base version, `set-up
 it to the auth version, `validate-env` swaps the base-URL read. Link here instead of restating
 the function — a snippet copied into three skills drifts, and a bug in it spreads three times.
 
+## `fetchRaw`: the raw layer
+
+`fetchRaw(input: Request): Promise<Response>` applies the same base-URL-free header rules, credentials, CSRF and 401 refresh as `fetcher`, but returns the `Response` untouched. A typed client such as `openapi-fetch` calls `fetch(Request)` with its own absolute `baseUrl` and wants `{ data, error, response }`, so it takes `fetchRaw` (`createClient({ baseUrl, fetch: fetchRaw })`; see `../../backend/design-http-api/api-codegen-patterns.md`) and refresh logic exists once.
+
 ## Audit an existing fetcher
 
 ```bash
@@ -46,6 +50,8 @@ message to parse. A `204 No Content` (logout, delete) has no body, so `res.json(
 
 ## Base version — `set-up-state-management`
 
+If `src/libs/env.ts` exists (`validate-env` ran first, which is the usual order), read `env.VITE_API_URL` from it instead of the raw `import.meta.env` line; `validate-env` step 6 makes that swap.
+
 ```ts
 // src/libs/fetcher.ts
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -71,6 +77,13 @@ function buildHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
+/** Raw layer: same header rules, returns the Response. For typed clients (openapi-fetch) that pass a Request with an absolute URL. */
+// No retry and no credentials here, so no `input.clone()` and no `credentials: 'include'` — a typed client
+// that needs either (401 refresh, cookie sessions) must use the auth version below instead.
+export function fetchRaw(input: Request): Promise<Response> {
+  return fetch(new Request(input, { headers: buildHeaders({ method: input.method, headers: input.headers }) }));
+}
+
 export async function fetcher<T>(path: string, init?: RequestInit): Promise<T> {
   // init first, merged headers last — a caller's headers can no longer erase the seam's.
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init) });
@@ -82,7 +95,7 @@ export async function fetcher<T>(path: string, init?: RequestInit): Promise<T> {
 
 ## Auth version — `set-up-auth`
 
-Adds three things to the base version: the auth cookie (`credentials: 'include'`), the
+Adds three things to the base version (and routes `fetcher` through `fetchRaw`, so there is one refresh path): the auth cookie (`credentials: 'include'`), the
 double-submit CSRF header on unsafe methods, and the single-flight 401 refresh. The rationale
 for each lives in `../set-up-auth/auth-patterns.md`.
 
@@ -136,16 +149,18 @@ function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
-export async function fetcher<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
-  // seam default first, caller's init next (may override credentials), merged headers last
-  const res = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'include',
-    ...init,
-    headers: buildHeaders(init),
-  });
-  if (res.status === 401 && !retried && (await refreshSession())) {
-    return fetcher<T>(path, init, true); // retry once after a successful refresh
-  }
+/** Raw layer: credentials, CSRF header and the single 401 refresh, returns the Response. */
+export async function fetchRaw(input: Request): Promise<Response> {
+  const send = (req: Request) =>
+    fetch(new Request(req, { credentials: 'include', headers: buildHeaders({ method: req.method, headers: req.headers }) }));
+  const res = await send(input.clone()); // a Request body is readable once; keep the original for the retry
+  if (res.status === 401 && (await refreshSession())) return send(input);
+  return res;
+}
+
+export async function fetcher<T>(path: string, init?: RequestInit): Promise<T> {
+  // one refresh path: build a Request and go through the raw layer
+  const res = await fetchRaw(new Request(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init) }));
   if (!res.ok) throw new HttpError(res.status, res.statusText);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

@@ -1,6 +1,6 @@
 ---
 name: set-up-auth
-description: Use when adding authentication to a frontend SPA — treats the current user as server state (TanStack Query), keeps tokens out of localStorage (httpOnly cookies or in-memory access + refresh), wires login/logout mutations, a transparent 401→refresh retry in the fetcher, and route guards that read the user query.
+description: Use when adding authentication to a frontend SPA — current user as TanStack Query server state, tokens never in localStorage (httpOnly cookies, or in-memory access + refresh cookie), login/logout mutations, one 401-refresh in the fetcher, route guards.
 ---
 
 # Set Up Auth
@@ -8,11 +8,12 @@ description: Use when adding authentication to a frontend SPA — treats the cur
 ## 1. Audit current state
 
 ```bash
+cat .claude/stack-profile.md 2>/dev/null || cat ~/.claude/stack-profile.md 2>/dev/null   # frontend.framework, backend.track, package_manager
 grep -rn "localStorage.*token\|sessionStorage.*token" src/ 2>/dev/null   # red flag — see step 4
 grep -rn "auth/me\|currentUser\|useAuth" src/ 2>/dev/null | head
 ```
 
-**Prerequisites:** `set-up-state-management` (the `fetcher` seam + query-key factory) and `set-up-routing` (guards live in `beforeLoad`/`beforeEach`). Finding tokens in `localStorage` is itself an audit finding — fix it (step 4).
+Read `frontend.framework` (guard and hook flavour) and `backend.track`: if the backend is Supabase or another identity provider, use its SDK for the token lifecycle and keep the rest of this skill (see `auth-patterns.md`, When to deviate). **Prerequisites:** `set-up-state-management` (the `fetcher` seam + query-key factory) and `set-up-routing` (guards live in `beforeLoad`/`beforeEach`). Finding tokens in `localStorage` is itself an audit finding — fix it (step 4).
 
 ## 2. Decide what to do
 - No auth → full setup.
@@ -24,12 +25,12 @@ React → hooks + TanStack Router guard. Vue → composables + Vue Router guard.
 
 ## 4. Token strategy — never `localStorage`
 
-| Strategy | Where the token lives | Use when |
-|---|---|---|
-| **httpOnly cookie** (preferred) | server-set cookie, JS can't read it | you control the API/domain — XSS-safe by construction |
-| **In-memory access + httpOnly refresh** | access token in a JS variable; refresh token in an httpOnly cookie | cross-domain token API; access token never touches storage |
+| Strategy | Where the token lives | Use when | Why |
+|---|---|---|---|
+| **httpOnly cookie** (preferred) | server-set cookie, JS can't read it | you control the API/domain | XSS cannot read it, so a script injection cannot exfiltrate the session |
+| **In-memory access + httpOnly refresh** | access token in a JS variable; refresh token in an httpOnly cookie | cross-domain token API | the long-lived secret is unreadable by JS; the short-lived one dies on reload |
 
-**Never** `localStorage`/`sessionStorage` for tokens — any XSS reads them. With cookies, the `fetcher` sends credentials automatically; add CSRF protection (SameSite=Lax + a CSRF token on unsafe methods).
+**Never** `localStorage`/`sessionStorage` for tokens — any XSS reads them. With cookies, the `fetcher` sends credentials automatically; add CSRF protection (SameSite=Lax + a CSRF token on unsafe methods). Cookie flags: `HttpOnly; Secure; SameSite=Lax`, `__Host-` prefix where the API shares the origin ([security baseline](../../core/_shared/security-baseline.md)).
 
 Upgrade `src/libs/fetcher.ts` to the **auth version** in [`../_shared/fetcher.md`](../_shared/fetcher.md): `credentials: 'include'` for the cookie, an `X-CSRF-Token` header on unsafe methods, and the 401 refresh from step 8. It builds headers from `new Headers(init?.headers)` *after* spreading `init`, so a caller's own headers can never erase the CSRF token.
 
@@ -49,7 +50,7 @@ export const queryKeys = {
 ```
 
 ```ts
-// src/libs/auth.ts
+// src/libs/auth.ts  (Vue: import queryOptions from '@tanstack/vue-query')
 import { queryOptions } from '@tanstack/react-query';
 import { fetcher, HttpError } from '@/libs/fetcher';
 import { queryKeys } from '@/libs/queryKeys';
@@ -113,6 +114,16 @@ export const Route = createFileRoute('/dashboard')({
   component: () => <h1>Dashboard</h1>,
 });
 ```
+After login, send the user to `redirect` only if it is a same-origin path: starts with `/`, no backslash, and its normalised path does not start with `//` (`/.//evil.com` becomes `//evil.com`). An unchecked value is an open redirect that phishing links abuse.
+```ts
+// src/libs/safeRedirect.ts
+export function safeRedirect(target: unknown, fallback = '/'): string {
+  if (typeof target !== 'string' || !target.startsWith('/') || target.includes('\\')) return fallback;
+  // Check the path a browser will actually use: '/.//evil.com' normalises to '//evil.com' (protocol-relative).
+  const { pathname, search, hash } = new URL(target, 'https://placeholder.invalid');
+  return pathname.startsWith('//') ? fallback : `${pathname}${search}${hash}`;
+}
+```
 Vue: in `router.beforeEach`, `await queryClient.ensureQueryData(currentUserQueryOptions)` (or read a Pinia auth store hydrated from it) and redirect if absent.
 
 ## 8. Transparent refresh (in-memory token strategy)
@@ -123,7 +134,7 @@ The code is the `refreshSession` / `retried` part of the auth version in [`../_s
 
 ## 9. Verify
 ```bash
-pnpm tsc --noEmit
+pnpm typecheck
 ```
 Log in → protected route loads and `/auth/me` is cached; log out → `queryClient.clear()` empties it and the guard bounces to `/login`. Confirm no token is in `localStorage`/`sessionStorage` (DevTools → Application).
 

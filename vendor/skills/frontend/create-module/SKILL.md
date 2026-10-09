@@ -1,6 +1,6 @@
 ---
 name: create-module
-description: Use when adding a new module, utility, helper, hook, or any piece of logic to a frontend project — keeps UI components thin by routing logic into the right layer (utils / libs / hooks / composables / stores) behind a typed interface — inside a feature module once the app has more than one domain — with a barrel export and a unit test in tests/unit.
+description: Use when adding new logic to a frontend project (helper, hook, composable, wrapper, store) - routes it to the right layer (utils, libs, hooks, stores, feature folder) so components stay thin, with a unit test.
 ---
 
 # Create Module
@@ -17,7 +17,9 @@ grep -rn "<the thing you're about to write>" src/ 2>/dev/null            # alrea
 grep '"@/\*"' tsconfig.json tsconfig.app.json 2>/dev/null                 # @/ alias present?
 ```
 
-**Prerequisites:** `set-up-frontend-structure` (the `utils/`, `libs/`, `hooks/`|`composables/`, `stores/` folders + barrels) and the `@/` alias (`configure-typescript`). If a home folder is missing, create it flat and note the deviation.
+Read `.claude/stack-profile.md` if present: `frontend.framework` replaces the detection in step 2; `tests.layout` (`tests-dir` default | `colocated`) decides where the unit test goes in step 7; `package_manager` replaces `pnpm`.
+
+**Prerequisites:** `set-up-frontend-structure` (the `utils/`, `libs/`, `hooks/`|`composables/`, `stores/` folders) and the `@/` alias (`configure-typescript`). If a home folder is missing, create it flat and note the deviation.
 
 ## 2. Detect framework
 React → `src/hooks/`. Vue → `src/composables/`. The other homes (`utils/`, `libs/`, `stores/`) are identical.
@@ -107,11 +109,11 @@ const { openCount } = useTodoSummary();
 <template><p>{{ formatCount(openCount, 'open todo') }}</p></template>
 ```
 
-## 6. Boundary + barrel
-Add the module to its layer's `index.ts` barrel (the layer's single re-export home). Inside a feature, export only what other features need from `features/<d>/index.ts`; everything else stays private. Import a module by its path — `@/utils/openTodos`, `@/features/todos` — and never reach *past* it into another module's private internals. One module, one responsibility; file name matches the primary export.
+## 6. Boundary
+No layer barrels: a root module is imported by its own path (`@/utils/openTodos`, `@/hooks/useTodos`). Inside a feature, `features/<d>/index.ts` exports only what other features need; everything else stays private, and other code imports `@/features/todos`, never a file inside it. One module, one responsibility; file name matches the primary export.
 
-## 7. Unit test in `tests/unit`
-Extraction's payoff — pure logic tests with zero setup:
+## 7. Unit test
+Extraction's payoff — pure logic tests with zero setup. Default location `tests/unit/`; with `tests.layout: colocated`, write `src/utils/openTodos.test.ts` and import `./openTodos`:
 ```ts
 // tests/unit/openTodos.test.ts
 import { describe, it, expect } from 'vitest';
@@ -135,7 +137,7 @@ describe('openTodos', () => {
 
 ## 9. Verify
 ```bash
-pnpm tsc --noEmit                              # the module + its consumers type-check
+pnpm typecheck                                 # the module + its consumers type-check
 pnpm vitest run tests/unit/openTodos.test.ts   # the unit test passes (if configure-test-stack ran)
 ```
 

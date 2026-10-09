@@ -87,10 +87,7 @@ The example hooks use classic `useQuery` with `isPending`/`isError`, which works
 
 ```tsx
 // upgrade: no isPending/isError branches; needs <Suspense> + <ErrorBoundary> above
-const { data } = useSuspenseQuery({
-  queryKey: queryKeys.todos.list(filters),
-  queryFn: () => fetcher<Todo[]>(`/todos?status=${filters.status}`),
-});
+const { data } = useSuspenseQuery(todosQueryOptions(filters)); // same options object as useQuery
 ```
 
 **Caveat — pagination/filter flash:** changing the key while a Suspense query is mounted re-triggers the fallback. Wrap the update in `startTransition` to keep the old data visible during the fetch.
@@ -111,6 +108,7 @@ export function useTodos(filters: MaybeRefOrGetter<TodoFilters>) {
 
 ## When to deviate
 
+- **One screen, one or two queries:** inline `queryOptions` in the hook and skip `queryKeys.ts`; add the factory when a mutation has to invalidate a key it does not own.
 - **Persisted cache** (offline, instant reloads): add `persistQueryClient` and set `gcTime` ≥ the persister's `maxAge`.
 - **Pinia Colada** is a Vue-native alternative to the Query Vue adapter. Valid in a Vue-only app, but this plugin standardises on TanStack Query both sides for one mental model and one key factory shared with React code.
 - **Nuxt `useFetch` / `useAsyncData`:** fine for page-local SSR data no other component reads; anything shared, mutated or invalidated goes through TanStack Query. **Next.js:** Server Components prefetch into a `QueryClient` and pass `dehydrate(queryClient)` to `<HydrationBoundary>`; client components read through the same hooks.

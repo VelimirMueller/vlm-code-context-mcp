@@ -2,9 +2,13 @@
 
 Reference for `set-up-routing`. The senior 2026 routing choices, React and Vue.
 
+## Rule: TanStack Router for React, Vue Router for Vue
+**Why:** TanStack Router infers params, search params, and route IDs from the route tree and has first-class loader and context hooks, which is what the loader-to-Query pattern below needs. React Router v7 reaches typed routes only through its framework mode and codegen. For Vue, Vue Router is the only first-party router: it tracks Vue releases and the ecosystem (devtools, Nuxt) assumes it.
+**How to apply:** React → `@tanstack/react-router` + `@tanstack/router-plugin`. Vue → `vue-router` (v5). Don't mix: one router per app.
+
 ## Rule: routes are typed — no stringly-typed paths
-**Why:** `navigate('/todos/' + id)` is a runtime bug waiting to happen — a typo or a renamed route fails silently. TanStack Router infers params, search, and route IDs from the route tree, so a wrong `to` is a compile error. Vue gains the same with `unplugin-vue-router` (typed `RouterLink`/`router.push`).
-**How to apply:** React → TanStack Router file-based + the `Register` declaration. Vue → `unplugin-vue-router` for typed routes, or named routes (`{ name: 'todo', params: { id } }`) as the typed-enough baseline.
+**Why:** `navigate('/todos/' + id)` is a runtime bug waiting to happen — a typo or a renamed route fails silently. TanStack Router infers params, search, and route IDs from the route tree, so a wrong `to` is a compile error. Vue Router 5 gains the same with its built-in file-based routing plugin (`vue-router/vite`, formerly `unplugin-vue-router`): typed `RouterLink` and `router.push`.
+**How to apply:** React → TanStack Router file-based + the `Register` declaration. Vue → `vue-router/vite` for typed routes, or named routes (`{ name: 'todo', params: { id } }`) as the typed-enough baseline.
 
 ## Rule: every route lazy-loads its component
 **Why:** Shipping the whole app in the entry bundle blocks first paint. Per-route splitting means a user downloads only the route they visit.
@@ -23,15 +27,23 @@ function Todos() { const { data } = useTodos(filters); /* waterfall */ }
 
 ## Rule: guards live in `beforeLoad` / `beforeEach`, not components
 **Why:** A component-level redirect renders the protected component (and fires its hooks) before bouncing — a flash and wasted work, sometimes a security smell. Route-level guards run *before* the route loads.
-**How to apply:** TanStack `beforeLoad: ({ context }) => { if (!context.auth) throw redirect({ to: '/login' }) }`. Vue `router.beforeEach`. The auth source comes from `set-up-auth`.
+**How to apply:** TanStack `beforeLoad` reads the user through the query cache and throws `redirect({ to: '/login' })`. Vue `router.beforeEach` does the same with `ensureQueryData`. The auth source comes from `set-up-auth`. A guard is UX, not security: anyone can read the bundle, so the API must reject unauthorized calls.
 
 ## Rule: each route owns its error + pending UI
 **Why:** A route that can fail should show a scoped fallback, not blank the app. This is the routing-layer twin of the `set-up-error-boundaries` boundaries.
-**How to apply:** TanStack `errorComponent` / `pendingComponent` per route — reuse the `ErrorFallback` atom. Vue: wrap `<RouterView>` in `<Suspense>` + an `ErrorBoundary`.
+**How to apply:** TanStack `errorComponent` / `pendingComponent` per route — reuse the `ErrorFallback` atom. Vue has no router-level error slot: wrap `<RouterView>` in `<Suspense>` and in the `ErrorBoundary` component from `set-up-error-boundaries` (an `onErrorCaptured` wrapper).
 
 ## Rule: the routes/ layer owns routing; reconcile with atomic `pages/`
 **Why:** File-based routers make `src/routes/` the source of truth for navigation. The atomic-design `pages/` layer then duplicates that. Pick one.
 **How to apply:** With TanStack file-based routing, route files in `src/routes/` *are* the pages — keep page-level composition there and drop the atomic `pages/` folder (or keep `pages/` as presentational templates the route files render). Don't maintain both as route owners. (Noted in `../_shared/conventions.md`.)
+
+## Rule: commit the generated route tree
+**Why:** `pnpm typecheck` in CI needs `routeTree.gen.ts` before any build runs. A gitignored file fails the typecheck on a clean checkout, and committing it puts route changes in the PR diff.
+**How to apply:** Commit `src/routeTree.gen.ts`; exclude it from lint/format (Biome `files.includes` negation); never edit it by hand.
+
+## Rule: the router must not keep a second data cache
+**Why:** TanStack Query already decides what is fresh. The router's own preload cache (30 s by default) would serve a loader result without asking Query, which is the two-caches drift `set-up-pwa` also avoids.
+**How to apply:** `defaultPreloadStaleTime: 0` on `createRouter`; the loader calls `ensureQueryData`, which honors the query's `staleTime`.
 
 ## When to deviate
 - **react-router shops:** react-router v7 (framework/data mode) is a fine choice with loaders/actions of its own. Migrate deliberately; don't run two routers. The patterns above (typed-ish, lazy, loader prefetch, guards, per-route error) still apply.

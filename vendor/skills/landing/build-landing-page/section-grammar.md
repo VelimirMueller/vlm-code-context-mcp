@@ -4,8 +4,8 @@ Reference for `build-landing-page`. What each section is for, what it must conta
 when to leave it out.
 
 ## Rule: the hero answers "what do I get and what do I do" in one screen
-**Why:** Most visitors decide to stay or bounce on the hero alone; clarity beats
-cleverness at that moment.
+**Why:** The hero is the only section every visitor sees, so it is the only one whose
+clarity applies to 100 % of traffic; below it, attention falls off with each scroll.
 **How to apply:** `h1` states the *outcome* the visitor gets, not the product name
 ("Ship invoices that pay themselves" — not "InvoiceMax Pro"). One primary CTA above the
 fold. A subline may add the mechanism. The hero visual is the LCP element and follows the
@@ -45,8 +45,8 @@ recommended. Pure sales-touch products skip the section and let the CTA be the c
 
 ## Rule: FAQ answers the objections the page created
 **Why:** Every page raises unasked questions (lock-in? cancellation? data?); unanswered,
-they exit. Bonus: real questions phrased as users ask them feed `FAQPage` schema and are
-exactly what answer engines quote.
+they exit. Bonus: real questions phrased as users ask them are what answer engines quote.
+(Google no longer shows FAQ rich results — the benefit is content, not SERP real estate.)
 **How to apply:** 4–8 real questions in the user's words, each with a direct answer in
 the first sentence. Real `<details>` or visible text — never content that only exists in
 schema.

@@ -24,18 +24,28 @@ Reference for `configure-accessibility`. What to enforce and how the three layer
 
 ## Rule: respect `prefers-reduced-motion`
 **Why:** Vestibular disorders make large motion painful or nauseating. Animation must be opt-out-able by the OS setting.
-**How to apply:** Gate non-essential transitions behind `motion-safe:` utilities (or a `@media (prefers-reduced-motion: reduce)` block that disables them). Essential feedback may remain but should be subtle.
+**How to apply:** (WCAG 2.3.3 Animation from Interactions is level AAA, and 2.2.2 Pause, Stop, Hide (A) covers auto-playing motion over 5 s; the OS setting is the practical, user-owned control for both.) Gate non-essential transitions behind `motion-safe:` utilities (or a `@media (prefers-reduced-motion: reduce)` block that disables them). Essential feedback may remain but should be subtle.
 
 ## Rule: color contrast meets WCAG AA (4.5:1 text, 3:1 large/UI)
 **Why:** Low contrast excludes low-vision users and anyone in sunlight. It must hold in *both* themes.
-**How to apply:** Choose `@theme` token pairs that pass in light and dark; verify with axe / browser devtools. `oklch` lightness makes contrast-aware palettes easier to reason about.
+**How to apply:** Choose `@theme` token pairs that pass in light and dark; verify with axe / browser devtools. `oklch` lightness makes contrast-aware palettes easier to reason about. Contrast needs layout, so it runs in the Playwright axe test, not in jsdom.
+
+## Rule: meet the WCAG 2.2 AA additions
+**Why:** WCAG 2.2 (W3C Recommendation) added criteria that SPAs break often, and 4.1.1 Parsing was dropped as obsolete. Conformance statements and procurement now cite 2.2.
+**How to apply:**
+- **2.5.8 Target Size (AA):** interactive targets at least 24×24 CSS px (or 24 px of spacing around them). Give icon buttons `size-6` minimum; prefer 40–44 px for touch.
+- **2.4.11 Focus Not Obscured (AA):** a focused element is not fully hidden by a sticky header, banner or cookie bar. Use `scroll-padding-top` equal to the sticky height.
+- **2.5.7 Dragging Movements (AA):** every drag has a single-pointer alternative (buttons to move up/down).
+- **3.3.8 Accessible Authentication (AA):** login never requires remembering or transcribing a code or solving a puzzle without an alternative. Allow paste and password managers: no `onPaste` blocking, `autocomplete="username"` / `"current-password"`.
+- **3.3.7 Redundant Entry (A):** do not ask for data already entered in the same flow; prefill it.
+- **3.2.6 Consistent Help (A):** a help link or contact sits in the same place on every page.
 
 ## Rule: forms are labeled and errors are announced
 **Why:** An unlabeled field is unusable with a screen reader; an error a sighted user sees but a screen reader doesn't is a silent failure.
 **How to apply:** `<label htmlFor>`, `aria-invalid`, `aria-describedby` → error with `role="alert"`. (Set up by `set-up-forms`; this skill lints and tests it.)
 
 ## Rule: three layers, none sufficient alone
-**Why:** Lint catches static markup mistakes; axe catches ~30–40% of issues at runtime; only a human catches focus order, meaningful labels, and "does this actually make sense by keyboard". Skipping the manual pass ships inaccessible-but-green UIs.
+**Why:** Lint catches static markup mistakes; axe catches a large but incomplete share at runtime (57% of issues by volume in Deque's 2021 study, far less by WCAG criteria); only a human catches focus order, meaningful labels, and "does this actually make sense by keyboard". Skipping the manual pass ships inaccessible-but-green UIs.
 **How to apply:** Biome a11y rules (JSX, and Vue templates with full SFC support) in CI → axe in `tests/ui` + `tests/e2e` → a keyboard-only walkthrough of each critical flow.
 
 ## When to deviate

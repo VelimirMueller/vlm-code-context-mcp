@@ -10,7 +10,8 @@ How the frontendskills set fits together. The skills look independent but interl
 | `env` | `src/libs/env.ts` | validate-env |
 | `queryClient` | `src/libs/queryClient.ts` | set-up-state-management |
 | `queryKeys` | `src/libs/queryKeys.ts` | set-up-state-management |
-| `captureError` | `src/libs/error-reporter.ts` | set-up-error-boundaries |
+| `captureError` | `src/libs/error-reporter.ts` | set-up-error-boundaries (Sentry body: configure-error-tracking) |
+| Sentry init | `src/libs/sentry.ts` | configure-error-tracking |
 | `realtime` | `src/libs/realtime.ts` | set-up-realtime |
 | `analytics` | `src/libs/analytics.ts` | configure-analytics |
 | `featureFlags` | `src/libs/featureFlags.ts` | set-up-feature-flags |
@@ -43,8 +44,14 @@ A route loader prefetches into the exact cache address a component's hook reads 
 
 ## How the skills compose
 
-`scaffold → clean → configure-typescript → validate-env → configure-linting → set-up-frontend-structure → set-up-state-management → (set-up-realtime, set-up-error-boundaries) → configure-test-stack → set-up-routing → set-up-forms → set-up-auth → … → experience → polish → configure-ci → set-up-security-headers`. Every skill is audit-first, so the order is a guide, not a constraint.
+`scaffold → clean → configure-typescript → validate-env → configure-linting → set-up-frontend-structure → set-up-state-management → (set-up-realtime, set-up-error-boundaries) → configure-test-stack → set-up-routing → set-up-forms → set-up-auth → … → experience → polish → configure-ci → set-up-security-headers`. Every skill is audit-first, so the order is a guide, not a constraint. Each audit also reads `.claude/stack-profile.md` (see `stack-versions.md`, "Stack profile"), so `package_manager`, `frontend.framework`, `lint_format.ts` and `tests.layout` apply everywhere.
 
 ## The second catalogue
 
 `skills/landing/` covers the public-page world — landing pages, marketing and content pages — framework-agnostically (audits run on built HTML, not on a toolchain). Its cross-cutting logic lives in `skills/landing/_shared/`: `page-types.md` (the public-page gate and the priority inversion (LCP/CLS vs INP)) and `rubric-convention.md` (project-overridable audit rubrics). The two catalogues meet where an app exposes public pages: `set-up-document-head` → `landing/set-up-seo`, `set-up-forms` → `landing/set-up-lead-capture`, `optimize-performance` → `landing/build-landing-page`.
+
+## When to deviate
+
+- **A small app** (one domain, no realtime, no auth) needs only `env`, `fetcher`, `queryClient` and `queryKeys`; skip the seams whose skill has not run. A seam earns its file when a second caller or a test needs to swap it.
+- **A vendor that already isolates itself** (a generated API client, a Supabase client module) can stay the seam; do not wrap a wrapper.
+- **Nuxt/Next:** the framework owns routing, data loading and server env; keep the boundaries (server state in one cache, UI state in stores) and drop the seams the framework provides.

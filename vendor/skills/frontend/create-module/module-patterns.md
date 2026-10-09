@@ -39,3 +39,5 @@ function Summary() {
 ## When to deviate
 - **One-domain app:** keep the root layers; don't create `features/` for a single domain.
 - **Trivial inline helpers:** a one-line, single-use transform inside a component isn't worth a module. Extract on the second use, or when it stops being obvious.
+- **Prototype or a three-screen app:** the five-row routing table is for code that will be read by others. A hook used by one component can sit beside it until a second caller appears; move it then.
+- **Pure-view logic in a design-system component** (focus handling, roving tabindex): keep it inside the component's folder; it is the component's behaviour, not app logic.
