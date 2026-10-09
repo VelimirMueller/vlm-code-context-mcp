@@ -169,6 +169,10 @@ const OTHER_ROUTES: Route[] = [
   { method: "POST", path: "/api/epics", body: { name: "e" } },
   { method: "PUT", path: "/api/epic/1", body: {} },
   { method: "DELETE", path: "/api/epic/1" },
+  { method: "POST", path: "/api/milestone/1/archive" },
+  { method: "POST", path: "/api/milestone/1/unarchive" },
+  { method: "POST", path: "/api/epic/1/archive" },
+  { method: "POST", path: "/api/epic/1/unarchive" },
   { method: "PATCH", path: "/api/sprint/1/milestone", body: {} },
   { method: "PATCH", path: "/api/ticket/1/epic", body: {} },
   // discoveries
@@ -241,7 +245,7 @@ describe("dashboard route-parity: every golden route is served", () => {
     // Bumping this requires consciously editing the golden table above — it is the
     // tripwire for an accidental route addition/removal during a later slice.
     expect(SCRUM_ROUTES.length).toBe(26);
-    expect(ALL_ROUTES.length).toBe(76);
+    expect(ALL_ROUTES.length).toBe(80);
   });
 
   it("control: a genuinely unknown path DOES hit the unknown-endpoint sentinel", async () => {
