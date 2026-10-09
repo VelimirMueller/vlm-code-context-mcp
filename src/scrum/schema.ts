@@ -150,6 +150,7 @@ export function initScrumSchema(db: Database.Database): void {
       target_date TEXT,
       progress INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT DEFAULT NULL,
+      archived_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -173,6 +174,7 @@ export function initScrumSchema(db: Database.Database): void {
       color TEXT DEFAULT '#3b82f6',
       priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
       deleted_at TEXT DEFAULT NULL,
+      archived_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -408,6 +410,14 @@ export function initScrumSchema(db: Database.Database): void {
   if (sprintCols.some((c) => c.name === "archived_at")) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
   }
+  // archived_at indexes on milestones/epics (v24) — legacy tables gain the column in
+  // runMigrations' idempotent section, so only index it here when it already exists.
+  for (const table of ["milestones", "epics"]) {
+    const tCols = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (tCols.some((c) => c.name === "archived_at")) {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_archived ON ${table}(archived_at);`);
+    }
+  }
 
   // idx_tickets_sprint_deleted and idx_sprints_status_deleted reference deleted_at columns
   // that may not exist on legacy DBs — create them only when the columns are present.
@@ -432,7 +442,7 @@ export function initScrumSchema(db: Database.Database): void {
 
 /** Single source of truth for the schema version. Must equal the max version in
  *  runMigrations' array — runMigrations asserts this at every call. */
-export const LATEST_SCHEMA_VERSION = 23;
+export const LATEST_SCHEMA_VERSION = 24;
 
 /**
  * Read the stamped schema version of an on-disk DB without opening it
@@ -611,6 +621,9 @@ export function runMigrations(
     // D1/D2 live-board + multi-agent schema — columns/tables/backfill applied in the
     // idempotent post-migration section below.
     { version: 23, name: 'add_ticket_revisions_and_assignments', sql: `SELECT 1` },
+    // archived_at on milestones + epics (mirrors v20 for sprints) — column + index are
+    // applied in the idempotent post-migration section below; this entry records the version.
+    { version: 24, name: 'add_milestone_epic_archived_at', sql: `SELECT 1` },
   ];
 
   const maxDefined = Math.max(...migrations.map((m) => m.version));
@@ -825,6 +838,16 @@ export function runMigrations(
     db.exec("ALTER TABLE sprints ADD COLUMN archived_at TEXT DEFAULT NULL");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sprints_archived ON sprints(archived_at);");
+
+  // Migration 24: add archived_at to milestones + epics (idempotent — no table rebuild
+  // touches these tables, so a plain ALTER is safe on every legacy path).
+  for (const table of ["milestones", "epics"]) {
+    const tCols = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!tCols.some((c) => c.name === "archived_at")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN archived_at TEXT DEFAULT NULL`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_archived ON ${table}(archived_at);`);
+  }
   });
 
   // SQLite table rebuilds (DROP + RENAME) under FK enforcement fire ON DELETE CASCADE

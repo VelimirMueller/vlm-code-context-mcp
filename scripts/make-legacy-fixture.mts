@@ -5,6 +5,7 @@
  *   npx tsx scripts/make-legacy-fixture.mts cc8c557 pre-versioning   # before schema_versions existed
  *   npx tsx scripts/make-legacy-fixture.mts v1.2.1 v1.2.1
  *   npx tsx scripts/make-legacy-fixture.mts v1.3.1 v1.3.1
+ *   npx tsx scripts/make-legacy-fixture.mts v2.5.1 v2.5.1     # last schema before milestone/epic archived_at
  *
  * Extracts src/scrum/schema.ts (+ src/server/schema.ts when present) at <git-ref>,
  * runs the era's init/migrate functions against a temp DB, seeds deterministic data,
@@ -12,7 +13,6 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -31,7 +31,11 @@ function gitShow(p: string): string | null {
   }
 }
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "legacy-fixture-"));
+// The extracted schema modules import better-sqlite3 at runtime (v2.x+), so the temp dir
+// must sit under the repo's node_modules for bare-specifier resolution to work.
+const cacheDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../node_modules/.cache");
+fs.mkdirSync(cacheDir, { recursive: true });
+const tmp = fs.mkdtempSync(path.join(cacheDir, "legacy-fixture-"));
 const scrumSrc = gitShow("src/scrum/schema.ts");
 if (!scrumSrc) {
   console.error(`No src/scrum/schema.ts at ${ref}`);
@@ -65,6 +69,11 @@ const has = (t: string) =>
 if (has("decisions")) db.exec("INSERT INTO decisions (title) VALUES ('Legacy decision')");
 if (has("discoveries"))
   db.exec("INSERT INTO discoveries (discovery_sprint_id, finding) VALUES (1, 'Legacy discovery')");
+// Milestone + epic rows (v2.6.0 archive migration must preserve them and default archived_at to NULL)
+if (has("milestones"))
+  db.exec("INSERT INTO milestones (name, status) VALUES ('Legacy milestone', 'completed')");
+if (has("epics"))
+  db.exec("INSERT INTO epics (name, status, milestone_id) VALUES ('Legacy epic', 'completed', 1)");
 if (has("event_log"))
   db.exec("INSERT INTO event_log (entity_type, entity_id, action) VALUES ('ticket', 1, 'created')");
 
