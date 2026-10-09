@@ -64,6 +64,11 @@ function matchesGitignore(relativePath: string, isDirectory: boolean, patterns: 
 const SKIP_DIRS = SKIP_DIR_NAMES;
 
 const PARSEABLE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const PYTHON_EXTENSIONS = new Set([".py", ".pyi"]);
+
+function isParsedExtension(ext: string): boolean {
+  return PARSEABLE_EXTENSIONS.has(ext) || PYTHON_EXTENSIONS.has(ext);
+}
 
 const LANG_MAP: Record<string, string> = {
   ".ts": "typescript", ".tsx": "typescriptreact",
@@ -98,6 +103,8 @@ const LANG_MAP: Record<string, string> = {
 interface ParsedImport {
   symbols: string[];
   source: string;
+  /** Python only: true for `from <source> import …`, false for `import <source>` */
+  fromImport?: boolean;
 }
 
 function parseImports(content: string): ParsedImport[] {
@@ -203,6 +210,219 @@ export function parseExports(content: string): ParsedExport[] {
   ];
 }
 
+// ─── Python parsing (regex-based, like the JS/TS parsers) ───────────────────
+/**
+ * Replace every triple-quoted string (and its delimiters) with spaces, keeping
+ * newlines, so line-oriented matching never fires inside module-level strings.
+ * Offsets stay identical to `content`, so match positions remain valid there.
+ */
+function blankTripleQuotedStrings(content: string): string {
+  let result = "";
+  let last = 0;
+  const re = /("""[\s\S]*?"""|'''[\s\S]*?''')/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    result += content.slice(last, m.index);
+    result += m[0].replace(/[^\n]/g, " ");
+    last = m.index + m[0].length;
+  }
+  result += content.slice(last);
+  return result;
+}
+
+/** Position of the `:` that ends a def/class header, skipping (...) and [...]. */
+function pythonHeaderEnd(content: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth--;
+    else if (ch === ":" && depth <= 0) return i;
+  }
+  return -1;
+}
+
+/** First non-empty line of the docstring that directly follows `colonPos`, or null. */
+function pythonDocstringAfter(content: string, colonPos: number): string | null {
+  if (colonPos < 0) return null;
+  const rest = content.slice(colonPos + 1);
+  const m = /^\s*(?:"""([\s\S]*?)"""|'''([\s\S]*?)''')/.exec(rest);
+  if (!m) return null;
+  const body = m[1] ?? m[2] ?? "";
+  return body.split("\n").map(l => l.trim()).find(l => l.length > 0) ?? null;
+}
+
+/** Names listed in a module-level `__all__ = [...]` / `__all__ = (...)`, or null when absent. */
+function parsePythonAll(code: string): string[] | null {
+  const m = /^__all__\s*=\s*[[(]([\s\S]*?)[\])]/m.exec(code);
+  if (!m) return null;
+  const names: string[] = [];
+  const nameRe = /"([^"]*)"|'([^']*)'/g;
+  let nm: RegExpExecArray | null;
+  while ((nm = nameRe.exec(m[1])) !== null) {
+    const name = nm[1] ?? nm[2];
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+export function parsePythonExports(content: string): ParsedExport[] {
+  const code = blankTripleQuotedStrings(content);
+  const defRe = /^(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/;
+  const classRe = /^class\s+([A-Za-z_]\w*)/;
+  const constRe = /^([A-Z][A-Z0-9_]*)\s*=/;
+
+  const found = new Map<string, ParsedExport>();
+  let offset = 0;
+  for (const line of code.split("\n")) {
+    let m: RegExpExecArray | null;
+    let kind: string | null = null;
+    let name: string | null = null;
+    if ((m = defRe.exec(line))) { kind = "function"; name = m[1]; }
+    else if ((m = classRe.exec(line))) { kind = "class"; name = m[1]; }
+    else if ((m = constRe.exec(line))) { kind = "const"; name = m[1]; }
+
+    if (kind && name && !found.has(name)) {
+      let description: string | null = null;
+      if (kind !== "const") {
+        description = pythonDocstringAfter(content, pythonHeaderEnd(content, offset));
+      }
+      found.set(name, { name, kind, description });
+    }
+    offset += line.length + 1;
+  }
+
+  const allNames = parsePythonAll(code);
+  if (allNames) {
+    // __all__ wins: keep only listed names (with their found kind), list the
+    // rest as re-exports. Listed names may include _private ones.
+    return allNames.map(n => found.get(n) ?? { name: n, kind: "re-export", description: null });
+  }
+  return Array.from(found.values()).filter(e => !e.name.startsWith("_"));
+}
+
+export function parsePythonImports(content: string): ParsedImport[] {
+  const code = blankTripleQuotedStrings(content);
+  const found: { index: number; imp: ParsedImport }[] = [];
+
+  // import a.b.c / import a.b as x / import a, b — module level and inside functions
+  const importRe = /^[ \t]*import\s+([^#\n]+)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(code)) !== null) {
+    for (const item of m[1].split(",")) {
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      const asMatch = /^([\w.]+)\s+as\s+(\w+)$/.exec(trimmed);
+      if (asMatch) found.push({ index: m.index, imp: { symbols: [asMatch[2]], source: asMatch[1], fromImport: false } });
+      else if (/^[\w.]+$/.test(trimmed)) found.push({ index: m.index, imp: { symbols: [trimmed], source: trimmed, fromImport: false } });
+    }
+  }
+
+  // from <source> import x, y as z — with parenthesised multi-line lists;
+  // source keeps its leading dots (.mod, ..pkg.mod, .)
+  const fromRe = /^[ \t]*from\s+((?:\.[\w.]*)|[\w.]+)\s+import\s+(?:\(([\s\S]*?)\)|([^#\n]+))/gm;
+  while ((m = fromRe.exec(code)) !== null) {
+    const source = m[1];
+    const body = m[2] ?? m[3] ?? "";
+    const symbols: string[] = [];
+    for (const item of body.split(",")) {
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(trimmed);
+      if (asMatch) symbols.push(asMatch[2]);
+      else if (/^\w+$/.test(trimmed) || trimmed === "*") symbols.push(trimmed);
+    }
+    if (symbols.length) found.push({ index: m.index, imp: { symbols, source, fromImport: true } });
+  }
+  return found.sort((a, b) => a.index - b.index).map(f => f.imp);
+}
+
+/**
+ * Resolve a parsed Python import to a file under rootDir: `<path>.py`, then
+ * `<path>/__init__.py`. Relative sources go up one directory per extra dot;
+ * absolute ones are tried from rootDir and rootDir/src. Never leaves rootDir.
+ * Returns the module/package file the import source names (for `from . import x`
+ * with no module part: the first symbol as a sibling module).
+ */
+export function resolvePythonImport(source: string, symbols: string[], fromFile: string, rootDir: string): string | null {
+  return resolvePythonImportTargets(source, symbols, fromFile, rootDir)[0] ?? null;
+}
+
+/** `<base>.py`, then `<base>/__init__.py`, inside rootDir only. */
+function pythonModuleFile(base: string, rootDir: string): string | null {
+  for (const c of [base + ".py", path.join(base, "__init__.py")]) {
+    if (fs.existsSync(c) && fs.statSync(c).isFile() && isPathInside(c, rootDir)) return c;
+  }
+  return null;
+}
+
+/** Directory bases a Python import source can name (relative: one dir up per extra dot). */
+function pythonSourceBases(source: string, fromFile: string, rootDir: string): string[] {
+  if (source.startsWith(".")) {
+    const dots = source.match(/^\.+/)![0].length;
+    const rest = source.slice(dots);
+    let dir = path.dirname(fromFile);
+    for (let i = 1; i < dots; i++) dir = path.dirname(dir);
+    return [rest ? path.join(dir, ...rest.split(".")) : dir];
+  }
+  const rel = source.split(".");
+  return [path.join(rootDir, ...rel), path.join(rootDir, "src", ...rel)];
+}
+
+/**
+ * Every repo file a Python import really depends on, deduplicated. For
+ * `from <src> import a, b` each name is tried as a SUBMODULE first
+ * (`<src>/a.py`, `<src>/a/__init__.py`) — `from . import a, b` and
+ * `from pkg import submodule` then get one edge per module — and a name that is
+ * no submodule (a function, class, constant) falls back to the source module or
+ * package file itself. `import a.b` resolves the dotted path only.
+ */
+export function resolvePythonImportTargets(source: string, symbols: string[], fromFile: string, rootDir: string, isFrom = true): string[] {
+  const out = new Set<string>();
+  for (const base of pythonSourceBases(source, fromFile, rootDir)) {
+    let needSource = !isFrom || symbols.length === 0;
+    if (isFrom) {
+      for (const sym of symbols) {
+        if (sym === "*") { needSource = true; continue; }
+        const sub = pythonModuleFile(path.join(base, sym), rootDir);
+        if (sub) out.add(sub);
+        else needSource = true;
+      }
+    }
+    if (needSource) {
+      const own = pythonModuleFile(base, rootDir);
+      if (own) out.add(own);
+    }
+    if (out.size) break; // first base (rootDir before rootDir/src) that resolves wins
+  }
+  return [...out];
+}
+
+/** Top-level packages of absolute imports that resolve to no repo file (stdlib, third-party). */
+function extractPythonExternalPackages(content: string, filePath: string, rootDir: string): string[] {
+  const packages = new Set<string>();
+  for (const imp of parsePythonImports(content)) {
+    if (imp.source.startsWith(".")) continue;
+    if (resolvePythonImport(imp.source, imp.symbols, filePath, rootDir)) continue;
+    packages.add(imp.source.split(".")[0]);
+  }
+  return Array.from(packages).sort();
+}
+
+/** Dispatch to the Python or JS/TS export parser for a file extension. */
+function parseFileExports(content: string, ext: string): ParsedExport[] {
+  if (PYTHON_EXTENSIONS.has(ext)) return parsePythonExports(content);
+  if (PARSEABLE_EXTENSIONS.has(ext)) return parseExports(content);
+  return [];
+}
+
+/** Dispatch to the Python or JS/TS import parser for a file extension. */
+function parseFileImports(content: string, ext: string): ParsedImport[] {
+  if (PYTHON_EXTENSIONS.has(ext)) return parsePythonImports(content);
+  if (PARSEABLE_EXTENSIONS.has(ext)) return parseImports(content);
+  return [];
+}
+
 // ─── Summary extraction ──────────────────────────────────────────────────────
 function extractSummary(content: string, filePath: string, ext: string): string {
   // JSON files: extract top-level "name" and "description"
@@ -262,9 +482,9 @@ function extractSummary(content: string, filePath: string, ext: string): string 
   }
   if (commentLines.length > 0) return commentLines.slice(0, 3).join(" ");
 
-  // JS/TS: fall back to exports list
-  if (PARSEABLE_EXTENSIONS.has(ext)) {
-    const exports = parseExports(content);
+  // JS/TS and Python: fall back to exports list
+  if (isParsedExtension(ext)) {
+    const exports = parseFileExports(content, ext);
     if (exports.length > 0) return `Exports: ${exports.map(e => e.name).join(", ")}`;
   }
 
@@ -559,8 +779,8 @@ function diffAndLogChanges(db: Database.Database, before: Map<string, FileSnapsh
 // ─── Auto-generate file description ─────────────────────────────────────────
 function generateFileDescription(filePath: string, lang: string, ext: string, lineCount: number, content: string, summary: string, externals: string | null): string | null {
   const name = path.basename(filePath);
-  const exports = PARSEABLE_EXTENSIONS.has(ext) ? parseExports(content) : [];
-  const imports = PARSEABLE_EXTENSIONS.has(ext) ? parseImports(content) : [];
+  const exports = parseFileExports(content, ext);
+  const imports = parseFileImports(content, ext);
   const localImports = imports.filter(i => i.source.startsWith("."));
   const externalPkgs = externals ? externals.split(", ") : [];
 
@@ -797,7 +1017,7 @@ function prepareFileStatements(db: Database.Database): FileStatements {
  * Upsert one file row and its exports. Returns its line count and export
  * count, or null when the file is unreadable or binary (no row written).
  */
-function storeFile(st: FileStatements, filePath: string): { lines: number; exports: number; content: string } | null {
+function storeFile(st: FileStatements, filePath: string, rootDir: string): { lines: number; exports: number; content: string } | null {
   const ext = path.extname(filePath).toLowerCase();
   const lang = LANG_MAP[ext] ?? "unknown";
   let meta: ReturnType<typeof getFileMeta>;
@@ -811,6 +1031,8 @@ function storeFile(st: FileStatements, filePath: string): { lines: number; expor
   let externals: string | null = null;
   if (PARSEABLE_EXTENSIONS.has(ext)) {
     externals = extractExternalImports(parseImports(content)).join(", ") || null;
+  } else if (PYTHON_EXTENSIONS.has(ext)) {
+    externals = extractPythonExternalPackages(content, filePath, rootDir).join(", ") || null;
   }
 
   st.upsertFile.run(filePath, lang, ext, meta.sizeBytes, lineCount, summary, externals, content, meta.createdAt, meta.modifiedAt);
@@ -825,29 +1047,31 @@ function storeFile(st: FileStatements, filePath: string): { lines: number; expor
 
   st.clearExports.run(row.id);
   let exportCount = 0;
-  if (PARSEABLE_EXTENSIONS.has(ext)) {
-    for (const exp of parseExports(content)) {
-      st.insertExport.run(row.id, exp.name, exp.kind, exp.description);
-      exportCount++;
-    }
+  for (const exp of parseFileExports(content, ext)) {
+    st.insertExport.run(row.id, exp.name, exp.kind, exp.description);
+    exportCount++;
   }
   return { lines: lineCount, exports: exportCount, content };
 }
 
-/** Rebuild the outgoing dependency edges of one JS/TS file. */
+/** Rebuild the outgoing dependency edges of one JS/TS or Python file. */
 function storeDeps(st: FileStatements, filePath: string, content: string, rootDir: string): number {
-  if (!PARSEABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return 0;
+  const ext = path.extname(filePath).toLowerCase();
+  if (!isParsedExtension(ext)) return 0;
   const sourceRow = st.getFileId.get(filePath) as { id: number } | undefined;
   if (!sourceRow) return 0;
   st.clearDeps.run(sourceRow.id);
   let n = 0;
-  for (const imp of parseImports(content)) {
-    const resolved = resolveImportPath(imp.source, filePath, rootDir);
-    if (!resolved) continue;
-    const targetRow = st.getFileId.get(resolved) as { id: number } | undefined;
-    if (!targetRow) continue;
-    st.insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
-    n++;
+  for (const imp of parseFileImports(content, ext)) {
+    const targets = PYTHON_EXTENSIONS.has(ext)
+      ? resolvePythonImportTargets(imp.source, imp.symbols, filePath, rootDir, imp.fromImport !== false)
+      : [resolveImportPath(imp.source, filePath, rootDir)].filter((t): t is string => !!t);
+    for (const resolved of targets) {
+      const targetRow = st.getFileId.get(resolved) as { id: number } | undefined;
+      if (!targetRow || targetRow.id === sourceRow.id) continue;
+      st.insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
+      n++;
+    }
   }
   return n;
 }
@@ -903,7 +1127,7 @@ export function refreshFiles(
       const adm = admitFile(p, root, realRoot);
       if (!adm.ok) { if (adm.reason !== "unreadable") drop.push(p); continue; }
       if (isIgnored?.(p)) { drop.push(p); continue; }
-      const stored = storeFile(st0, p);
+      const stored = storeFile(st0, p, root);
       if (stored) keep.push({ path: p, content: stored.content });
       else if (readText(p) === null && fs.existsSync(p) && isBinaryOnDisk(p)) drop.push(p);
     }
@@ -957,7 +1181,7 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   // Phase 1: index all files
   db.transaction(() => {
     for (const filePath of candidates) {
-      const stored = storeFile(st, filePath);
+      const stored = storeFile(st, filePath, rootDir);
       if (!stored) continue;
       filePaths.push(filePath);
       lineCounts.set(filePath, stored.lines);
@@ -965,10 +1189,10 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
     }
   })();
 
-  // Phase 2: resolve dependencies (JS/TS only)
+  // Phase 2: resolve dependencies (JS/TS and Python)
   db.transaction(() => {
     for (const filePath of filePaths) {
-      if (!PARSEABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) continue;
+      if (!isParsedExtension(path.extname(filePath).toLowerCase())) continue;
       const content = readText(filePath);
       if (content === null) continue;
       depCount += storeDeps(st, filePath, content, rootDir);
