@@ -12,7 +12,7 @@ The pipeline that makes "CI is the real gate" true: every PR must pass lint, typ
 ls .github/workflows/ netlify.toml .nvmrc 2>/dev/null
 grep -E '"(lint|format|test|build|e2e|size)"' package.json 2>/dev/null   # the scripts CI will call
 ```
-**Prerequisites:** `configure-linting` (Biome/Prettier), `configure-test-stack` (Vitest + Playwright), and a Node version in `.nvmrc` (`scaffold-frontend-project`). The bundle-budget step expects `size-limit` from `optimize-performance`.
+**Prerequisites:** `configure-linting` (Biome), `configure-test-stack` (Vitest + Playwright), and a Node version in `.nvmrc` (`scaffold-frontend-project`). The bundle-budget step expects `size-limit` from `optimize-performance`.
 
 ## 2. Decide
 - No workflow → full setup. Partial → add missing jobs. Present → confirm jobs cover lint, types, test, build, e2e.
@@ -37,8 +37,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
-      - run: pnpm exec prettier --check .
-      - run: pnpm exec tsc --noEmit
+      - run: pnpm exec tsc --noEmit   # Vue: pnpm exec vue-tsc --noEmit
 
   test:
     runs-on: ubuntu-latest

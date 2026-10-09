@@ -22,6 +22,8 @@ Swap a vendor or mock a test by changing one file.
 - **Server state lives in the Query cache; never a store.** Stores hold UI state only. *(set-up-state-management)*
 - **Tokens never touch `localStorage`.** httpOnly cookie or in-memory access token. *(set-up-auth)*
 - **UI renders; modules decide.** Components hold no logic; it lives in utils/libs/hooks/stores. *(create-module)*
+- **A domain is one feature module.** From the second domain on, `features/<domain>/` holds its api, hooks/composables, components, stores and schemas behind one `index.ts`; the same names apply in Vue, React, Nuxt and Next. *(set-up-frontend-structure)*
+- **Biome is the only lint/format tool.** One config, same output in editor, hook and CI. *(configure-linting)*
 - **Config fails loud at boot, not silent at runtime.** *(validate-env)*
 - **Flags fail closed.** An unreachable flag service yields the safe value. *(set-up-feature-flags)*
 
@@ -37,7 +39,7 @@ auth guard ─ensureQueryData▶  └──────────────�
                         (the active filter) — never the data
 ```
 
-A route loader prefetches into the exact cache address a component's hook reads; a form mutation invalidates that address; the auth guard hydrates the user query into it; the realtime seam writes server-pushed updates into it. A UI store may feed a query *key* (the active filter), but the result always flows back into the cache, never into the store.
+A route loader prefetches into the exact cache address a component's hook reads (both use the same `queryOptions` object); a form mutation invalidates that address; the auth guard hydrates the user query into it; the realtime seam writes server-pushed updates into it. A UI store may feed a query *key* (the active filter), but the result always flows back into the cache, never into the store.
 
 ## How the skills compose
 

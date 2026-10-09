@@ -43,6 +43,11 @@ Ephemeral, client-only state with no server copy — toggles, selections, active
 
 **Test:** does it exist only because of what the user is doing in the browser right now? If yes, it's UI state.
 
+## Feature module
+A folder `src/features/<domain>/` that holds everything one domain owns — `api/` (keys, `queryOptions`, fetch functions), hooks/composables, domain components, UI stores, schemas — behind one `index.ts`. Inside, the root layer rules repeat.
+
+**Test:** would deleting this domain mean deleting this folder and nothing else? If yes, it's a well-cut feature module.
+
 ## Audit-first
 Convention used by every skill in this plugin: before installing or modifying anything, the skill reads the current project state and decides what (if anything) needs to change. See spec section 2.5.
 

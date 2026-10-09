@@ -23,25 +23,30 @@ React → React Compiler + `React.lazy`. Vue → the SFC compiler is already opt
 
 ## 4. Enable the React Compiler (React)
 
-The compiler auto-memoizes — it removes the need for most `useMemo`/`useCallback`/`memo`. It's GA in React 19.
+The compiler auto-memoizes — new code needs no `useMemo`/`useCallback`/`memo`. Compiler 1.0 is stable; React 19 needs no runtime shim.
 
+A new project can start from `pnpm create vite@latest <name> --template react-compiler-ts`. Existing project, `@vitejs/plugin-react` ≥ 6 (Vite 8):
 ```bash
-pnpm add -D babel-plugin-react-compiler
+pnpm add -D -E babel-plugin-react-compiler
+pnpm add -D @rolldown/plugin-babel
 ```
 ```ts
 // vite.config.ts
-import react from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [
-    // if set-up-routing ran, tanstackRouter() goes FIRST (before react)
-    react({ babel: { plugins: [['babel-plugin-react-compiler', {}]] } }), // compiler = build-time transform
+    // if set-up-routing ran, tanstackRouter() goes FIRST
+    react(),
+    babel({ presets: [reactCompilerPreset()] }), // order as in the React docs; the preset runs on source
     // then tailwindcss()
   ],
 });
 ```
+plugin-react 6 removed the inline `react({ babel: … })` option — a config using it fails silently on the compiler. Next.js 16: `reactCompiler: true` in `next.config.ts` (plus the same Babel plugin).
 
-The compiler relies on the Rules of React; add `eslint-plugin-react-hooks` (v5+, which ships the compiler rules) alongside Biome **for React rule-checking only** if you want lint-time guarantees — Biome doesn't cover those yet. After enabling, delete redundant `useMemo`/`useCallback` (keep Zustand selectors — different axis; see `set-up-state-management`).
+Pin the compiler exact (`-E`): its output can change between versions. In existing code, **leave** manual memoization in place — removing it can change what the compiler emits; new code just doesn't add it. Keep Zustand selectors (a subscription, not memoization; see `set-up-state-management`). The compiler's lint rules live in `eslint-plugin-react-hooks`, not Biome — see `configure-linting/lint-and-format.md` for when to add it.
 
 ## 5. Split code by route, lazy-load the heavy stuff
 

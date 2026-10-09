@@ -7,8 +7,8 @@ Reference for `optimize-performance`. The 2026 levers, in priority order.
 **How to apply:** Wire `rollup-plugin-visualizer` + `web-vitals` first. Set a budget (initial JS gzipped, LCP, INP, CLS) and fail CI on regressions. Optimize the top item, re-measure, repeat.
 
 ## Rule: let the React Compiler do the memoization
-**Why:** The compiler auto-inserts fine-grained memoization at build time, eliminating ~all manual `useMemo`/`useCallback`/`React.memo`. Hand-memoization is now mostly noise that can even be wrong.
-**How to apply:** Enable `babel-plugin-react-compiler`; remove redundant manual memo. **Exception:** Zustand/Pinia selectors are *subscriptions*, not render memoization — keep them (see `set-up-state-management`). Vue's compiler already does this; reserve `v-memo`/`v-once` for measured hotspots.
+**Why:** The compiler (1.0, stable) auto-inserts fine-grained memoization at build time — often more precise than hand-written `useMemo`/`useCallback`/`React.memo`, and also after early returns where hooks can't go.
+**How to apply:** Enable `babel-plugin-react-compiler` (`reactCompilerPreset` on Vite 8). New code: no manual memo except as a deliberate escape hatch (a value used as an effect dependency). Existing code: keep it; removal changes compiled output and needs tests first. **Exception:** Zustand/Pinia selectors are *subscriptions*, not render memoization — keep them (see `set-up-state-management`). Vue's compiler already does this; reserve `v-memo`/`v-once` for measured hotspots.
 
 ## Rule: split by route first, then lazy-load heavy islands
 **Why:** Route-splitting is the highest-leverage win — users download only the route they're on. Heavy, rarely-seen components (rich editors, charts, maps) shouldn't sit in the initial bundle.

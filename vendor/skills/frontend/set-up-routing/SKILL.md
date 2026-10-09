@@ -71,18 +71,15 @@ A route prefetches its data in a loader (warming the same cache `useTodos` reads
 ```tsx
 // src/routes/index.tsx
 import { createFileRoute } from '@tanstack/react-router';
-import { queryKeys, type Todo, type TodoFilters } from '@/libs/queryKeys';
-import { fetcher } from '@/libs/fetcher';
+import type { TodoFilters } from '@/libs/queryKeys';
+import { todosQueryOptions } from '@/hooks/useTodos';
 import { ErrorFallback } from '@/components/atoms/ErrorFallback';
 
 const filters: TodoFilters = { status: 'all' };
 
 export const Route = createFileRoute('/')({
   loader: ({ context }) =>
-    context.queryClient.ensureQueryData({
-      queryKey: queryKeys.todos.list(filters),
-      queryFn: () => fetcher<Todo[]>(`/todos?status=${filters.status}`),
-    }),
+    context.queryClient.ensureQueryData(todosQueryOptions(filters)), // same object the hook uses
   errorComponent: ({ error }) => <ErrorFallback error={error} />,
   component: () => <h1 className="text-3xl font-bold">Todos</h1>,
 });

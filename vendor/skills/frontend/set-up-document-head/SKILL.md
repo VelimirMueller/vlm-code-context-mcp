@@ -51,7 +51,10 @@ Per-route, with a **dynamic title from loaded data** (the router dedupes, prefer
 // src/routes/todos.$id.tsx
 export const Route = createFileRoute('/todos/$id')({
   loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(queryKeys.todos.detail(params.id) /* + queryFn */),
+    context.queryClient.ensureQueryData({
+      queryKey: queryKeys.todos.detail(params.id),
+      queryFn: () => fetcher<Todo>(`/todos/${params.id}`),
+    }),
   head: ({ loaderData }) => ({
     meta: [
       { title: loaderData ? `${loaderData.text} — MyApp` : 'Todo — MyApp' },

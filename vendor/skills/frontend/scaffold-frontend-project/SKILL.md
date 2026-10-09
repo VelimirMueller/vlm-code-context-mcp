@@ -1,6 +1,6 @@
 ---
 name: scaffold-frontend-project
-description: Use when starting a brand-new frontend project from an empty directory — scaffolds a Vite + TypeScript app (React 19 or Vue 3), pins pnpm and the active Node LTS, and installs + wires Tailwind v4, leaving a running base for the other frontend skills to build on.
+description: Use when starting a brand-new frontend project from an empty directory — scaffolds a Vite 8 + TypeScript app (React 19 or Vue 3.5), pins pnpm and the active Node LTS, and installs + wires Tailwind v4, leaving a running base for the other frontend skills to build on.
 ---
 
 # Scaffold Frontend Project
@@ -24,20 +24,21 @@ This is the only skill that runs before a `package.json` exists, so it **asks** 
 ## 3. Choose framework + name
 
 Ask the user (AskUserQuestion):
-- **Framework:** React 19 or Vue 3 (this plugin supports both; Vue 2 is EOL and rejected — see `../_shared/stack-versions.md`).
+- **Framework:** React 19 or Vue 3.5 (this plugin supports both; Vue 2 is EOL and rejected — see `../_shared/stack-versions.md`).
 - **Project name:** kebab-case (becomes the directory and `package.json` name).
 
 ## 4. Scaffold the Vite + TypeScript app
 
 ```bash
-# React
-pnpm create vite@latest <name> --template react-ts
+# React (React Compiler pre-wired — see optimize-performance)
+pnpm create vite@latest <name> --template react-compiler-ts
+# (no such template in your create-vite? use react-ts + optimize-performance step 4)
 
 # Vue
 pnpm create vite@latest <name> --template vue-ts
 ```
 
-Then `cd <name>` and `pnpm install`. Vite's `*-ts` templates ship React 19 / Vue 3 with TypeScript.
+Then `cd <name>` and `pnpm install`. The Vite 8 templates ship React 19 / Vue 3.5 with TypeScript 6.0. Keep TS on `~6.0` in Vue projects (`vue-tsc` does not support TS 7 yet). The React template ships `oxlint` — `configure-linting` replaces it with Biome.
 
 ## 5. Pin the toolchain
 
@@ -94,11 +95,11 @@ Stop the dev server. Confirm a Tailwind utility applies (e.g. `class="text-3xl f
 The base is running. Continue down the skill chain — each is audit-first and idempotent:
 1. `clean-frontend-scaffolding` — strip the Vite demo boilerplate.
 2. `configure-typescript` — strict mode + `@/` alias.
-3. `configure-linting` — Biome + Prettier + lefthook.
-4. `set-up-frontend-structure` — atomic-design folders.
+3. `configure-linting` — Biome (lint + format) + lefthook.
+4. `set-up-frontend-structure` — the shared folder layout (atomic components, seams, stores, feature modules later).
 5. `set-up-state-management`, `set-up-error-boundaries`, `configure-test-stack` — as the app needs them.
 
 ## References
-- ./scaffold-choices.md — why Vite, React 19 / Vue 3, pnpm + Corepack, Tailwind v4 CSS-first, and the don't-clobber audit guard.
+- ./scaffold-choices.md — why Vite, React 19 / Vue 3.5, pnpm + Corepack, Tailwind v4 CSS-first, Vite SPA vs Nuxt/Next, and the don't-clobber audit guard.
 - ../_shared/stack-versions.md — Node LTS, pnpm, dependency version policy.
 - ../_shared/conventions.md — `src/` root and `@/` alias conventions.

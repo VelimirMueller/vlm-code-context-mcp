@@ -32,3 +32,4 @@ function validate(v: FormValues) { if (!v.email.includes('@')) /* ... */ }
 ## When to deviate
 - **Bundle-sensitive:** `valibot` is a lighter, tree-shakeable alternative to Zod with a similar API (`@vee-validate/valibot`, `@hookform/resolvers/valibot`). Swap if bundle size matters more than Zod's ecosystem.
 - **Trivial forms:** a single uncontrolled input with native `required` doesn't need a form library. Reach for one when there are multiple fields, cross-field rules, or async validation.
+- **React 19 actions:** for a one- or two-field form (newsletter, search, rename) `<form action={fn}>` + `useActionState` gives pending and error state without a library — still validate with the same Zod schema (`schema.safeParse(Object.fromEntries(formData))`) and submit through the TanStack mutation. In Next.js the action is a Server Action and `useOptimistic` shows the pending value. Details: `../_shared/framework-idioms.md`.

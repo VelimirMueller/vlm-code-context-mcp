@@ -51,7 +51,7 @@ const todos = useTodos({ status });                  // keyed by it; result cach
 ```ts
 // Vue
 const { status } = storeToRefs(useTodoFiltersStore());              // UI state
-const todos = useTodos(computed(() => ({ status: status.value }))); // keyed by it; result cached
+const todos = useTodos(() => ({ status: status.value }));          // keyed by it; result cached
 ```
 
 **Anti-example:**

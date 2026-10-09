@@ -50,6 +50,8 @@ src/locales/
 ```
 Keys are namespaced and use interpolation + plurals — never concatenate sentence fragments.
 
+**Default locale pair: `de` + `en`.** Both catalogs ship from day one with the same keys; `en` is the fallback (and the type source for keys). German strings run ~30 % longer — design components to wrap, never to fit one English word. Use the informal or formal German address consistently per product (`du` vs `Sie`), decided once in the catalog, not per string.
+
 ## 6. Initialize (with the default locale only; lazy-load the rest)
 
 ```ts
@@ -58,23 +60,32 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import en from '@/locales/en/common.json';
 
+export const SUPPORTED_LOCALES = ['de', 'en'] as const;
+export type Locale = (typeof SUPPORTED_LOCALES)[number];
+const browser = navigator.language.split('-')[0];
+export const initialLocale: Locale = SUPPORTED_LOCALES.includes(browser as Locale)
+  ? (browser as Locale)
+  : 'en';
+
 i18n.use(initReactI18next).init({
   resources: { en: { common: en } },
-  lng: navigator.language.split('-')[0] || 'en',
+  lng: 'en', // switched to initialLocale by loadLocale() at boot — no untranslated flash
   fallbackLng: 'en',
   defaultNS: 'common',
   interpolation: { escapeValue: false }, // React already escapes
 });
 
-export async function loadLocale(lng: string) {
-  if (i18n.hasResourceBundle(lng, 'common')) return;
-  const messages = await import(`@/locales/${lng}/common.json`);
-  i18n.addResourceBundle(lng, 'common', messages.default);
+export async function loadLocale(lng: Locale) {
+  if (!i18n.hasResourceBundle(lng, 'common')) {
+    const messages = await import(`@/locales/${lng}/common.json`);
+    i18n.addResourceBundle(lng, 'common', messages.default);
+  }
+  await i18n.changeLanguage(lng);
 }
 
 export default i18n;
 ```
-Only the default locale ships in the bundle; `loadLocale('de')` dynamic-imports `de` on demand. Vue: `createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { en } })` + dynamic `import()` + `i18n.global.setLocaleMessage` to lazy-add.
+Only `en` ships in the bundle; `main.tsx` awaits `loadLocale(persistedLocale ?? initialLocale)` before the first render, so a German visitor never sees English first. `persistedLocale` comes from the locale store (step 9); `initialLocale` covers first visits. In Nuxt/Next, `navigator` does not exist on the server — use `@nuxtjs/i18n` / the request's `Accept-Language` instead of this module. Vue: `createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { en } })` + dynamic `import()` + `i18n.global.setLocaleMessage` to lazy-add.
 
 ## 7. Type the keys (autocomplete + no missing-key bugs)
 
@@ -105,7 +116,7 @@ i18next (`t('k', { val, formatParams })`) and vue-i18n (`$n`/`$d`) wrap `Intl` �
 
 A small store holds the chosen locale; switching lazy-loads then sets it:
 ```ts
-// on switch: await loadLocale(next); i18n.changeLanguage(next); store.setLocale(next);
+// on switch: await loadLocale(next); store.setLocale(next);  (loadLocale also changes the language)
 ```
 Persist the choice (like the theme store) and default to the browser locale on first visit.
 
