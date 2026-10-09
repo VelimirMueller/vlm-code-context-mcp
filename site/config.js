@@ -8,6 +8,8 @@ window.BENCH_CONFIG = {
   DATA_DIR: "data/",
   LATEST: "data/latest.json",
   INDEX: "data/index.json",
-  PREREG_VERSION_EXPECTED: "v1",
+  PREREG_VERSIONS: ["v1", "v2"],      // versions this page knows
+  PREREG_CURRENT: "v2",               // the version the Method section presents
+  MIN_TREATMENT_RATE: 0.8,            // prereg v2: a run is VALID only if >= 80 % of cc sessions received the treatment
   REPO: "https://github.com/VelimirMueller/vlm-code-context-mcp"
 };
