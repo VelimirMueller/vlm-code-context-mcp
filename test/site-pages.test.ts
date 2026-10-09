@@ -28,7 +28,7 @@ const run = (o: Record<string, unknown>) => ({
 
 describe("pages headline", () => {
   it("v1 run is never the headline; v2 pending, v1 labelled", async () => {
-    const w = load([run({ prereg: { version: "v1", sha256: "b".repeat(64) } })]);
+    const w = load([run({ run_id: "20261009-101417", prereg: { version: "v1", sha256: "b".repeat(64) } })]);
     await tick();
     const t = w.document.getElementById("headline-body").textContent;
     expect(t).toContain("First valid v2 run pending");
