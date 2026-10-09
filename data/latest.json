@@ -676,7 +676,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -755,7 +756,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T3": {
@@ -803,7 +805,8 @@
       "timed_out": false,
       "wall_ms": 25611,
       "index_ms": 0,
-      "update_words": 312
+      "update_words": 312,
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -852,7 +855,8 @@
       "timed_out": false,
       "wall_ms": 34239,
       "index_ms": 827,
-      "update_words": 283
+      "update_words": 283,
+      "mcp_calls_other": 0
      }
     },
     "T2": {
@@ -918,7 +922,8 @@
        "max": 10,
        "score": 1.0,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -984,7 +989,8 @@
        "max": 10,
        "score": 0.95,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T4": {
@@ -1063,7 +1069,8 @@
        "rate": 1.0
       },
       "turn2_tokens": 128596.3,
-      "turn2_ms": 148639
+      "turn2_ms": 148639,
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -1142,7 +1149,8 @@
        "rate": 1.0
       },
       "turn2_tokens": 111746.6,
-      "turn2_ms": 158832
+      "turn2_ms": 158832,
+      "mcp_calls_other": 0
      }
     }
    }
@@ -1350,7 +1358,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -1429,7 +1438,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T3": {
@@ -1479,7 +1489,8 @@
       "timed_out": false,
       "wall_ms": 21970,
       "index_ms": 129,
-      "update_words": 279
+      "update_words": 279,
+      "mcp_calls_other": 0
      },
      "vanilla": {
       "turns": [
@@ -1527,7 +1538,8 @@
       "timed_out": false,
       "wall_ms": 44222,
       "index_ms": 0,
-      "update_words": 248
+      "update_words": 248,
+      "mcp_calls_other": 0
      }
     },
     "T2": {
@@ -1593,7 +1605,8 @@
        "max": 10,
        "score": 1.0,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -1659,7 +1672,8 @@
        "max": 10,
        "score": 0.95,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T4": {
@@ -1740,7 +1754,8 @@
        "rate": 1.0
       },
       "turn2_tokens": 102299.20000000001,
-      "turn2_ms": 138466
+      "turn2_ms": 138466,
+      "mcp_calls_other": 0
      },
      "vanilla": {
       "turns": [
@@ -1817,7 +1832,8 @@
        "rate": 1.0
       },
       "turn2_tokens": 107425.0,
-      "turn2_ms": 143438
+      "turn2_ms": 143438,
+      "mcp_calls_other": 0
      }
     }
    }
@@ -2025,7 +2041,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -2105,7 +2122,8 @@
        "fail": 0,
        "total": 20,
        "rate": 1.0
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T3": {
@@ -2155,7 +2173,8 @@
       "timed_out": false,
       "wall_ms": 36555,
       "index_ms": 130,
-      "update_words": 304
+      "update_words": 304,
+      "mcp_calls_other": 0
      },
      "vanilla": {
       "turns": [
@@ -2202,7 +2221,8 @@
       "timed_out": false,
       "wall_ms": 38711,
       "index_ms": 0,
-      "update_words": 244
+      "update_words": 244,
+      "mcp_calls_other": 0
      }
     },
     "T2": {
@@ -2269,7 +2289,8 @@
        "max": 10,
        "score": 0.9,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -2335,7 +2356,8 @@
        "max": 10,
        "score": 0.95,
        "sections_found": 10
-      }
+      },
+      "mcp_calls_other": 0
      }
     },
     "T4": {
@@ -2414,7 +2436,8 @@
        "rate": 1.0
       },
       "turn2_tokens": 93794.9,
-      "turn2_ms": 123252
+      "turn2_ms": 123252,
+      "mcp_calls_other": 0
      },
      "cc": {
       "turns": [
@@ -2493,11 +2516,21 @@
        "rate": 1.0
       },
       "turn2_tokens": 115806.0,
-      "turn2_ms": 163037
+      "turn2_ms": 163037,
+      "mcp_calls_other": 0
      }
     }
    }
   }
  ],
- "failures": 0
+ "failures": 0,
+ "treatment": {
+  "cc_sessions": 12,
+  "cc_sessions_with_mcp": 0,
+  "received_rate": 0.0,
+  "mcp_calls_total": 0
+ },
+ "notes": [
+  "cc arm made 0 code-context MCP calls in 12/12 sessions \u2014 treatment not received; ceiling on T1/T4 (both arms 22/22, 11/11)"
+ ]
 }
