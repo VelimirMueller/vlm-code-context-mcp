@@ -108,11 +108,11 @@
     if (!isNum(x) && r.treatment && isNum(r.treatment.rate)) x = r.treatment.rate;
     return isNum(x) ? x : null;
   }
-  // INVALID: explicit valid:false, or a measured treatment rate below the preregistered minimum.
+  // A run counts only with valid === true. A missing or non-boolean `valid` is NOT valid.
   function isInvalid(r) {
-    if (r.valid === false) return true;
+    if (r.valid !== true) return true;
     var t = trate(r);
-    return isNum(t) && t < (CFG.MIN_TREATMENT_RATE || 0.8) && r.valid !== true;
+    return isNum(t) && t < (CFG.MIN_TREATMENT_RATE || 0.8);
   }
   // Runs that may drive the headline, table, trend: current prereg version and valid.
   function usable(runs) {
@@ -186,12 +186,12 @@
       box.appendChild(el("h3", null, ["Other registered runs (not in the headline or the trend)"]));
       others.forEach(function (r) {
         var v = verdict(r.nv), inv = isInvalid(r), old = ver(r) !== CFG.PREREG_CURRENT;
-        var label = ver(r) + " \u2014 " + (inv ? "INVALID" : (v || "N/A"));
+        var label = ver(r) + " \u2014 " + (inv && !old ? "INVALID" : (v || "N/A"));
         if (old) label += ", treatment not received";
         else if (inv && trate(r) != null) label += ", treatment received in " + pct(trate(r)) + " of cc sessions";
         if (CFG.PREREG_VERSIONS.indexOf(ver(r)) < 0) label += " (unknown pre-registration version)";
         var c = el("div", { class: "card" }, [
-          el("div", { class: "big " + (inv ? "drop" : VCLS[v] || "pend") }, [label]),
+          el("div", { class: "big " + (inv && !old ? "drop" : VCLS[v] || "pend") }, [label]),
           el("div", { class: "sub" }, ["NV " + ci(r.nv) + (old ? ". Measured under an earlier method; not comparable with " + CFG.PREREG_CURRENT + " runs." : "")]),
           metaList(r)]);
         box.appendChild(c);
@@ -200,9 +200,18 @@
     }
   }
 
-  function rawfmt(x) {
+  function rawfmt(x, unit) {
     if (!isNum(x)) return "n/a";
+    if (/\bms\b/.test(String(unit || ""))) {
+      var sec = x / 1000;
+      return sec >= 60 ? (sec / 60).toFixed(1) + " min" : sec.toFixed(1) + " s";
+    }
     return Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(3);
+  }
+  function valCell(x, unit) {
+    var td = el("td", null, [rawfmt(x, unit)]);
+    if (isNum(x)) td.setAttribute("title", String(x) + (unit ? " (" + unit + ")" : ""));
+    return td;
   }
   function renderNotes(r, box) {
     var notes = Array.isArray(r.notes) ? r.notes.filter(function (n) { return typeof n === "string" && n; }) : [];
@@ -240,7 +249,7 @@
       var lbl = [c[1]];
       if (d && d.raw_unit) lbl.push(el("div", { class: "sub" }, [String(d.raw_unit) + (isQ ? "" : "; Δ = cost increase of cc, positive is worse")]));
       var tr = el("tr", null, [el("td", null, lbl), el("td", null, [(d && isNum(d.weight) ? d.weight : c[3]).toFixed(2)]),
-        el("td", null, [d ? rawfmt(d.vanilla) : "n/a"]), el("td", null, [d ? rawfmt(d.cc) : "n/a"])]);
+        d ? valCell(d.vanilla, d.raw_unit) : el("td", null, ["n/a"]), d ? valCell(d.cc, d.raw_unit) : el("td", null, ["n/a"])]);
       tr.appendChild(dcell(d && d.delta, isQ));
       tr.appendChild(el("td", null, [d ? pcell(d.p_holm) : "n/a"]));
       tr.appendChild(el("td", null, [d && d.n != null ? String(d.n) : "n/a"]));
@@ -352,5 +361,6 @@
       renderHeadline([]); renderResults([]); renderTrend([]); renderAmort([]);
     });
   }
+  window.BenchLogic = { usable: usable, isInvalid: isInvalid, rawfmt: rawfmt, verdict: verdict };
   init();
 })();
