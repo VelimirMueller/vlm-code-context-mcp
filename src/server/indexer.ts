@@ -103,6 +103,8 @@ const LANG_MAP: Record<string, string> = {
 interface ParsedImport {
   symbols: string[];
   source: string;
+  /** Python only: true for `from <source> import …`, false for `import <source>` */
+  fromImport?: boolean;
 }
 
 function parseImports(content: string): ParsedImport[] {
@@ -311,8 +313,8 @@ export function parsePythonImports(content: string): ParsedImport[] {
       const trimmed = item.trim();
       if (!trimmed) continue;
       const asMatch = /^([\w.]+)\s+as\s+(\w+)$/.exec(trimmed);
-      if (asMatch) found.push({ index: m.index, imp: { symbols: [asMatch[2]], source: asMatch[1] } });
-      else if (/^[\w.]+$/.test(trimmed)) found.push({ index: m.index, imp: { symbols: [trimmed], source: trimmed } });
+      if (asMatch) found.push({ index: m.index, imp: { symbols: [asMatch[2]], source: asMatch[1], fromImport: false } });
+      else if (/^[\w.]+$/.test(trimmed)) found.push({ index: m.index, imp: { symbols: [trimmed], source: trimmed, fromImport: false } });
     }
   }
 
@@ -330,7 +332,7 @@ export function parsePythonImports(content: string): ParsedImport[] {
       if (asMatch) symbols.push(asMatch[2]);
       else if (/^\w+$/.test(trimmed) || trimmed === "*") symbols.push(trimmed);
     }
-    if (symbols.length) found.push({ index: m.index, imp: { symbols, source } });
+    if (symbols.length) found.push({ index: m.index, imp: { symbols, source, fromImport: true } });
   }
   return found.sort((a, b) => a.index - b.index).map(f => f.imp);
 }
@@ -339,32 +341,61 @@ export function parsePythonImports(content: string): ParsedImport[] {
  * Resolve a parsed Python import to a file under rootDir: `<path>.py`, then
  * `<path>/__init__.py`. Relative sources go up one directory per extra dot;
  * absolute ones are tried from rootDir and rootDir/src. Never leaves rootDir.
+ * Returns the module/package file the import source names (for `from . import x`
+ * with no module part: the first symbol as a sibling module).
  */
 export function resolvePythonImport(source: string, symbols: string[], fromFile: string, rootDir: string): string | null {
-  const tryCandidates = (base: string): string | null => {
-    for (const c of [base + ".py", path.join(base, "__init__.py")]) {
-      if (fs.existsSync(c) && fs.statSync(c).isFile() && isPathInside(c, rootDir)) return c;
-    }
-    return null;
-  };
+  return resolvePythonImportTargets(source, symbols, fromFile, rootDir)[0] ?? null;
+}
 
+/** `<base>.py`, then `<base>/__init__.py`, inside rootDir only. */
+function pythonModuleFile(base: string, rootDir: string): string | null {
+  for (const c of [base + ".py", path.join(base, "__init__.py")]) {
+    if (fs.existsSync(c) && fs.statSync(c).isFile() && isPathInside(c, rootDir)) return c;
+  }
+  return null;
+}
+
+/** Directory bases a Python import source can name (relative: one dir up per extra dot). */
+function pythonSourceBases(source: string, fromFile: string, rootDir: string): string[] {
   if (source.startsWith(".")) {
     const dots = source.match(/^\.+/)![0].length;
     const rest = source.slice(dots);
     let dir = path.dirname(fromFile);
     for (let i = 1; i < dots; i++) dir = path.dirname(dir);
-    let parts = rest ? rest.split(".") : [];
-    if (parts.length === 0 && symbols.length > 0) parts = [symbols[0]]; // from . import mod
-    const base = parts.length ? path.join(dir, ...parts) : dir;
-    return tryCandidates(base);
+    return [rest ? path.join(dir, ...rest.split(".")) : dir];
   }
-
   const rel = source.split(".");
-  for (const root of [rootDir, path.join(rootDir, "src")]) {
-    const resolved = tryCandidates(path.join(root, ...rel));
-    if (resolved) return resolved;
+  return [path.join(rootDir, ...rel), path.join(rootDir, "src", ...rel)];
+}
+
+/**
+ * Every repo file a Python import really depends on, deduplicated. For
+ * `from <src> import a, b` each name is tried as a SUBMODULE first
+ * (`<src>/a.py`, `<src>/a/__init__.py`) — `from . import a, b` and
+ * `from pkg import submodule` then get one edge per module — and a name that is
+ * no submodule (a function, class, constant) falls back to the source module or
+ * package file itself. `import a.b` resolves the dotted path only.
+ */
+export function resolvePythonImportTargets(source: string, symbols: string[], fromFile: string, rootDir: string, isFrom = true): string[] {
+  const out = new Set<string>();
+  for (const base of pythonSourceBases(source, fromFile, rootDir)) {
+    let needSource = !isFrom || symbols.length === 0;
+    if (isFrom) {
+      for (const sym of symbols) {
+        if (sym === "*") { needSource = true; continue; }
+        const sub = pythonModuleFile(path.join(base, sym), rootDir);
+        if (sub) out.add(sub);
+        else needSource = true;
+      }
+    }
+    if (needSource) {
+      const own = pythonModuleFile(base, rootDir);
+      if (own) out.add(own);
+    }
+    if (out.size) break; // first base (rootDir before rootDir/src) that resolves wins
   }
-  return null;
+  return [...out];
 }
 
 /** Top-level packages of absolute imports that resolve to no repo file (stdlib, third-party). */
@@ -1032,14 +1063,15 @@ function storeDeps(st: FileStatements, filePath: string, content: string, rootDi
   st.clearDeps.run(sourceRow.id);
   let n = 0;
   for (const imp of parseFileImports(content, ext)) {
-    const resolved = PYTHON_EXTENSIONS.has(ext)
-      ? resolvePythonImport(imp.source, imp.symbols, filePath, rootDir)
-      : resolveImportPath(imp.source, filePath, rootDir);
-    if (!resolved) continue;
-    const targetRow = st.getFileId.get(resolved) as { id: number } | undefined;
-    if (!targetRow) continue;
-    st.insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
-    n++;
+    const targets = PYTHON_EXTENSIONS.has(ext)
+      ? resolvePythonImportTargets(imp.source, imp.symbols, filePath, rootDir, imp.fromImport !== false)
+      : [resolveImportPath(imp.source, filePath, rootDir)].filter((t): t is string => !!t);
+    for (const resolved of targets) {
+      const targetRow = st.getFileId.get(resolved) as { id: number } | undefined;
+      if (!targetRow || targetRow.id === sourceRow.id) continue;
+      st.insertDep.run(sourceRow.id, targetRow.id, imp.symbols.join(", "));
+      n++;
+    }
   }
   return n;
 }

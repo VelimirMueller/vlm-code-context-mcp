@@ -3,7 +3,7 @@ import path from "path";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
-import { parsePythonExports, parsePythonImports, resolvePythonImport, indexDirectory } from "../src/server/indexer";
+import { parsePythonExports, parsePythonImports, resolvePythonImport, resolvePythonImportTargets, indexDirectory } from "../src/server/indexer";
 import { createTestDb } from "./helpers/db.js";
 
 // ─── parsePythonExports ─────────────────────────────────────────────────────
@@ -178,7 +178,8 @@ describe("parsePythonImports", () => {
       `    import json`,
       `    from .sub import g`,
     ].join("\n");
-    expect(parsePythonImports(content)).toEqual([
+    // fromImport is covered by its own test below; compare symbols + source here
+    expect(parsePythonImports(content).map(({ symbols, source }) => ({ symbols, source }))).toEqual([
       { symbols: ["os"], source: "os" },
       { symbols: ["a.b.c"], source: "a.b.c" },
       { symbols: ["x"], source: "a.b" },
@@ -357,5 +358,66 @@ describe("Python end-to-end index", () => {
     const appRow = db.prepare("SELECT language, external_imports FROM files WHERE path = ?").get(appPath) as { language: string; external_imports: string | null };
     expect(appRow.language).toBe("python");
     expect(appRow.external_imports).toBe("os"); // stdlib only; pkg.mod resolved in-repo
+  });
+});
+
+// ─── one edge per imported submodule (review finding 2026-10-09) ────────────
+
+describe("resolvePythonImportTargets — submodules get their own edge", () => {
+  let tmp: string;
+  let root: string;
+  const write = (rel: string) => {
+    const full = path.join(root, rel);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, "X = 1\n");
+    return full;
+  };
+  beforeEach(() => {
+    tmp = mkdtempSync(path.join(tmpdir(), "cc-py-tgt-"));
+    root = path.join(tmp, "root");
+    for (const f of ["app.py", "pkg/__init__.py", "pkg/a.py", "pkg/b.py", "pkg/c/__init__.py", "x/__init__.py", "x/y.py"]) write(f);
+    process.env.CODE_CONTEXT_ALLOWED_ROOTS = root; // the indexer refuses roots outside its sandbox
+  });
+  afterEach(() => {
+    delete process.env.CODE_CONTEXT_ALLOWED_ROOTS;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test("from . import a, b → both sibling modules", () => {
+    const got = resolvePythonImportTargets(".", ["a", "b"], path.join(root, "pkg/__init__.py"), root);
+    expect(got.sort()).toEqual([path.join(root, "pkg/a.py"), path.join(root, "pkg/b.py")].sort());
+  });
+
+  test("from pkg import a, c → module file and sub-package __init__", () => {
+    const got = resolvePythonImportTargets("pkg", ["a", "c"], path.join(root, "app.py"), root);
+    expect(got.sort()).toEqual([path.join(root, "pkg/a.py"), path.join(root, "pkg/c/__init__.py")].sort());
+  });
+
+  test("from pkg import a, some_function → submodule plus the package itself", () => {
+    const got = resolvePythonImportTargets("pkg", ["a", "some_function"], path.join(root, "app.py"), root);
+    expect(got.sort()).toEqual([path.join(root, "pkg/__init__.py"), path.join(root, "pkg/a.py")].sort());
+  });
+
+  test("from pkg import * → the package only", () => {
+    expect(resolvePythonImportTargets("pkg", ["*"], path.join(root, "app.py"), root)).toEqual([path.join(root, "pkg/__init__.py")]);
+  });
+
+  test("import x.y as z (not a from-import) → x/y.py, never x/y/z.py", () => {
+    expect(resolvePythonImportTargets("x.y", ["z"], path.join(root, "app.py"), root, false)).toEqual([path.join(root, "x/y.py")]);
+  });
+
+  test("parser marks from-imports and plain imports", () => {
+    const imps = parsePythonImports("import x.y as z\nfrom . import a, b\n");
+    expect(imps.map(i => i.fromImport)).toEqual([false, true]);
+  });
+
+  test("index: from . import a, b in pkg/__init__.py gives two dependency edges", () => {
+    writeFileSync(path.join(root, "pkg/__init__.py"), "from . import a, b\n");
+    const db = createTestDb();
+    indexDirectory(db, root);
+    const rows = db.prepare(
+      `SELECT t.path AS target FROM dependencies d JOIN files s ON d.source_id = s.id JOIN files t ON d.target_id = t.id WHERE s.path = ?`,
+    ).all(path.join(root, "pkg/__init__.py")) as { target: string }[];
+    expect(rows.map(r => r.target).sort()).toEqual([path.join(root, "pkg/a.py"), path.join(root, "pkg/b.py")].sort());
   });
 });
