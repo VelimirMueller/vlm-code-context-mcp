@@ -26,7 +26,7 @@ The codebase indexing and search half of the server. These 11 tools scan a direc
 
 ## Scrum & agent tools
 
-The scrum/agent workflow half of the server. These 83 tools drive sprints, tickets, epics, milestones, ceremonies, metrics, and the 9-agent team that the `/kickoff`, `/sprint`, `/ticket`, `/milestone`, and `/retro` commands orchestrate. They are grouped below by area. (These tools do not have dedicated reference pages yet.)
+The scrum/agent workflow half of the server. These 88 tools drive sprints, tickets, epics, milestones, ceremonies, metrics, and the 9-agent team that the `/kickoff`, `/sprint`, `/ticket`, `/milestone`, and `/retro` commands orchestrate. They are grouped below by area. (These tools do not have dedicated reference pages yet.)
 
 ### Agents & onboarding
 
@@ -42,7 +42,7 @@ The scrum/agent workflow half of the server. These 83 tools drive sprints, ticke
 
 ### Epics & milestones
 
-`create_epic`, `update_epic`, `list_epics`, `link_ticket_to_epic`, `create_milestone`, `update_milestone`, `link_ticket_to_milestone`, `update_vision`, `generate_vision_animation`
+`create_epic`, `update_epic`, `list_epics`, `link_ticket_to_epic`, `create_milestone`, `update_milestone`, `list_milestones`, `link_ticket_to_milestone`, `update_vision`, `generate_vision_animation`
 
 ### Ceremonies
 

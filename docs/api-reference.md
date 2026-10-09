@@ -1,6 +1,6 @@
 # MCP Tools API Reference
 
-Key tool reference for `vlm-code-context-mcp`. The server exposes **98 MCP tools total** — 11 codebase-context tools (registered in `src/server/index.ts`) and 87 scrum/workflow tools (registered in `src/scrum/tools.ts` and `src/scrum/tools/`). This page documents the most commonly used tools; for the full list use the MCP tool inspector or browse the source directly.
+Key tool reference for `vlm-code-context-mcp`. The server exposes **99 MCP tools total** — 11 codebase-context tools (registered in `src/server/index.ts`) and 88 scrum/workflow tools (registered in `src/scrum/tools.ts` and `src/scrum/tools/`). This page documents the most commonly used tools; for the full list use the MCP tool inspector or browse the source directly.
 
 ## Table of Contents
 
@@ -473,7 +473,7 @@ Create a new epic to group related tickets.
 
 ### `update_epic`
 
-Update an existing epic's fields.
+Update an existing epic's fields, or archive / unarchive it.
 
 **Parameters:**
 ```typescript
@@ -483,9 +483,13 @@ Update an existing epic's fields.
   description?: string,
   status?: string,
   color?: string,
-  priority?: number
+  priority?: number,
+  archived?: boolean,   // true = archive, false = unarchive
+  force?: boolean       // archive even if status is not "completed"
 }
 ```
+
+Only `completed` epics archive without `force`. Archived epics are hidden from `list_epics`, `load_phase_context` and the dashboard until unarchived. Setting `status: "completed"` and `archived: true` in one call works; if the archive is rejected, nothing in the call is applied.
 
 ---
 
@@ -505,13 +509,15 @@ Link a ticket to an epic, or unlink by passing null epic_id.
 
 ### `list_epics`
 
-List epics with optional status and milestone filters, including ticket progress counts.
+List epics with optional status and milestone filters, including ticket progress counts. Archived epics are hidden by default.
 
 **Parameters:**
 ```typescript
 {
   status?: string,
-  milestone_id?: number
+  milestone_id?: number,
+  compact?: boolean,          // id, name, status only
+  include_archived?: boolean  // default false; archived rows are marked "(archived)"
 }
 ```
 
@@ -535,7 +541,7 @@ Create a new milestone for the product roadmap.
 
 ### `update_milestone`
 
-Update a milestone's status, progress, or details.
+Update a milestone's status, progress, or details, or archive / unarchive it.
 
 **Parameters:**
 ```typescript
@@ -544,7 +550,26 @@ Update a milestone's status, progress, or details.
   status?: "planned" | "active" | "completed",
   description?: string,
   progress?: number,    // 0-100
-  target_date?: string
+  target_date?: string,
+  archived?: boolean,   // true = archive, false = unarchive
+  force?: boolean       // archive even if status is not "completed"
+}
+```
+
+Same archive rules as `update_epic`. Dashboard equivalent: `POST /api/milestone/:id/archive` and `/unarchive` (no `force`).
+
+---
+
+### `list_milestones`
+
+List milestones with ticket progress. Archived milestones are hidden by default.
+
+**Parameters:**
+```typescript
+{
+  status?: "planned" | "active" | "completed",
+  include_archived?: boolean,  // default false
+  compact?: boolean            // id, name, status only
 }
 ```
 
@@ -1040,9 +1065,9 @@ Restore database from a JSON dump file on disk.
 
 ## Full Reference
 
-The server registers **98 tools** in total (11 codebase-context + 87 scrum). This page covers the key tools; the authoritative source for the full set is the source code:
+The server registers **99 tools** in total (11 codebase-context + 88 scrum). This page covers the key tools; the authoritative source for the full set is the source code:
 
 - Codebase tools: `src/server/index.ts` (11 tools: `index_directory`, `search_files`, `get_file_context`, `find_symbol`, `get_changes`, `query`, `execute`, `set_description`, `set_directory_description`, `set_change_reason`, `health`)
-- Scrum/workflow tools: `src/scrum/tools.ts` (83 tools)
+- Scrum/workflow tools: `src/scrum/tools.ts` + `src/scrum/tools/` (88 tools)
 
 You can also use the MCP tool inspector or call `list_agents` to see the 9 configured team agents and their model assignments.
