@@ -57,7 +57,18 @@
 
 <section id="method" aria-labelledby="h-method">
   <h2 id="h-method">Method</h2>
-  <p>This page presents the pre-registration. The authoritative text is <code>PREREGISTRATION.md</code>; its SHA-256 is recorded in every results row and shown in the headline. Changing the method after the first registered run requires a new version with date and reason, and results are reported against the version in force when they were measured.</p>
+  <p>This page presents pre-registration <strong>v2</strong> (registered 2026-10-09). The authoritative text is <code>PREREGISTRATION.md</code>; v1 is frozen as <code>PREREGISTRATION-v1.md</code>. The version and SHA-256 are recorded in every results row and shown for every run. Changing the method after the first registered run requires a new version with date and reason, and results are reported against the version in force when they were measured.</p>
+
+  <div class="note" id="v2-changes">
+    <strong>What changed from v1, and why.</strong> v1 was registered and run once (2026-10-09). That run was uninformative, not negative, so v2 changes only what is needed to measure the question. Weights, &lambda;, statistics and the verdict rule are unchanged.
+    <ul>
+      <li><strong>Why:</strong> the cc arm made 0 code-context calls in 12 of 12 sessions, so the treatment was never received (on a 60-file fixture grep and Read are enough). Both arms also scored at the ceiling (22 of 22 on T1, 11 of 11 on T4).</li>
+      <li><strong>Codebase:</strong> a large public open-source repository pinned to one commit (2,000 to 5,000 source files, working offline tests), instead of the 60-file fixture. Repository and commit are recorded in every row.</li>
+      <li><strong>Harder tasks:</strong> T1 and T4 touch 6 to 10 files across at least 3 modules; each T2 question needs knowledge spanning at least 3 files. Each task is piloted on the reference solution only, with no arm run.</li>
+      <li><strong>Treatment:</strong> the cc prompt carries the owner's real CLAUDE.md rule verbatim: code-context <code>search_files</code>, <code>get_file_context</code> and <code>find_symbol</code> come before any <code>Read</code>. Vanilla gets no tooling text.</li>
+      <li><strong>Treatment-received rule:</strong> every session records its code-context calls. A run is VALID only if at least 80 % of cc sessions made at least one. An invalid run is published with its note and excluded from the verdict and the trend, never re-scored or deleted.</li>
+    </ul>
+  </div>
 
   <h3>Question</h3>
   <p>Does adding the code-context MCP server improve the outcome of software-engineering work enough to justify its cost in time and tokens? H0: NV &le; 0. H1: NV &gt; 0. One-sided, &alpha; = 0.05.</p>
@@ -66,13 +77,13 @@
   <div class="tablewrap"><table>
     <tr><th></th><th>vanilla</th><th>cc</th></tr>
     <tr><td>Model</td><td>same (default Opus, recorded per run)</td><td>same</td></tr>
-    <tr><td>Prompt</td><td>identical task prompt</td><td>identical plus one line naming the code-context tools</td></tr>
+    <tr><td>Prompt</td><td>identical task prompt</td><td>identical plus the owner's CLAUDE.md code-context rule, verbatim</td></tr>
     <tr><td>MCP servers</td><td>none</td><td>code-context only, pre-indexed</td></tr>
     <tr><td>Hooks, skills, CLAUDE.md, slash commands</td><td>none</td><td>none</td></tr>
     <tr><td>Permissions</td><td>identical allowlist, sandboxed, offline</td><td>identical</td></tr>
-    <tr><td>Workspace</td><td>fresh copy of the fixture in an empty temp dir, own git worktree</td><td>same</td></tr>
+    <tr><td>Workspace</td><td>fresh checkout of the pinned commit in an empty temp dir, own git worktree</td><td>same</td></tr>
   </table></div>
-  <p>The one-line prompt difference is part of the treatment and is reported as such.</p>
+  <p>The added CLAUDE.md rule in the cc prompt is part of the treatment and is reported as such.</p>
 
   <h3>What "vanilla" means exactly</h3>
   <ul>
@@ -80,14 +91,14 @@
     <li>Hooks are explicitly emptied. Slash commands and skills are disabled. Session persistence is off.</li>
     <li>MCP is strict: the vanilla arm has no MCP servers at all, the cc arm has only code-context. Hosted connectors are excluded in both.</li>
     <li>Both arms use the same permission allowlist (edit inside the worktree, test runners, read-only shell tools) and the same deny list (no web access, no network tools, no pushing, no environment dumps). Shell commands run in an OS sandbox that confines writes to the worktree and blocks network.</li>
-    <li>Both arms start in a fresh empty temp directory with their own git worktree of the same fixture codebase.</li>
+    <li>Both arms start in a fresh empty temp directory with their own git worktree of the same codebase.</li>
   </ul>
 
   <h3>Tasks</h3>
   <div class="tablewrap"><table>
     <tr><th>ID</th><th>Task</th><th>Criterion</th><th>Scoring (objective first)</th></tr>
-    <tr><td>T1</td><td>Feature build on the fixture (rate limiter, 4 to 6 files)</td><td>accuracy, time, tokens, code quality</td><td>hidden test pass rate; static metrics; blind pairwise judging</td></tr>
-    <tr><td>T2</td><td>10 systems questions about the fixture ("what breaks if ...")</td><td>IT-systems knowledge</td><td>answer key, 0 / 0.5 / 1 per question by a fixed rubric</td></tr>
+    <tr><td>T1</td><td>Feature build in the pinned open-source repository (6 to 10 files across at least 3 modules)</td><td>accuracy, time, tokens, code quality</td><td>hidden test pass rate; static metrics; blind pairwise judging</td></tr>
+    <tr><td>T2</td><td>10 systems questions about the codebase ("what breaks if ..."), each needing at least 3 files</td><td>IT-systems knowledge</td><td>answer key, 0 / 0.5 / 1 per question by a fixed rubric</td></tr>
     <tr><td>T3</td><td>Stakeholder update about T1 for a non-technical PM</td><td>stakeholder communication</td><td>blind pairwise rubric: clarity, risk, timeline, no jargon, actionable ask</td></tr>
     <tr><td>T4</td><td>T1 again, with a requirement change injected after the first plan</td><td>control / steerability</td><td>extra tokens and time to adapt; hidden tests of the changed requirement</td></tr>
     <tr><td>S5</td><td>Sequence of 5 related tasks on one codebase, one index</td><td>token amortisation</td><td>cumulative tokens per task k; break-even k including indexing cost</td></tr>
@@ -134,7 +145,7 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
     <li>Paired design: each repeat runs both arms on the same task; arm order is randomised.</li>
     <li>For every &Delta; and for NV: the mean and a 95 % bias-corrected bootstrap CI (10,000 resamples over pairs).</li>
     <li>Wilcoxon signed-rank test per criterion, effect size r, Holm correction across criteria.</li>
-    <li>Every run is reported, including failed and timed-out runs (scored 0, cost as measured up to the timeout). No run is excluded after the fact.</li>
+    <li>Every run is reported, including failed and timed-out runs (scored 0, cost as measured up to the timeout). No run is excluded after the fact, except that a run whose treatment-received rate is below 80 % is marked INVALID, published with its note and left out of the verdict and the trend.</li>
   </ul>
 
   <h3>Verdict rule</h3>
@@ -166,10 +177,10 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
 <section id="threats" aria-labelledby="h-threats">
   <h2 id="h-threats">Threats to validity</h2>
   <ul>
-    <li><strong>Single fixture codebase (external validity).</strong> One synthetic project. Results may not transfer to other languages, sizes or domains.</li>
+    <li><strong>Single codebase (external validity).</strong> One pinned open-source repository. Results may not transfer to other languages, sizes or domains.</li>
     <li><strong>LLM judges.</strong> Mitigated by two model families, both presentation orders, no Claude judge, and objective scores first. Judges can still share biases.</li>
     <li><strong>Model and Claude Code version drift.</strong> Both are recorded per row. A change in either can move results independently of code-context; trends are shown per version.</li>
-    <li><strong>The cc prompt line.</strong> The cc arm's prompt names the code-context tools. That one-line difference is part of the treatment and cannot be separated from the server itself.</li>
+    <li><strong>The cc prompt rule.</strong> The cc arm's prompt carries the owner's CLAUDE.md rule. That difference is part of the treatment and cannot be separated from the server itself.</li>
     <li><strong>Small n weekly.</strong> n = 3 gives wide CIs. The monthly n = 10 run is the headline.</li>
   </ul>
 </section>
