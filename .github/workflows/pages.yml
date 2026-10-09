@@ -33,12 +33,17 @@ jobs:
 
       - name: Check out bench-results (data), if the branch exists
         id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if git ls-remote --exit-code --heads "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "${DATA_BRANCH}" >/dev/null 2>&1; then
+          # 404 = branch absent (empty state). Any other failure fails the build instead of deploying a wrong empty site.
+          if out=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DATA_BRANCH}" --jq .name 2>&1); then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif echo "$out" | grep -q "HTTP 404"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "No ${DATA_BRANCH} branch yet: building the empty state."
+          else
+            echo "::error::cannot look up ${DATA_BRANCH}: $out"; exit 1
           fi
 
       - name: Fetch data branch
