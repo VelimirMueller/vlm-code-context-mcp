@@ -17,7 +17,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { skipDirName, isUnderSkippedPath } from "../shared/ignore.js";
+import { SKIP_DIR_NAMES, isUnderSkippedPath } from "../shared/ignore.js";
 
 /** Never content worth searching: media, archives, fonts, binaries, databases. */
 export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -52,10 +52,18 @@ export function maxFileBytes(): number {
 }
 
 /** True when a file of this NAME is never indexed (extension, lockfile, generated). */
+// Names are compared case-insensitively: APFS is case-insensitive by default,
+// so `Node_Modules/` IS `node_modules/` on disk. Indexer-only, so watcher ⊇
+// indexer (shared/ignore.ts) still holds.
+const lowerSet = (s: Iterable<string>): ReadonlySet<string> => new Set(Array.from(s, (x) => x.toLowerCase()));
+const SKIP_DIRS_LOWER = lowerSet(SKIP_DIR_NAMES);
+const LOCKFILES_LOWER = lowerSet(LOCKFILE_NAMES);
+const SKIP_FILES_LOWER = lowerSet(SKIP_FILE_NAMES);
+
 export function isDeniedFileName(name: string): boolean {
   if (name.startsWith(".")) return true; // matches the walk's historic dot rule
-  if (SKIP_FILE_NAMES.has(name) || LOCKFILE_NAMES.has(name)) return true;
   const lower = name.toLowerCase();
+  if (SKIP_FILES_LOWER.has(lower) || LOCKFILES_LOWER.has(lower)) return true;
   if (BINARY_EXTENSIONS.has(path.extname(lower))) return true;
   return GENERATED_SUFFIXES.some((s) => lower.endsWith(s));
 }
@@ -69,7 +77,7 @@ const laravelCache = new Map<string, boolean>();
  * `artisan` file sits next to it. Cached: called once per path segment.
  */
 export function isLaravelStorage(dirPath: string): boolean {
-  if (path.basename(dirPath) !== "storage") return false;
+  if (path.basename(dirPath).toLowerCase() !== "storage") return false;
   const parent = path.dirname(dirPath);
   let hit = laravelCache.get(parent);
   if (hit === undefined) {
@@ -86,7 +94,13 @@ export function isLaravelStorage(dirPath: string): boolean {
 
 /** True when a directory is never descended into by the indexer. */
 export function isDeniedDir(absDir: string): boolean {
-  return skipDirName(path.basename(absDir)) || isUnderSkippedPath(absDir) || isLaravelStorage(absDir);
+  const name = path.basename(absDir);
+  return (
+    name.startsWith(".") ||
+    SKIP_DIRS_LOWER.has(name.toLowerCase()) ||
+    isUnderSkippedPath(absDir.toLowerCase()) ||
+    isLaravelStorage(absDir)
+  );
 }
 
 /**
@@ -129,4 +143,56 @@ export function isDeniedDirPath(absDir: string, root: string): boolean {
     if (isDeniedDir(cur)) return true;
   }
   return false;
+}
+
+export type Admission =
+  | { ok: true; real: string; size: number }
+  | { ok: false; reason: "gone" | "unreadable" | "not-file" | "outside" | "denied" | "too-large" };
+
+/** `child` is `parent` or below it (segment-wise; no `/a` vs `/ab` confusion, no `..`). */
+export function isInside(child: string, parent: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * THE gate every index write goes through — full index (index_directory, the
+ * reindex CLI), git-diff driven refresh and read-time refresh alike. `root` must
+ * itself be trusted by the caller: sandbox-checked (index_directory) or a root
+ * recorded in indexed_repos (which only index_directory writes).
+ *
+ * 1. Normalise (`vendor/../src`, `./node_modules`) and require the path inside `root`.
+ * 2. Apply the deny policy to every segment of the normalised path (case-insensitive).
+ * 3. lstat: only regular files — a symlink is never followed, whatever it points at.
+ * 4. realpath must stay inside realpath(root), and the policy is applied again to
+ *    the resolved path — a symlinked DIRECTORY into node_modules or out of the
+ *    repo is caught here.
+ * Only `unreadable` means "do not know"; every other refusal is final.
+ */
+export function admitFile(file: string, root: string, realRoot?: string): Admission {
+  const abs = path.resolve(file);
+  const base = path.resolve(root);
+  if (!isInside(abs, base) || abs === base) return { ok: false, reason: "outside" };
+  if (isDeniedPath(abs, base)) return { ok: false, reason: "denied" };
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(abs);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return { ok: false, reason: code === "ENOENT" || code === "ENOTDIR" ? "gone" : "unreadable" };
+  }
+  if (!st.isFile()) return { ok: false, reason: "not-file" };
+  if (st.size > maxFileBytes()) return { ok: false, reason: "too-large" };
+  let real: string;
+  let rr: string;
+  try {
+    real = fs.realpathSync(abs);
+    rr = realRoot ?? fs.realpathSync(base);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return { ok: false, reason: code === "ENOENT" || code === "ENOTDIR" ? "gone" : "unreadable" };
+  }
+  if (!isInside(real, rr)) return { ok: false, reason: "outside" };
+  if (isDeniedPath(real, rr)) return { ok: false, reason: "denied" };
+  return { ok: true, real, size: st.size };
 }

@@ -24,7 +24,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { readGitHead, gitChangedFiles, gitIsIgnored } from "./git.js";
 import { refreshFiles, toISOLocal, isPathInside } from "./indexer.js";
-import { isDeniedPath } from "./index-policy.js";
+import { admitFile } from "./index-policy.js";
 
 export interface FreshRow {
   path: string;
@@ -178,11 +178,8 @@ export class FreshnessGuard {
     const abs = path.resolve(file);
     const root = this.rootFor(abs);
     if (!root) return false;
-    const st = fs.statSync(abs, { throwIfNoEntry: false });
-    if (!st?.isFile()) return false;
-    if (isDeniedPath(abs, root, st.size)) return false;
-    if (gitIsIgnored(root, abs)) return false;
-    return refreshFiles(this.db, [abs], root).reindexed > 0;
+    if (!admitFile(abs, root).ok) return false; // same gate as every index write
+    return refreshFiles(this.db, [abs], root, (f) => gitIsIgnored(root, f)).reindexed > 0;
   }
 }
 

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
 import { SKIP_DIR_NAMES } from "../shared/ignore.js";
-import { isDeniedDir, isDeniedFileName, isDeniedPath, looksBinary, maxFileBytes } from "./index-policy.js";
+import { admitFile, isDeniedDir, isDeniedFileName, looksBinary } from "./index-policy.js";
 import { gitListFiles, isGitCheckout, readGitHead } from "./git.js";
 
 // ─── .gitignore support ─────────────────────────────────────────────────────
@@ -340,19 +340,9 @@ function countLines(content: string): number {
 }
 
 // ─── Walk directory ──────────────────────────────────────────────────────────
-/** Size check for a candidate file; false (= skip) when it cannot be stat'ed or is too large. */
-function withinSizeCap(full: string): boolean {
-  try {
-    const st = fs.lstatSync(full);
-    return st.isFile() && st.size <= maxFileBytes();
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Fallback walk for a directory git does not manage. Same policy as the git
- * listing, plus the root-level .gitignore approximation below.
+ * Fallback walk for a directory git does not manage. Its output goes through
+ * admitFile like the git listing; this only adds the root .gitignore approximation.
  */
 function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePattern[]): string[] {
   const root = rootDir ?? dir;
@@ -371,7 +361,6 @@ function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePat
     } else {
       if (isDeniedFileName(entry.name)) continue;
       if (patterns.length > 0 && matchesGitignore(relativePath, false, patterns)) continue;
-      if (!withinSizeCap(full)) continue;
       results.push(full);
     }
   }
@@ -386,11 +375,10 @@ function walkDir(dir: string, rootDir?: string, gitignorePatterns?: GitignorePat
  */
 export function listIndexableFiles(rootDir: string): string[] {
   const root = path.resolve(rootDir);
-  const listed = gitListFiles(root);
-  const files = listed === null
-    ? walkDir(root)
-    : listed.filter((f) => !isDeniedPath(f, root) && withinSizeCap(f));
-  return files.sort();
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); } catch { return []; }
+  const listed = gitListFiles(root) ?? walkDir(root);
+  return listed.filter((f) => admitFile(f, root, realRoot).ok).sort();
 }
 
 /** True only when the file could be read and is binary (NUL bytes). Read errors → false. */
@@ -899,8 +887,6 @@ export function refreshFiles(
   const root = path.resolve(rootDir);
   const unique = Array.from(new Set(filePaths.map((p) => path.resolve(p)))).filter((p) => isPathInside(p, root));
   if (unique.length === 0) return { reindexed: 0, dropped: 0 };
-  // Containment on the REAL path: a symlinked file or directory inside the
-  // repo that points outside it (`link -> ~/.ssh`) is dropped, never read.
   let realRoot: string;
   try { realRoot = fs.realpathSync(root); } catch { return { reindexed: 0, dropped: 0 }; }
   const before = snapshotFromDb(db, { paths: unique });
@@ -909,19 +895,13 @@ export function refreshFiles(
   const drop: string[] = [];
   db.transaction(() => {
     for (const p of unique) {
-      // Drop only on evidence: the file is gone (ENOENT), is no longer a
-      // regular file, or the policy / .gitignore now excludes it. A transient
-      // stat or read failure (EACCES, EBUSY, mid-write) keeps the existing row
-      // — a stale answer beats a silently missing file.
-      let st: fs.Stats | undefined;
-      try { st = fs.lstatSync(p); } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ENOTDIR") drop.push(p);
-        continue;
-      }
-      if (!st.isFile() || st.size > maxFileBytes() || isDeniedPath(p, root)) { drop.push(p); continue; }
-      let real: string;
-      try { real = fs.realpathSync(p); } catch { drop.push(p); continue; }
-      if (!isPathInside(real, realRoot)) { drop.push(p); continue; }
+      // One gate for every index write (admitFile): normalisation, deny list on
+      // every segment of the lexical AND the resolved path, no symlinks,
+      // realpath containment. Drop only on evidence; `unreadable` (EACCES,
+      // EBUSY, mid-write) keeps the existing row — a stale answer beats a
+      // silently missing file.
+      const adm = admitFile(p, root, realRoot);
+      if (!adm.ok) { if (adm.reason !== "unreadable") drop.push(p); continue; }
       if (isIgnored?.(p)) { drop.push(p); continue; }
       const stored = storeFile(st0, p);
       if (stored) keep.push({ path: p, content: stored.content });
@@ -945,7 +925,10 @@ export function recordIndexedRoot(db: Database.Database, rootDir: string, head: 
 export function indexDirectory(db: Database.Database, dirPath: string): { files: number; exports: number; deps: number; prunedFiles: number; prunedDirs: number } {
   const rootDir = path.resolve(dirPath);
   const roots = allowedIndexRoots();
-  if (!roots.some(r => isPathInside(rootDir, r))) {
+  // Lexical AND resolved: a symlinked root pointing outside the sandbox is refused.
+  const realOf = (p: string): string => { try { return fs.realpathSync(p); } catch { return p; } };
+  const realRootDir = realOf(rootDir);
+  if (!roots.some(r => isPathInside(rootDir, r) && isPathInside(realRootDir, realOf(r)))) {
     throw new Error(
       `Refusing to index '${rootDir}': outside the allowed sandbox. ` +
         `Allowed roots: ${roots.join(", ")}. Set CODE_CONTEXT_ALLOWED_ROOTS ` +
