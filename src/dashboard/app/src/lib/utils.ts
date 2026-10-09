@@ -1,14 +1,6 @@
 import type { Milestone, Sprint } from '@/types';
 
 /**
- * Parse the MILESTONES skill markdown into structured Milestone objects.
- *
- * Expected format per section:
- *   ## Milestone N: Name — STATUS
- *   **Status:** ... (Sprints ...)
- *   **Goal:** description text
- */
-/**
  * Drop archived milestones/epics from a picker list, keeping the one that is currently
  * selected (so an archived link still renders its name instead of a blank option).
  */
@@ -19,6 +11,14 @@ export function hideArchived<T extends { id: number; archived_at?: string | null
   return items.filter((i) => !i.archived_at || i.id === keepId);
 }
 
+/**
+ * Parse the MILESTONES skill markdown into structured Milestone objects.
+ *
+ * Expected format per section:
+ *   ## Milestone N: Name — STATUS
+ *   **Status:** ... (Sprints ...)
+ *   **Goal:** description text
+ */
 export function parseMilestoneMarkdown(content: string): Milestone[] {
   const milestones: Milestone[] = [];
   // Split on "## Milestone" headers

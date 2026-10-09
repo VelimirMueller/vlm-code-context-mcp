@@ -12,6 +12,9 @@ import type Database from "better-sqlite3";
  * Differences from sprints: only `completed` rows are eligible unless `force` is set
  * (sprints have no force), and re-archiving an already-archived row is a no-op that keeps
  * the original archived_at and writes no audit event.
+ *
+ * The audit insert is best-effort, exactly like apiArchiveSprint: a failing event_log write
+ * is logged and never blocks the archive itself.
  */
 
 export type ArchivableEntity = "milestone" | "epic";
@@ -70,7 +73,7 @@ export function assertArchivable(
   entity: ArchivableEntity,
   id: number,
   opts: { force?: boolean; statusOverride?: string } = {},
-): void {
+): { id: number; status: string; archived_at: string | null } {
   const row = loadRow(db, entity, id);
   const status = opts.statusOverride ?? row.status;
   if (!opts.force && !(ARCHIVABLE_ENTITY_STATUSES as readonly string[]).includes(status)) {
@@ -79,6 +82,7 @@ export function assertArchivable(
       400,
     );
   }
+  return row;
 }
 
 export function archiveEntity(
@@ -87,14 +91,16 @@ export function archiveEntity(
   id: number,
   opts: { force?: boolean; actor: string },
 ): ArchiveResult {
-  assertArchivable(db, entity, id, { force: opts.force });
-  const row = loadRow(db, entity, id);
-  if (row.archived_at !== null) return { ok: true, archived_at: row.archived_at, changed: false };
-  const table = TABLE[entity];
-  db.prepare(`UPDATE ${table} SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
-  const { archived_at } = db.prepare(`SELECT archived_at FROM ${table} WHERE id = ?`).get(id) as { archived_at: string };
-  audit(db, entity, id, null, archived_at, opts.actor);
-  return { ok: true, archived_at, changed: true };
+  // Check + write in one transaction (nests as a savepoint inside the MCP tools' own).
+  return db.transaction((): ArchiveResult => {
+    const row = assertArchivable(db, entity, id, { force: opts.force });
+    if (row.archived_at !== null) return { ok: true, archived_at: row.archived_at, changed: false };
+    const table = TABLE[entity];
+    db.prepare(`UPDATE ${table} SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
+    const { archived_at } = db.prepare(`SELECT archived_at FROM ${table} WHERE id = ?`).get(id) as { archived_at: string };
+    audit(db, entity, id, null, archived_at, opts.actor);
+    return { ok: true, archived_at, changed: true };
+  })();
 }
 
 export function unarchiveEntity(
@@ -103,9 +109,11 @@ export function unarchiveEntity(
   id: number,
   opts: { actor: string },
 ): ArchiveResult {
-  const row = loadRow(db, entity, id);
-  if (row.archived_at === null) return { ok: true, archived_at: null, changed: false };
-  db.prepare(`UPDATE ${TABLE[entity]} SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(id);
-  audit(db, entity, id, row.archived_at, null, opts.actor);
-  return { ok: true, archived_at: null, changed: true };
+  return db.transaction((): ArchiveResult => {
+    const row = loadRow(db, entity, id);
+    if (row.archived_at === null) return { ok: true, archived_at: null, changed: false };
+    db.prepare(`UPDATE ${TABLE[entity]} SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(id);
+    audit(db, entity, id, row.archived_at, null, opts.actor);
+    return { ok: true, archived_at: null, changed: true };
+  })();
 }
