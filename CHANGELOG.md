@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-09
+
+### Added
+- **Python symbols and import edges in the indexer** (`src/server/indexer.ts`, regex-based like the JS/TS parsers, no new dependencies). `.py`/`.pyi` files now get rows in `exports` and edges in `dependencies`, so `find_symbol` and the dependency graph work for Python repos.
+  - **Exports:** module-level `def`/`async def` (`function`), `class` (`class`) and `UPPER_CASE =` constants (`const`), with the first line of the symbol's docstring as description. `_`-prefixed names are skipped unless listed in `__all__`. `__all__ = [...]`/`(...)` filters the list and adds unknown listed names as `re-export`. Symbols inside module-level triple-quoted strings are ignored.
+  - **Imports:** `import a.b.c`, `import a.b as x`, comma lists, `from .mod import x, y as z`, parenthesised multi-line `from` imports and `from . import mod` (relative sources keep their leading dots), at module level and inside functions.
+  - **Resolution:** relative sources go up one directory per extra dot; absolute ones are tried from the repo root and `root/src`; candidates are `<path>.py` then `<path>/__init__.py`, always contained in the indexed root (`isPathInside`). Unresolved absolute imports (stdlib, third-party) land in `external_imports` as their top-level package. JS/TS behaviour is unchanged.
+  - `search_files` summaries and auto-generated file descriptions now include Python exports/imports.
+
 ## [2.7.0] - 2026-10-09
 
 ### Added
