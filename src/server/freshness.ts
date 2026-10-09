@@ -75,8 +75,14 @@ export class FreshnessGuard {
 
   /** Longest indexed root that contains `file`, or null. */
   rootFor(file: string): string | null {
-    if (this.roots.length === 0) this.roots = this.selectRepos.all() as RepoRow[];
-    for (const r of this.roots) if (isPathInside(file, r.root)) return r.root;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // A miss re-reads the table once: a root indexed since the last sweep
+      // (index_directory in this process, or the CLI) is found immediately.
+      if (attempt === 1 || this.roots.length === 0) {
+        try { this.roots = this.selectRepos.all() as RepoRow[]; } catch { return null; }
+      }
+      for (const r of this.roots) if (isPathInside(file, r.root)) return r.root;
+    }
     return null;
   }
 
@@ -148,7 +154,10 @@ export class FreshnessGuard {
     let reindexed = 0;
     let dropped = 0;
     for (const [root, paths] of stale) {
-      const r = refreshFiles(this.db, paths, root);
+      // Only stale rows reach here (rare), so one `git check-ignore` per file
+      // is affordable: a file that became git-ignored leaves the index, as a
+      // full reindex would drop it.
+      const r = refreshFiles(this.db, paths, root, (f) => gitIsIgnored(root, f));
       reindexed += r.reindexed;
       dropped += r.dropped;
     }

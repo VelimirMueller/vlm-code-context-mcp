@@ -393,6 +393,11 @@ export function listIndexableFiles(rootDir: string): string[] {
   return files.sort();
 }
 
+/** True only when the file could be read and is binary (NUL bytes). Read errors → false. */
+function isBinaryOnDisk(filePath: string): boolean {
+  try { return looksBinary(fs.readFileSync(filePath)); } catch { return false; }
+}
+
 /** Read a file as UTF-8 text, or null when it is unreadable or binary. */
 function readText(filePath: string): string | null {
   try {
@@ -885,22 +890,44 @@ export function removeFiles(db: Database.Database, paths: Iterable<string>): num
  * denied. Changes land in the change log like a full index would log them.
  * `rootDir` bounds import resolution and the policy's ancestor check.
  */
-export function refreshFiles(db: Database.Database, filePaths: string[], rootDir: string): { reindexed: number; dropped: number } {
+export function refreshFiles(
+  db: Database.Database,
+  filePaths: string[],
+  rootDir: string,
+  isIgnored?: (file: string) => boolean,
+): { reindexed: number; dropped: number } {
   const root = path.resolve(rootDir);
   const unique = Array.from(new Set(filePaths.map((p) => path.resolve(p)))).filter((p) => isPathInside(p, root));
   if (unique.length === 0) return { reindexed: 0, dropped: 0 };
+  // Containment on the REAL path: a symlinked file or directory inside the
+  // repo that points outside it (`link -> ~/.ssh`) is dropped, never read.
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); } catch { return { reindexed: 0, dropped: 0 }; }
   const before = snapshotFromDb(db, { paths: unique });
-  const st = prepareFileStatements(db);
+  const st0 = prepareFileStatements(db);
   const keep: { path: string; content: string }[] = [];
   const drop: string[] = [];
   db.transaction(() => {
     for (const p of unique) {
-      if (isDeniedPath(p, root) || !withinSizeCap(p)) { drop.push(p); continue; }
-      const stored = storeFile(st, p);
+      // Drop only on evidence: the file is gone (ENOENT), is no longer a
+      // regular file, or the policy / .gitignore now excludes it. A transient
+      // stat or read failure (EACCES, EBUSY, mid-write) keeps the existing row
+      // — a stale answer beats a silently missing file.
+      let st: fs.Stats | undefined;
+      try { st = fs.lstatSync(p); } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ENOTDIR") drop.push(p);
+        continue;
+      }
+      if (!st.isFile() || st.size > maxFileBytes() || isDeniedPath(p, root)) { drop.push(p); continue; }
+      let real: string;
+      try { real = fs.realpathSync(p); } catch { drop.push(p); continue; }
+      if (!isPathInside(real, realRoot)) { drop.push(p); continue; }
+      if (isIgnored?.(p)) { drop.push(p); continue; }
+      const stored = storeFile(st0, p);
       if (stored) keep.push({ path: p, content: stored.content });
-      else drop.push(p);
+      else if (readText(p) === null && fs.existsSync(p) && isBinaryOnDisk(p)) drop.push(p);
     }
-    for (const k of keep) storeDeps(st, k.path, k.content, root);
+    for (const k of keep) storeDeps(st0, k.path, k.content, root);
   })();
   const dropped = removeFiles(db, drop);
   diffAndLogChanges(db, before, snapshotFromDb(db, { paths: unique }));
@@ -1036,8 +1063,8 @@ export function indexDirectory(db: Database.Database, dirPath: string): { files:
   const pruned = { files: 0, dirs: 0 };
   const prefix = rootDir.endsWith(path.sep) ? rootDir : rootDir + path.sep;
   const fileRows = db.prepare(`SELECT path FROM files WHERE substr(path, 1, ?) = ?`).all(prefix.length, prefix) as { path: string }[];
-  pruned.files = removeFiles(db, fileRows.map(r => r.path).filter(p => !seenFiles.has(p)));
   db.transaction(() => {
+    pruned.files = removeFiles(db, fileRows.map(r => r.path).filter(p => !seenFiles.has(p)));
     const dirRows = db.prepare(`SELECT id, path FROM directories`).all() as { id: number; path: string }[];
     const deleteDir = db.prepare(`DELETE FROM directories WHERE id = ?`);
     for (const row of dirRows) {

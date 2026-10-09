@@ -146,7 +146,12 @@ function main(): number {
 }
 
 // Run only as a program, never on import (tests import parseArgs).
-const invoked = process.argv[1] ? fs.realpathSync(process.argv[1]) : "";
+let invoked = "";
+try {
+  invoked = process.argv[1] ? fs.realpathSync(process.argv[1]) : "";
+} catch {
+  /* argv[1] is not a real path (some runners): not invoked as a program */
+}
 if (invoked.endsWith(`${path.sep}reindex-cli.js`) || invoked.endsWith(`${path.sep}reindex-cli.ts`)) {
   process.exitCode = main();
 }

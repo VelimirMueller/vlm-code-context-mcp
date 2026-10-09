@@ -137,11 +137,12 @@ export function purgeDenied(db: Database.Database): number {
     const root = rootOf(r.path) ?? path.dirname(r.path);
     if (isDeniedPath(r.path, root, r.size_bytes ?? undefined)) doomed.push(r.path);
   }
-  const n = removeFiles(db, doomed);
   const delChanges = db.prepare(`DELETE FROM changes WHERE file_path = ?`);
   const dirs = db.prepare(`SELECT id, path FROM directories`).all() as { id: number; path: string }[];
   const delDir = db.prepare(`DELETE FROM directories WHERE id = ?`);
+  let n = 0;
   db.transaction(() => {
+    n = removeFiles(db, doomed);
     for (const p of doomed) delChanges.run(p);
     for (const d of dirs) {
       const root = rootOf(path.join(d.path, "x"));
@@ -157,9 +158,13 @@ export function purgeUnder(db: Database.Database, root: string): number {
   const paths = (db.prepare(`SELECT path FROM files WHERE substr(path, 1, ?) = ?`).all(prefix.length, prefix) as {
     path: string;
   }[]).map((r) => r.path);
-  const n = removeFiles(db, paths);
-  db.prepare(`DELETE FROM directories WHERE path = ? OR substr(path, 1, ?) = ?`).run(path.resolve(root), prefix.length, prefix);
-  db.prepare(`DELETE FROM indexed_repos WHERE root = ?`).run(path.resolve(root));
+  let n = 0;
+  db.transaction(() => {
+    n = removeFiles(db, paths);
+    db.prepare(`DELETE FROM changes WHERE substr(file_path, 1, ?) = ?`).run(prefix.length, prefix);
+    db.prepare(`DELETE FROM directories WHERE path = ? OR substr(path, 1, ?) = ?`).run(path.resolve(root), prefix.length, prefix);
+    db.prepare(`DELETE FROM indexed_repos WHERE root = ?`).run(path.resolve(root));
+  })();
   return n;
 }
 
@@ -198,7 +203,9 @@ export function runReindex(db: Database.Database, opts: ReindexOptions): Reindex
   const targets = opts.repos && opts.repos.length > 0 ? opts.repos.map((r) => path.resolve(r)) : discovered.repos;
 
   const purgedMarked: { root: string; files: number }[] = [];
-  for (const m of discovered.marked) {
+  // Discovery mode only: a run limited to explicit repos touches nothing else.
+  const explicit = !!(opts.repos && opts.repos.length > 0);
+  for (const m of explicit ? [] : discovered.marked) {
     const n = purgeUnder(db, m);
     purgedMarked.push({ root: m, files: n });
     say(`skip  ${path.basename(m)} (${IGNORE_MARKER}) — purged ${n} rows`);

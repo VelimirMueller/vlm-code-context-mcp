@@ -140,7 +140,13 @@ export function instrumentTools(server: object, hidden: Set<string> = hiddenTool
         const start = performance.now();
         const result = fn.apply(this, callArgs);
         if (result && typeof (result as { then?: unknown }).then === "function") {
-          return (result as Promise<unknown>).then((v) => finish(v, start));
+          return (result as Promise<unknown>).then(
+            (v) => finish(v, start),
+            (err: unknown) => {
+              slog("INFO", `done ${name} in ${Math.round(performance.now() - start)} ms (threw)`);
+              throw err;
+            },
+          );
         }
         return finish(result, start);
       };
