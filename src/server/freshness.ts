@@ -143,7 +143,12 @@ export class FreshnessGuard {
   checkFiles(rows: FreshRow[]): { changed: boolean; reindexed: number; dropped: number } {
     const stale = new Map<string, string[]>(); // root → paths
     for (const row of rows) {
-      const st = fs.statSync(row.path, { throwIfNoEntry: false });
+      let st: fs.Stats | undefined;
+      try {
+        st = fs.statSync(row.path, { throwIfNoEntry: false });
+      } catch {
+        continue; // EACCES/ELOOP etc.: cannot judge — keep the row, never fail the tool call
+      }
       if (st && st.size === row.size_bytes && toISOLocal(st.mtime) === row.modified_at) continue;
       const root = this.rootFor(row.path) ?? path.dirname(row.path);
       const list = stale.get(root) ?? [];
