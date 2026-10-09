@@ -57,16 +57,16 @@ jobs:
           mkdir -p _site/data
           if [ -d "_data/${DATA_PATH}" ]; then
             # Only JSON files are published, nothing else from the data branch.
-            find "_data/${DATA_PATH}" -name '*.json' -type f | while read -r f; do
+            find "_data/${DATA_PATH}" -name '*.json' -type f -print0 | while IFS= read -r -d '' f; do
               rel="${f#_data/${DATA_PATH}/}"
-              jq -e . "$f" >/dev/null || { echo "::warning::skipping invalid JSON $rel"; continue; }
+              jq -e 'type=="object"' "$f" >/dev/null || { echo "::warning::skipping invalid JSON $rel"; continue; }
               mkdir -p "_site/data/$(dirname "$rel")"
               cp "$f" "_site/data/$rel"
             done
           fi
           # index.json = all runs, oldest first. Missing runs/ gives an empty list.
           if ls _site/data/runs/*.json >/dev/null 2>&1; then
-            jq -s '{runs: (. | sort_by(.date))}' _site/data/runs/*.json > _site/data/index.json
+            jq -s '{runs: (. | sort_by([.date, (.run_id // "")]))}' _site/data/runs/*.json > _site/data/index.json
           else
             echo '{"runs":[]}' > _site/data/index.json
           fi

@@ -18,7 +18,7 @@
  */
 (function () {
   "use strict";
-  var CFG = window.BENCH_CONFIG;
+  var CFG = window.BENCH_CONFIG || { INDEX: "data/index.json", LATEST: "data/latest.json" };
   var DEMO = /(^|[?&])demo(=|&|$)/.test(location.search);
   var NS = "http://www.w3.org/2000/svg";
   var COL = { mag: "#ee4fff", cy: "#00fff7", gr: "#05ffa1", ye: "#f0ff19", red: "#ff2a6d", dim: "#9db0d0", line: "#2a2352" };
@@ -75,16 +75,16 @@
       if (runs.length) return runs;
       return getJSON(CFG.LATEST).then(function (r) { return [r]; }, function () { return []; });
     }).then(function (runs) {
-      return runs.filter(function (r) { return r && typeof r === "object" && typeof r.date === "string"; })
+      return runs.filter(function (r) { return r && typeof r === "object" && typeof r.date === "string" && isFinite(Date.parse(r.date)); })
         .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     });
   }
 
   function demoRuns() {
-    var runs = [], d0 = Date.UTC(2026, 9, 11), i, m = [0.02, -0.03, 0.05, 0.04, 0.09, 0.08, 0.11, 0.12];
+    var runs = [], i, m = [0.02, -0.03, 0.05, 0.04, 0.09, 0.08, 0.11, 0.12];
     for (i = 0; i < m.length; i++) {
       var monthly = i === 3 || i === 7, h = monthly ? 0.05 : 0.14;
-      var dt = new Date(d0 + i * 7 * 864e5).toISOString().slice(0, 10);
+      var dt = new Date(Date.now() - (m.length - 1 - i) * 7 * 864e5).toISOString().slice(0, 10);
       var crit = CRIT.map(function (c, j) {
         var v = c[2] === "q" ? 0.6 + j * 0.05 : 100 + j * 40, dm = c[2] === "q" ? 0.05 + m[i] / 2 : 0.1 - m[i] / 2;
         return { id: c[0], vanilla: v, cc: v * (1 + dm), delta: { mean: dm, lo: dm - h, hi: dm + h }, p_holm: Math.min(1, 0.3 / (i + 1) + j * 0.05), n: monthly ? 10 : 3 };
@@ -140,6 +140,8 @@
       card.appendChild(el("div", { class: "note" }, ["The data file states verdict " + String(r.verdict) + ", but the pre-registered rule applied to its CI gives " + v + ". The rule wins."]));
     if (!h.monthly)
       card.appendChild(el("div", { class: "note" }, ["No monthly run (n = 10) exists yet. This is a weekly run with n = " + (r.n != null ? r.n : 3) + "; read the interval, not the point."]));
+    if (pr.version && CFG.PREREG_VERSION_EXPECTED && pr.version !== CFG.PREREG_VERSION_EXPECTED)
+      card.appendChild(el("div", { class: "note" }, ["This run was measured under pre-registration " + String(pr.version) + ", not " + CFG.PREREG_VERSION_EXPECTED + ". Compare it only against runs of the same version."]));
     box.appendChild(card);
   }
 
