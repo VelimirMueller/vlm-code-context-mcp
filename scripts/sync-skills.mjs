@@ -13,6 +13,7 @@ const DEFAULT_REF = "main";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const VENDOR_DIR = path.join(REPO_ROOT, "vendor", "skills");
+const REGISTRY_FILE = path.join(REPO_ROOT, "src", "scrum", "skill-set-registry.json");
 
 /** Recursively copy srcDir into destDir, overwriting existing files. */
 export function copyTree(srcDir, destDir) {
@@ -23,6 +24,16 @@ export function copyTree(srcDir, destDir) {
     if (entry.isDirectory()) copyTree(src, dest);
     else if (entry.isFile()) fs.copyFileSync(src, dest);
   }
+}
+
+/**
+ * The vendored catalogue dirs: the last segment of each registry set's upstreamDir
+ * (e.g. "skills/core/" -> "core"). Upstream ships more catalogues than code-context
+ * compiles; vendoring only these keeps vendor/skills equal to what compile-skills reads.
+ */
+export function registryDirs(registryFile) {
+  const sets = JSON.parse(fs.readFileSync(registryFile, "utf-8"));
+  return sets.map((s) => s.upstreamDir.replace(/\/+$/, "").split("/").pop());
 }
 
 /** Count SKILL.md files anywhere under dir. */
@@ -79,7 +90,14 @@ function main() {
 
     // Build into a staging dir, then replace the live tree as the final step.
     const staging = path.join(tmp, "skills");
-    copyTree(upstreamSkills, staging);
+    for (const dir of registryDirs(REGISTRY_FILE)) {
+      const src = path.join(upstreamSkills, dir);
+      if (!fs.existsSync(src)) {
+        console.error(`ERROR: ${repo}@${ref} has no skills/${dir}/ (named in skill-set-registry.json)`);
+        process.exit(1);
+      }
+      copyTree(src, path.join(staging, dir));
+    }
     fs.rmSync(VENDOR_DIR, { recursive: true, force: true });
     copyTree(staging, VENDOR_DIR);
 

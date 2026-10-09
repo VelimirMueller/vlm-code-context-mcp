@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { copyTree, countSkillFiles, writeSourceManifest } from "../scripts/sync-skills.mjs";
+import { copyTree, countSkillFiles, registryDirs, writeSourceManifest } from "../scripts/sync-skills.mjs";
 
 const temps: string[] = [];
 function temp(prefix: string): string {
@@ -63,5 +63,18 @@ describe("sync-skills helpers", () => {
       syncedAt: "2026-06-09T06:00:00Z",
       skillCount: 2,
     });
+  });
+  it("registryDirs maps each set to the last segment of its upstreamDir", () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "reg-")), "registry.json");
+    fs.writeFileSync(file, JSON.stringify([{ upstreamDir: "skills/frontend/" }, { upstreamDir: "skills/core" }]));
+    expect(registryDirs(file)).toEqual(["frontend", "core"]);
+  });
+
+  it("registryDirs on the real registry names frontend, landing and core", () => {
+    expect(registryDirs(path.join(__dirname, "..", "src", "scrum", "skill-set-registry.json"))).toEqual([
+      "frontend",
+      "landing",
+      "core",
+    ]);
   });
 });

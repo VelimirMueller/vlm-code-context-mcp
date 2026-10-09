@@ -20,9 +20,9 @@
   {
     "id": "workflow",
     "prefix": "wf",
-    "label": "Workflow (PRs & commits)",
+    "label": "Core (PRs, commits, stack profile, audits)",
     "ownerRole": null,
-    "upstreamDir": "skills/workflow/",
+    "upstreamDir": "skills/core/",
     "defaultEnabled": false,
     "varName": "WORKFLOW_SKILL_DEFAULTS"
   }

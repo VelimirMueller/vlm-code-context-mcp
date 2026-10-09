@@ -88,8 +88,8 @@ export function buildWorkflowPlaybook(db: Database.Database): string | null {
   if (index.length === 0) return null;
   return [
     "",
-    "## Workflow Skills",
-    "Use these when writing commits and pull requests for this sprint's work — load with `get_skill({ name })`:",
+    "## Core Skills",
+    "Use these for commits, pull requests, security and toolchain audits, and the stack profile — load with `get_skill({ name })`:",
     ...index,
   ].join("\n");
 }
@@ -105,7 +105,8 @@ export const COMMIT_SKILL_NAME = "wf:write-commit-messages";
  * defaults → reseed) updates the injected block — there is no second copy.
  *
  * Extraction targets, all stable structural anchors in the skill:
- *  - subject rule: the first prose line under `## 3. Draft the subject`
+ *  - subject rule: the first sentence of the first paragraph under `## 3. Draft the subject`
+ *    (a paragraph, not a line: re-wrapping the markdown must not cut the rule in half)
  *  - body template: the fenced ```text Why/What/How block under `## 4.`
  *  - trailer note: emitted when the skill still names a `Co-Authored-By:` trailer
  *
@@ -121,12 +122,15 @@ export function buildCommitContract(db: Database.Database): string | null {
   const content = getSkillContent(db, COMMIT_SKILL_NAME);
   if (!content) return null;
 
-  // Step 3 → the subject rule. Grab the first non-empty line after the heading.
+  // Step 3 → the subject rule: the first sentence of the first paragraph after the heading.
   const subjectSection = content.split(/^## 3\. Draft the subject\s*$/m)[1];
-  const subjectRule = subjectSection
+  const firstParagraph = subjectSection
+    ?.trim()
+    .split(/\r?\n\s*\r?\n/)[0]
     ?.split(/\r?\n/)
     .map((l) => l.trim())
-    .find((l) => l.length > 0);
+    .join(" ");
+  const subjectRule = firstParagraph?.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstParagraph;
 
   // Step 4 → the fenced ```text Why/What/How template (the canonical body shape).
   const bodySection = content.split(/^## 4\./m)[1];
@@ -143,6 +147,7 @@ export function buildCommitContract(db: Database.Database): string | null {
     "### Commit contract",
     `Apply this when committing — distilled from \`${COMMIT_SKILL_NAME}\`; load it with \`get_skill\` for the full discipline.`,
     `- **Subject:** ${subjectRule}`,
+    // "exactly three": the QA commit gate (COMMIT_BODY_LABELS) enforces Why/What/How, so the contract must not promise less
     "- **Body:** exactly three labeled bullet groups, every bullet derived from the diff:",
     "```text",
     bodyTemplate,
