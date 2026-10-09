@@ -1,0 +1,90 @@
+name: Pages
+
+# Site code comes from main (site/). Benchmark data comes from the bench-results
+# branch (data/). Both are assembled into one static artifact.
+on:
+  push:
+    branches: [main, bench-results]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  DATA_BRANCH: bench-results
+  # Path of the data folder on the data branch. Single constant; keep in sync with site/config.js.
+  DATA_PATH: data
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main (site code)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check out bench-results (data), if the branch exists
+        id: probe
+        run: |
+          if git ls-remote --exit-code --heads "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "${DATA_BRANCH}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No ${DATA_BRANCH} branch yet: building the empty state."
+          fi
+
+      - name: Fetch data branch
+        if: steps.probe.outputs.exists == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.DATA_BRANCH }}
+          path: _data
+          persist-credentials: false
+
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          rm -rf _site && mkdir _site
+          cp -R site/. _site/
+          mkdir -p _site/data
+          if [ -d "_data/${DATA_PATH}" ]; then
+            # Only JSON files are published, nothing else from the data branch.
+            find "_data/${DATA_PATH}" -name '*.json' -type f | while read -r f; do
+              rel="${f#_data/${DATA_PATH}/}"
+              jq -e . "$f" >/dev/null || { echo "::warning::skipping invalid JSON $rel"; continue; }
+              mkdir -p "_site/data/$(dirname "$rel")"
+              cp "$f" "_site/data/$rel"
+            done
+          fi
+          # index.json = all runs, oldest first. Missing runs/ gives an empty list.
+          if ls _site/data/runs/*.json >/dev/null 2>&1; then
+            jq -s '{runs: (. | sort_by(.date))}' _site/data/runs/*.json > _site/data/index.json
+          else
+            echo '{"runs":[]}' > _site/data/index.json
+          fi
+          touch _site/.nojekyll
+          find _site -type f | sort
+
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
