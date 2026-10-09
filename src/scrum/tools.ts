@@ -22,6 +22,7 @@ import {
 import { registerAnalyticsTools } from "./tools/analytics.js";
 import { registerSkillsTools } from "./tools/skills.js";
 import { log as slog } from "../sessionlog.js";
+import { archiveEntity, assertArchivable, unarchiveEntity } from "./archive.js";
 
 const DASHBOARD_PORT = process.env.DASHBOARD_PORT || "3333";
 
@@ -1553,26 +1554,74 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "update_milestone",
-    "Update a milestone's status, progress, or details",
+    "Update a milestone's status, progress, or details. archived=true hides a completed milestone from lists and the dashboard (force=true archives any status); archived=false restores it.",
     {
       milestone_id: z.number().describe("Milestone ID"),
       status: z.enum(["planned", "active", "completed"]).optional(),
       description: z.string().optional(),
       progress: z.number().min(0).max(100).optional().describe("Progress percentage 0-100"),
       target_date: z.string().optional(),
+      archived: z.boolean().optional().describe("true = archive (status must be completed unless force), false = unarchive"),
+      force: z.boolean().optional().describe("Archive even if the milestone is not completed"),
     },
-    async ({ milestone_id, status, description, progress, target_date }) => {
+    async ({ milestone_id, status, description, progress, target_date, archived, force }) => {
       const sets: string[] = []; const vals: any[] = [];
       if (status) { sets.push("status=?"); vals.push(status); }
       if (description) { sets.push("description=?"); vals.push(description); }
       if (progress !== undefined) { sets.push("progress=?"); vals.push(progress); }
       if (target_date) { sets.push("target_date=?"); vals.push(target_date); }
-      if (sets.length === 0) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
-      sets.push("updated_at=datetime('now')");
-      vals.push(milestone_id);
-      db.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals);
-      notifyDashboard(db);
-      return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} updated.` }] };
+      if (sets.length === 0 && archived === undefined) return { content: [{ type: "text" as const, text: "Nothing to update." }] };
+      try {
+        let archiveNote = "";
+        db.transaction(() => {
+          // Validate archive eligibility against the status being set in this same call,
+          // before any write, so a rejected archive never leaves a half-applied update.
+          if (archived === true) assertArchivable(db, "milestone", milestone_id, { force, statusOverride: status });
+          if (sets.length > 0) {
+            sets.push("updated_at=datetime('now')");
+            db.prepare(`UPDATE milestones SET ${sets.join(",")} WHERE id=?`).run(...vals, milestone_id);
+          }
+          if (archived === true) {
+            const r = archiveEntity(db, "milestone", milestone_id, { force, actor: "mcp" });
+            archiveNote = r.changed ? " Archived." : " Already archived.";
+          } else if (archived === false) {
+            const r = unarchiveEntity(db, "milestone", milestone_id, { actor: "mcp" });
+            archiveNote = r.changed ? " Unarchived." : " Was not archived.";
+          }
+        })();
+        notifyDashboard(db);
+        return { content: [{ type: "text" as const, text: `Milestone ${milestone_id} updated.${archiveNote}` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_milestones",
+    "List milestones with ticket progress. Archived milestones are hidden unless include_archived=true. Use compact=true for minimal output.",
+    {
+      status: z.enum(["planned", "active", "completed"]).optional().describe("Filter by status"),
+      include_archived: z.boolean().optional().describe("Include archived milestones (default false)"),
+      compact: z.boolean().optional().describe("Return minimal fields (id, name, status) to save tokens"),
+    },
+    async ({ status, include_archived, compact }) => {
+      const conditions = ["m.deleted_at IS NULL"];
+      const params: any[] = [];
+      if (status) { conditions.push("m.status = ?"); params.push(status); }
+      if (!include_archived) conditions.push("m.archived_at IS NULL");
+      const rows = db.prepare(`
+        SELECT m.id, m.name, m.status, m.progress, m.target_date, m.description, m.archived_at,
+          (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND deleted_at IS NULL) as ticket_count,
+          (SELECT COUNT(*) FROM tickets WHERE milestone_id = m.id AND status = 'DONE' AND deleted_at IS NULL) as done_count
+        FROM milestones m WHERE ${conditions.join(" AND ")} ORDER BY m.id
+      `).all(...params) as any[];
+      if (rows.length === 0) return { content: [{ type: "text" as const, text: "No milestones found." }] };
+      const tag = (m: any) => (m.archived_at ? " (archived)" : "");
+      const text = compact
+        ? rows.map((m: any) => `#${m.id} ${m.name} [${m.status}]${tag(m)}`).join("\n")
+        : rows.map((m: any) => `**${m.name}** (#${m.id}) [${m.status}]${tag(m)} progress=${m.progress}%${m.target_date ? ` target=${m.target_date}` : ""}\n${m.description || "—"}\nTickets: ${m.done_count}/${m.ticket_count} done`).join("\n\n");
+      return { content: [{ type: "text" as const, text: `# Milestones (${rows.length})\n${compact ? "" : "\n"}${text}` }] };
     }
   );
 
@@ -2114,10 +2163,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const activeDiscoveries = (db.prepare("SELECT COUNT(*) as c FROM discoveries WHERE status IN ('discovered', 'planned')").get() as any).c;
 
       // Milestones
-      const activeMilestone = db.prepare("SELECT id, name, status, progress FROM milestones WHERE status IN ('planned', 'active') AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").get() as any | undefined;
+      const activeMilestone = db.prepare("SELECT id, name, status, progress FROM milestones WHERE status IN ('planned', 'active') AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 1").get() as any | undefined;
 
       // Epics
-      const activeEpics = (db.prepare("SELECT COUNT(*) as c FROM epics WHERE status IN ('planned', 'active')").get() as any).c;
+      const activeEpics = (db.prepare("SELECT COUNT(*) as c FROM epics WHERE status IN ('planned', 'active') AND archived_at IS NULL").get() as any).c;
       const completedEpics = (db.prepare("SELECT COUNT(*) as c FROM epics WHERE status = 'completed'").get() as any).c;
 
       // Determine next phase
@@ -2189,7 +2238,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           const epics = db.prepare(`
             SELECT e.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count
             FROM epics e LEFT JOIN tickets t ON t.epic_id = e.id
-            WHERE e.status IN ('planned', 'active')
+            WHERE e.status IN ('planned', 'active') AND e.archived_at IS NULL
             GROUP BY e.id ORDER BY e.priority DESC, e.id
           `).all() as any[];
           sections.push(`## Active Epics (${epics.length})`);
@@ -2216,7 +2265,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
           if (backlog.length === 0) sections.push("None");
           else backlog.forEach((t: any) => sections.push(`- #${t.id}: ${t.title} (${t.story_points || 0}pts) ${t.priority}`));
 
-          const epics = db.prepare(`SELECT id, name, status FROM epics WHERE status IN ('planned', 'active') ORDER BY priority DESC`).all() as any[];
+          const epics = db.prepare(`SELECT id, name, status FROM epics WHERE status IN ('planned', 'active') AND archived_at IS NULL ORDER BY priority DESC`).all() as any[];
           sections.push(`\n## Active Epics (${epics.length})`);
           epics.forEach((e: any) => sections.push(`- #${e.id} ${e.name} [${e.status}]`));
 
@@ -2523,7 +2572,7 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "update_epic",
-    "Update an existing epic's fields",
+    "Update an existing epic's fields. archived=true hides a completed epic from lists and the dashboard (force=true archives any status); archived=false restores it.",
     {
       epic_id: z.number().describe("Epic ID"),
       name: z.string().optional().describe("New name"),
@@ -2531,8 +2580,10 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       status: z.string().optional().describe("New status"),
       color: z.string().optional().describe("New hex color"),
       priority: z.number().min(0).max(4).optional().describe("New priority 0-4"),
+      archived: z.boolean().optional().describe("true = archive (status must be completed unless force), false = unarchive"),
+      force: z.boolean().optional().describe("Archive even if the epic is not completed"),
     },
-    async ({ epic_id, name, description, status, color, priority }) => {
+    async ({ epic_id, name, description, status, color, priority, archived, force }) => {
       try {
         const fields: string[] = [];
         const values: any[] = [];
@@ -2541,16 +2592,30 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
         if (status !== undefined) { fields.push("status = ?"); values.push(status); }
         if (color !== undefined) { fields.push("color = ?"); values.push(color); }
         if (priority !== undefined) { fields.push("priority = ?"); values.push(priority); }
-        if (fields.length === 0) {
+        if (fields.length === 0 && archived === undefined) {
           return { content: [{ type: "text" as const, text: "No fields to update." }] };
         }
-        values.push(epic_id);
-        const result = db.prepare(`UPDATE epics SET ${fields.join(", ")} WHERE id = ?`).run(...values);
-        if (result.changes === 0) {
+        let notFound = false;
+        let archiveNote = "";
+        db.transaction(() => {
+          if (archived === true) assertArchivable(db, "epic", epic_id, { force, statusOverride: status });
+          if (fields.length > 0) {
+            const result = db.prepare(`UPDATE epics SET ${fields.join(", ")} WHERE id = ?`).run(...values, epic_id);
+            if (result.changes === 0) { notFound = true; return; }
+          }
+          if (archived === true) {
+            const r = archiveEntity(db, "epic", epic_id, { force, actor: "mcp" });
+            archiveNote = r.changed ? " Archived." : " Already archived.";
+          } else if (archived === false) {
+            const r = unarchiveEntity(db, "epic", epic_id, { actor: "mcp" });
+            archiveNote = r.changed ? " Unarchived." : " Was not archived.";
+          }
+        })();
+        if (notFound) {
           return { content: [{ type: "text" as const, text: `Epic ${epic_id} not found.` }] };
         }
         notifyDashboard(db);
-        return { content: [{ type: "text" as const, text: `Epic ${epic_id} updated (${fields.length} field(s)).` }] };
+        return { content: [{ type: "text" as const, text: `Epic ${epic_id} updated (${fields.length} field(s)).${archiveNote}` }] };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error updating epic: ${e.message}` }], isError: true };
       }
@@ -2559,24 +2624,26 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
 
   server.tool(
     "list_epics",
-    "List epics with optional status and milestone filters, including ticket progress counts. Use compact=true for minimal output (id, name, status) to save tokens.",
+    "List epics with optional status and milestone filters, including ticket progress counts. Archived epics are hidden unless include_archived=true. Use compact=true for minimal output (id, name, status) to save tokens.",
     {
       status: z.string().optional().describe("Filter by status"),
       milestone_id: z.number().optional().describe("Filter by milestone ID"),
       compact: z.boolean().optional().describe("Return minimal fields (id, name, status) to save tokens"),
+      include_archived: z.boolean().optional().describe("Include archived epics (default false)"),
     },
-    async ({ status, milestone_id, compact }) => {
+    async ({ status, milestone_id, compact, include_archived }) => {
       if (compact) {
-        let q = `SELECT e.id, e.name, e.status FROM epics e`;
+        let q = `SELECT e.id, e.name, e.status, e.archived_at FROM epics e`;
         const conditions: string[] = [];
         const params: any[] = [];
         if (status) { conditions.push("e.status = ?"); params.push(status); }
         if (milestone_id !== undefined) { conditions.push("e.milestone_id = ?"); params.push(milestone_id); }
+        if (!include_archived) conditions.push("e.archived_at IS NULL");
         if (conditions.length) { q += " WHERE " + conditions.join(" AND "); }
         q += " ORDER BY e.priority DESC, e.id";
         const epics = db.prepare(q).all(...params) as any[];
         if (epics.length === 0) return { content: [{ type: "text" as const, text: "No epics found." }] };
-        const text = epics.map((e: any) => `#${e.id} ${e.name} [${e.status || "open"}]`).join("\n");
+        const text = epics.map((e: any) => `#${e.id} ${e.name} [${e.status || "open"}]${e.archived_at ? " (archived)" : ""}`).join("\n");
         return { content: [{ type: "text" as const, text: `# Epics (${epics.length})\n${text}` }] };
       }
       let q = `SELECT e.*, COUNT(t.id) as ticket_count, SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) as done_count FROM epics e LEFT JOIN tickets t ON t.epic_id = e.id`;
@@ -2584,12 +2651,13 @@ export function registerScrumTools(server: McpServer, db: Database.Database): vo
       const params: any[] = [];
       if (status) { conditions.push("e.status = ?"); params.push(status); }
       if (milestone_id !== undefined) { conditions.push("e.milestone_id = ?"); params.push(milestone_id); }
+      if (!include_archived) conditions.push("e.archived_at IS NULL");
       if (conditions.length) { q += " WHERE " + conditions.join(" AND "); }
       q += " GROUP BY e.id ORDER BY e.priority DESC, e.id";
       const epics = db.prepare(q).all(...params) as any[];
       if (epics.length === 0) return { content: [{ type: "text" as const, text: "No epics found." }] };
       const text = epics.map(
-        (e: any) => `**${e.name}** (#${e.id}) [${e.status || "open"}] priority=${e.priority || 0} color=${e.color || "#3b82f6"}\n${e.description || "—"}\nTickets: ${e.done_count || 0}/${e.ticket_count || 0} done`
+        (e: any) => `**${e.name}** (#${e.id}) [${e.status || "open"}]${e.archived_at ? " (archived)" : ""} priority=${e.priority || 0} color=${e.color || "#3b82f6"}\n${e.description || "—"}\nTickets: ${e.done_count || 0}/${e.ticket_count || 0} done`
       ).join("\n\n");
       return { content: [{ type: "text" as const, text: `# Epics (${epics.length})\n\n${text}` }] };
     }

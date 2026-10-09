@@ -299,4 +299,40 @@ describe('planningStore', () => {
     await usePlanningStore.getState().fetchVision();
     expect(usePlanningStore.getState().vision).toBe('# Vision\nBe great.');
   });
+
+  // ─── milestone archive actions (v2.6.0) ──────────────────────────────
+
+  it('archiveMilestone posts to the archive endpoint, refetches milestones and toasts', async () => {
+    const { useToastStore } = await import('@/stores/toastStore');
+    useToastStore.setState({ toasts: [] });
+    const archived = [{ id: 4, name: 'M4', description: null, status: 'completed', target_date: null, progress: 100, ticket_count: 0, done_count: 0, archived_at: '2026-10-09 10:00:00' }];
+    mockFetch.mockImplementation((path: string, init?: RequestInit) =>
+      Promise.resolve({ ok: true, json: async () => (path === '/api/milestones' ? archived : init?.method === 'POST' ? { ok: true } : {}) }),
+    );
+    await usePlanningStore.getState().archiveMilestone(4);
+    expect(mockFetch.mock.calls.some(([p, i]) => p === '/api/milestone/4/archive' && i?.method === 'POST')).toBe(true);
+    expect(usePlanningStore.getState().milestones).toEqual(archived);
+    expect(useToastStore.getState().toasts.map((t) => [t.type, t.message])).toEqual([['success', 'Milestone archived']]);
+  });
+
+  it('unarchiveMilestone posts to the unarchive endpoint', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve({ ok: true, json: async () => [] }));
+    await usePlanningStore.getState().unarchiveMilestone(4);
+    expect(mockFetch.mock.calls.some(([p, i]) => p === '/api/milestone/4/unarchive' && i?.method === 'POST')).toBe(true);
+  });
+
+  it('archiveMilestone surfaces the server error (e.g. not completed) as an error toast', async () => {
+    const { useToastStore } = await import('@/stores/toastStore');
+    useToastStore.setState({ toasts: [] });
+    mockFetch.mockImplementation((path: string, init?: RequestInit) =>
+      path === '/api/milestone/4/archive' && init?.method === 'POST'
+        ? Promise.resolve({ ok: false, status: 400, statusText: 'Bad Request', json: async () => ({ ok: false, error: 'only completed milestones can be archived' }) })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    await usePlanningStore.getState().archiveMilestone(4);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe('error');
+    expect(toasts[0].message).toMatch(/only completed milestones/);
+  });
 });

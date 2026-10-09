@@ -53,6 +53,14 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.7 — Archive Milestones & Epics 🗄️
+
+- **Done is out of sight** — completed milestones and epics can be archived like sprints: `update_milestone` / `update_epic` take `archived: true` (`force: true` for unfinished work), and `archived: false` brings them back.
+- **Lists stay short** — `list_epics` and the new `list_milestones` hide archived rows unless `include_archived: true`; the Planning page tucks them into a collapsed **Archived** section with one-click **Archive** / **Unarchive**.
+- **Safe upgrade** — schema v24 only adds a nullable `archived_at` column to both tables; nothing existing is archived.
+
+---
+
 ## New in 2.6 — Fresh Index 🧊
 
 - **Answers are checked against the disk.** `search_files`, `find_symbol` and `get_file_context` stat every row they return: a changed file is re-indexed and a deleted one dropped *before* the answer goes out, and each row carries its `indexed_at`. Per repo, a moved git `HEAD` re-indexes exactly the files `git diff --name-only <indexed>..HEAD` lists and says so in one `⚠ STALE` line; above 500 changed files it warns on every call instead of blocking.
@@ -217,7 +225,7 @@ No agent holds the full project in its context window. They query what they need
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘          │
 │       └──────────────┼─────────────┘                │
 │                      ▼                              │
-│     92 MCP Tools (98 with all toolsets)             │
+│     93 MCP Tools (99 with all toolsets)             │
 │      (reads · writes · ceremony cards)              │
 │                      │                              │
 │                      ▼                              │
@@ -300,7 +308,7 @@ Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `
 
 | Component | Count |
 |---|---|
-| MCP tools | 92 by default, 98 with `CODE_CONTEXT_TOOLSETS=all` |
+| MCP tools | 93 by default, 99 with `CODE_CONTEXT_TOOLSETS=all` |
 | Database tables | 33 (27 scrum + 6 code) |
 | React components | 75 |
 | Tests | 762 (677 backend + 85 frontend) |

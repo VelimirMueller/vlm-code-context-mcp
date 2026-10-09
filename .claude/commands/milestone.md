@@ -42,6 +42,19 @@ Only close if ALL epics linked to it are completed:
 update_milestone({ milestone_id: <id>, status: "completed", progress: 100 })
 ```
 
+## Archive a finished milestone
+
+Archive hides a completed milestone (and, separately, completed epics) from lists and the dashboard. It does not change status or metrics.
+
+```
+update_milestone({ milestone_id: <id>, archived: true })     # must be completed
+update_epic({ epic_id: <id>, archived: true })               # same rule for epics
+list_milestones({ include_archived: true })                  # find archived ones
+update_milestone({ milestone_id: <id>, archived: false })    # restore
+```
+
+Only use `force: true` to archive unfinished work when the user asks for it.
+
 ## Update milestone details
 
 ```

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-09
+
+### Added
+- **Archive milestones and epics** — finished milestones and epics no longer stay on the dashboard forever. Same model as sprint archiving: archive state is separate from status and from soft-delete, the server enforces eligibility, and every change writes one `event_log` row (`field_name = 'archived_at'`, actor `mcp` or `dashboard`).
+  - **MCP:** `update_milestone` and `update_epic` take `archived: true | false` and `force: boolean`. Only `completed` rows archive unless `force: true`. `status: "completed"` and `archived: true` work in one call; a rejected archive rolls back the whole call. Re-archiving keeps the first timestamp.
+  - **MCP:** new `list_milestones` tool (`status`, `include_archived`, `compact`). `list_milestones` and `list_epics` hide archived rows unless `include_archived: true`, and mark them `(archived)` when shown. `get_resume_state` and `load_phase_context` ignore force-archived planned/active work.
+  - **Dashboard:** `POST /api/milestone/:id/archive|unarchive` and `POST /api/epic/:id/archive|unarchive` (completed only, `400` otherwise, `404` for missing or deleted rows). The routes sit behind the existing Host (`421`), Origin (`403`) and bearer-token (`401`) gates.
+  - **Dashboard UI:** the Planning page lists milestones as Active, Completed (with **Archive**) and a collapsed **Archived** section (with **Unarchive**), and now shows epics with the same sections. Milestone and epic pickers skip archived rows unless one is already selected.
+
+### Changed
+- **Schema v24** — `milestones.archived_at` and `epics.archived_at` (`TEXT DEFAULT NULL`, indexed). The migration is additive and idempotent; existing rows stay unarchived. A DB migrated to v24 is refused by 2.6.x and older (downgrade guard), so update every install that shares one `context.db` together.
+
 ## [2.6.0] - 2026-10-09
 
 ### Added

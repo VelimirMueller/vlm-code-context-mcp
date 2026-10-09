@@ -1,6 +1,17 @@
 import type { Milestone, Sprint } from '@/types';
 
 /**
+ * Drop archived milestones/epics from a picker list, keeping the one that is currently
+ * selected (so an archived link still renders its name instead of a blank option).
+ */
+export function hideArchived<T extends { id: number; archived_at?: string | null }>(
+  items: T[],
+  keepId?: number | null,
+): T[] {
+  return items.filter((i) => !i.archived_at || i.id === keepId);
+}
+
+/**
  * Parse the MILESTONES skill markdown into structured Milestone objects.
  *
  * Expected format per section:

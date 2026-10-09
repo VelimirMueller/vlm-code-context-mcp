@@ -9,6 +9,7 @@ import chokidar from "chokidar";
 import { indexDirectory } from "../server/indexer.js";
 import { initSchema } from "../server/schema.js";
 import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersion } from "../scrum/schema.js";
+import { archiveEntity, unarchiveEntity, type ArchivableEntity } from "../scrum/archive.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized, isAllowedHost, isAllowedOrigin } from "./auth.js";
 import { makeWatchIgnorePredicate, WATCH_DIR_WARN_THRESHOLD } from "../shared/ignore.js";
@@ -1122,6 +1123,17 @@ const server = http.createServer(async (req, res) => {
         notifyClients();
       }
       else if (url.pathname === "/api/milestones") data = apiMilestones();
+      // Milestone / epic archive (v24) — same eligibility + audit as MCP update_milestone/update_epic
+      else if (url.pathname.match(/^\/api\/(milestone|epic)\/\d+\/(archive|unarchive)$/) && req.method === "POST") {
+        const [, , kind, idStr, verb] = url.pathname.split("/");
+        const entity = kind as ArchivableEntity;
+        const id = Number(idStr);
+        data = verb === "archive"
+          ? archiveEntity(db, entity, id, { actor: "dashboard" })
+          : unarchiveEntity(db, entity, id, { actor: "dashboard" });
+        slog("INFO", `dashboard: ${verb}d ${entity}=${id} changed=${(data as { changed: boolean }).changed}`);
+        notifyClients();
+      }
       else if (url.pathname.match(/^\/api\/milestone\/\d+$/) && req.method === "PUT") {
         const mid = Number(url.pathname.split("/")[3]);
         const body = await readBody(req);

@@ -4,7 +4,7 @@
  *  - downgrade guard: newer DB → clear throw
  *  - fresh-DB baseline stamps versions without replaying migrations
  *  - canonical initScrumSchema == full migration replay (schema parity)
- *  - legacy fixtures (pre-versioning / v1.2.1 / v1.3.1) migrate with data intact
+ *  - legacy fixtures (pre-versioning / v1.2.1 / v1.3.1 / v2.5.1) migrate with data intact
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -130,7 +130,7 @@ const FIXTURE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "fixtures/legacy-dbs",
 );
-const FIXTURES = ["pre-versioning", "v1.2.1", "v1.3.1"] as const;
+const FIXTURES = ["pre-versioning", "v1.2.1", "v1.3.1", "v2.5.1"] as const;
 
 function loadFixture(name: string): Database.Database {
   const sql = fs.readFileSync(path.join(FIXTURE_DIR, `${name}.sql`), "utf-8");
@@ -192,5 +192,57 @@ describe.each([...FIXTURES])("legacy fixture: %s", (name) => {
     runMigrations(db);
     expect(schemaSnapshot(db)).toEqual(before);
     expect((db.prepare("SELECT COUNT(*) c FROM tickets").get() as any).c).toBe(rowsBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v24: archived_at on milestones + epics — upgrade from a DB created by v2.5.1
+// ---------------------------------------------------------------------------
+
+describe("v24 milestone/epic archived_at — upgrade from v2.5.1", () => {
+  function migratedFixture(): Database.Database {
+    const db = loadFixture("v2.5.1");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    initScrumSchema(db);
+    runMigrations(db);
+    return db;
+  }
+
+  it("starts at v23 without archived_at on milestones/epics (fixture sanity)", () => {
+    const db = loadFixture("v2.5.1");
+    expect((db.prepare("SELECT MAX(version) v FROM schema_versions").get() as any).v).toBe(23);
+    for (const t of ["milestones", "epics"]) {
+      const cols = (db.pragma(`table_info(${t})`) as Array<{ name: string }>).map((c) => c.name);
+      expect(cols).not.toContain("archived_at");
+    }
+  });
+
+  it("adds archived_at (NULL) + index to both tables and keeps existing rows", () => {
+    const db = migratedFixture();
+    expect((db.prepare("SELECT MAX(version) v FROM schema_versions").get() as any).v).toBe(LATEST_SCHEMA_VERSION);
+    expect(db.prepare("SELECT version FROM schema_versions WHERE version = 24").all()).toHaveLength(1);
+    expect(db.prepare("SELECT name, status, archived_at FROM milestones").all()).toEqual([
+      { name: "Legacy milestone", status: "completed", archived_at: null },
+    ]);
+    expect(db.prepare("SELECT name, status, milestone_id, archived_at FROM epics").all()).toEqual([
+      { name: "Legacy epic", status: "completed", milestone_id: 1, archived_at: null },
+    ]);
+    for (const idx of ["idx_milestones_archived", "idx_epics_archived"]) {
+      expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?").get(idx)).toBeTruthy();
+    }
+  });
+
+  it("is idempotent — re-running migrations leaves one archived_at column and keeps values", () => {
+    const db = migratedFixture();
+    db.prepare("UPDATE milestones SET archived_at = '2026-10-09 10:00:00' WHERE id = 1").run();
+    runMigrations(db);
+    initScrumSchema(db);
+    runMigrations(db);
+    for (const t of ["milestones", "epics"]) {
+      const cols = (db.pragma(`table_info(${t})`) as Array<{ name: string }>).filter((c) => c.name === "archived_at");
+      expect(cols).toHaveLength(1);
+    }
+    expect((db.prepare("SELECT archived_at FROM milestones WHERE id = 1").get() as any).archived_at).toBe("2026-10-09 10:00:00");
   });
 });
