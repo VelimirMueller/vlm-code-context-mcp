@@ -53,6 +53,13 @@ Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
 
 ---
 
+## New in 2.6 — Fresh Index 🧊
+
+- **Answers are checked against the disk.** `search_files`, `find_symbol` and `get_file_context` stat every row they return: a changed file is re-indexed and a deleted one dropped *before* the answer goes out, and each row carries its `indexed_at`. Per repo, a moved git `HEAD` re-indexes exactly the files `git diff --name-only <indexed>..HEAD` lists and says so in one `⚠ STALE` line; above 500 changed files it warns on every call instead of blocking.
+- **Only your code is indexed.** Git checkouts are listed with `git ls-files` (every `.gitignore`, at any depth), on top of a hard deny: `node_modules`, `vendor`, `dist`, `build`, `.next`, `coverage`, Laravel `storage/`, dot-dirs (`.git`, `.worktrees`), lockfiles, minified bundles, source maps, binaries, files over 512 KB (`CODE_CONTEXT_MAX_FILE_KB`).
+- **`code-context-reindex`** re-indexes every repo under a root: `[--all | <repo>…] [--root <dir>] [--db <file>] [--prune-missing] [--vacuum]`. A `.code-context-ignore` file in a repo keeps it out (and purges its rows). Exit 0/1.
+- **Fewer tools in context.** The gamification (`record_mood`, `get_mood_trends`, `generate_vision_animation`) and the dashboard live-output stream (`send_step_progress`, `send_claude_output`, `send_claude_step`) are hidden unless `CODE_CONTEXT_TOOLSETS=fun,stream` (or `all`). No data is removed.
+
 ## New in 2.4 — Roster Control 🎛️
 
 - **`update_agent`** — change a role's model, tools, system prompt, name, description or department from a single MCP call, and the reply names the Task-tool tier the new model routes to. No raw SQL and no dashboard detour. The sprint instructions used to advertise a `create_agent` tool that never existed; they now point here.
@@ -210,7 +217,7 @@ No agent holds the full project in its context window. They query what they need
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘          │
 │       └──────────────┼─────────────┘                │
 │                      ▼                              │
-│              98 MCP Tools                           │
+│     92 MCP Tools (98 with all toolsets)             │
 │      (reads · writes · ceremony cards)              │
 │                      │                              │
 │                      ▼                              │
@@ -293,8 +300,8 @@ Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `
 
 | Component | Count |
 |---|---|
-| MCP tools | 98 |
-| Database tables | 32 (27 scrum + 5 code) |
+| MCP tools | 92 by default, 98 with `CODE_CONTEXT_TOOLSETS=all` |
+| Database tables | 33 (27 scrum + 6 code) |
 | React components | 75 |
 | Tests | 762 (677 backend + 85 frontend) |
 | Agent roles | 9 (configurable) |
