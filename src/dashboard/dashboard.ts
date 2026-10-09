@@ -13,6 +13,13 @@ import { seedDefaults } from "../scrum/defaults.js";
 import { resolveDashboardToken, isAuthorized, isAllowedHost, isAllowedOrigin } from "./auth.js";
 import { makeWatchIgnorePredicate, WATCH_DIR_WARN_THRESHOLD } from "../shared/ignore.js";
 import { codeHandlers, sprintHandlers } from "./handlers/index.js";
+import { log as slog, errorClass, logThrottled } from "../sessionlog.js";
+
+/** Rejected-request breadcrumb, at most one per status+path per minute (anyone local can trigger these). */
+function logRejected(status: number, reason: string, method: string | undefined, pathname: string): void {
+  const p = pathname.replace(/\/\d+(?=\/|$)/g, "/:id").slice(0, 120);
+  logThrottled(`${status} ${p}`, "WARN", `dashboard: rejected request status=${status} reason=${reason} method=${method} path=${p}`);
+}
 // Shared validators live in handlers/validation.ts so the migrated scrum
 // handlers (handlers/sprint.ts) and the remaining inline handlers share one copy.
 import { validateEnum, validateColor, ALLOWED_AGENT_MODELS, DEFAULT_AGENT_MODEL } from "./handlers/validation.js";
@@ -34,8 +41,10 @@ const isFreshDb = !fs.existsSync(dbPath);
 
 // Refuse a downgrade BEFORE the read-write open — same groomed two-line error
 // as the MCP server entry; avoids WAL litter next to a refused DB (discovery #28).
+let stampedBefore = 0;
 if (!isFreshDb) {
   const stamped = peekSchemaVersion(dbPath);
+  stampedBefore = stamped;
   if (stamped > LATEST_SCHEMA_VERSION) {
     console.error(`ERROR: Database is at schema v${stamped}, but this code-context version only knows v${LATEST_SCHEMA_VERSION}.`);
     console.error(`  It was created by a newer code-context version — update the package (npm i -g vlm-code-context-mcp@latest).`);
@@ -43,15 +52,24 @@ if (!isFreshDb) {
   }
 }
 
-const writeDb = new Database(dbPath);
-writeDb.pragma("journal_mode = WAL");
-writeDb.pragma("foreign_keys = ON");
-const db = writeDb; // alias for backward compat — all queries use the same connection
+let writeDb: Database.Database;
+try {
+  writeDb = new Database(dbPath);
+  writeDb.pragma("journal_mode = WAL");
+  writeDb.pragma("foreign_keys = ON");
 
-// Ensure schemas exist
-initSchema(writeDb);
-initScrumSchema(writeDb);
-runMigrations(writeDb, { freshDb: isFreshDb });
+  // Ensure schemas exist
+  initSchema(writeDb);
+  initScrumSchema(writeDb);
+  runMigrations(writeDb, { freshDb: isFreshDb });
+} catch (err) {
+  slog("CRITICAL", `dashboard: db open/migration failed db=${path.basename(dbPath)} error=${errorClass(err)}`);
+  throw err;
+}
+if (!isFreshDb && stampedBefore < LATEST_SCHEMA_VERSION) {
+  slog("WARN", `dashboard: migrations applied db=${path.basename(dbPath)} schema v${stampedBefore}→v${LATEST_SCHEMA_VERSION}`);
+}
+const db = writeDb; // alias for backward compat — all queries use the same connection
 
 // Seed factory defaults into empty tables (never overwrites existing data)
 const seeded = seedDefaults(writeDb);
@@ -956,11 +974,13 @@ const server = http.createServer(async (req, res) => {
   // DNS-rebinding guard: the server binds 127.0.0.1, so every peer is local —
   // what matters is the hostname the browser thinks it is talking to.
   if (!isAllowedHost(req.headers.host, req.socket.localPort ?? PORT)) {
+    logRejected(421, "host-not-loopback", req.method, url.pathname);
     res.writeHead(421, { "Content-Type": "application/json" });
     res.end('{"error":"misdirected request: Host must be localhost"}');
     return;
   }
   if (!isAllowedOrigin(req.method, req.headers.origin)) {
+    logRejected(403, "cross-origin-write", req.method, url.pathname);
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end('{"error":"forbidden: cross-origin write"}');
     return;
@@ -975,6 +995,8 @@ const server = http.createServer(async (req, res) => {
   // Bearer-token auth on all /api/* routes (#15b); page + assets stay public so
   // the browser can load the app and read the injected token.
   if (!isAuthorized(req, url, DASHBOARD_TOKEN)) {
+    // Path only — never the query string (EventSource sends ?token=).
+    logRejected(401, "missing-or-invalid-token", req.method, url.pathname);
     res.writeHead(401, { "Content-Type": "application/json" });
     res.end('{"error":"unauthorized: missing or invalid dashboard token"}');
     return;
@@ -1156,16 +1178,19 @@ const server = http.createServer(async (req, res) => {
       }
       else if (url.pathname === "/api/sprints/archive-completed" && req.method === "POST") {
         data = sprintHandlers.apiArchiveCompletedSprints(db);
+        slog("INFO", `dashboard: archived completed sprints count=${(data as { archived?: number }).archived ?? 0}`);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/advance$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         data = sprintHandlers.apiAdvanceSprint(db, sid);
+        slog("INFO", `dashboard: sprint=${sid} phase ${(data as { from?: string }).from ?? "?"}→${(data as { to?: string }).to ?? "?"}`);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/archive$/) && req.method === "POST") {
         const sid = Number(url.pathname.split("/")[3]);
         data = sprintHandlers.apiArchiveSprint(db, sid);
+        slog("INFO", `dashboard: archived sprint=${sid} count=1`);
         notifyClients();
       }
       else if (url.pathname.match(/^\/api\/sprint\/\d+\/unarchive$/) && req.method === "POST") {
@@ -1404,6 +1429,13 @@ const server = http.createServer(async (req, res) => {
     } catch (e: any) {
       const payload: any = { ok: false, error: e.message };
       if (e.gate) payload.gate = e.gate;
+      const status = Number(e?.status ?? 500);
+      const routePath = url.pathname.replace(/\/\d+(?=\/|$)/g, "/:id").slice(0, 120);
+      if (status >= 500) {
+        slog("CRITICAL", `dashboard: route error status=${status} method=${req.method} path=${routePath} error=${errorClass(e)}`);
+      } else {
+        slog("WARN", `dashboard: route rejected status=${status} method=${req.method} path=${routePath} error=${errorClass(e)}`);
+      }
       res.writeHead(e.status ?? 500);
       res.end(JSON.stringify(payload));
     }
@@ -1478,6 +1510,7 @@ function startServer(port: number, maxRetries = 10): void {
       fs.writeFileSync(envLocalPath, `VITE_DASHBOARD_PORT=${port}\nVITE_DASHBOARD_TOKEN=${DASHBOARD_TOKEN}\n`);
     } catch {}
     console.log(`VLM Code Context | AI Virtual IT Department — http://localhost:${port}`);
+    slog("INFO", `dashboard: started version=${PKG_VERSION} port=${port} db=${path.basename(dbPath)}`);
 
     // Auto-detect watch directory from indexed files, or use CLI arg
     const watchDir = WATCH_DIR ?? (() => {

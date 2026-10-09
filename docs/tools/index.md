@@ -66,7 +66,9 @@ The scrum/agent workflow half of the server. These 83 tools drive sprints, ticke
 
 ### Session bridge
 
-`request_user_input`, `get_user_response`, `send_step_progress`, `send_claude_output`, `send_claude_step`
+`request_user_input`, `get_user_response`, `send_step_progress`¹, `send_claude_output`¹, `send_claude_step`¹
+
+¹ Hidden by default since 2.6.0 — toolset `stream`. `record_mood`, `get_mood_trends` and `generate_vision_animation` are toolset `fun`. Enable with `CODE_CONTEXT_TOOLSETS=fun,stream` (or `all`); the data and the dashboard are unaffected.
 
 ## Context Efficiency
 

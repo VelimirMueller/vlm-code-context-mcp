@@ -12,6 +12,9 @@ import { initScrumSchema, runMigrations, LATEST_SCHEMA_VERSION, peekSchemaVersio
 import { checkDistFreshness, registerScrumTools } from "../scrum/tools.js";
 import { seedDefaults } from "../scrum/defaults.js";
 import { syncSkillsFromUpstream } from "../scrum/skill-sync.js";
+import { log as slog, errorClass, logToolExceptions } from "../sessionlog.js";
+import { FreshnessGuard, freshnessNotice, type FreshRow } from "./freshness.js";
+import { instrumentTools } from "./tool-wrap.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const DB_PATH = process.argv[2] ?? "./context.db";
@@ -30,16 +33,29 @@ if (!isFreshDb) {
   }
 }
 
-const db = new Database(resolvedDbPath);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+let db: Database.Database;
+let preMigrationVersion: number;
+try {
+  db = new Database(resolvedDbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  // The reindex CLI and the dashboard write the same file; wait for their
+  // transactions instead of failing a read-time refresh with SQLITE_BUSY.
+  db.pragma("busy_timeout = 5000");
 
-initSchema(db);
-initScrumSchema(db);
-// Peek the stamped version before migrating so the report shows the delta
-const preMigrationVersion =
-  (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as { v: number | null })?.v ?? 0;
-runMigrations(db, { freshDb: isFreshDb });
+  initSchema(db);
+  initScrumSchema(db);
+  // Peek the stamped version before migrating so the report shows the delta
+  preMigrationVersion =
+    (db.prepare("SELECT MAX(version) v FROM schema_versions").get() as { v: number | null })?.v ?? 0;
+  runMigrations(db, { freshDb: isFreshDb });
+} catch (err) {
+  slog("CRITICAL", `server: db open/migration failed db=${path.basename(resolvedDbPath)} error=${errorClass(err)}`);
+  throw err;
+}
+if (!isFreshDb && preMigrationVersion < LATEST_SCHEMA_VERSION) {
+  slog("WARN", `server: migrations applied db=${path.basename(resolvedDbPath)} schema v${preMigrationVersion}→v${LATEST_SCHEMA_VERSION}`);
+}
 console.error(
   isFreshDb
     ? `[schema] v${LATEST_SCHEMA_VERSION} (new database)`
@@ -80,6 +96,16 @@ const PKG_VERSION: string = (() => {
 
 const server = new McpServer({ name: "code-context", version: PKG_VERSION });
 
+// Session log: an exception escaping any tool handler (core or scrum) is a
+// CRITICAL breadcrumb — tool name + error class only, then rethrown unchanged.
+logToolExceptions(server);
+// Toolsets (CODE_CONTEXT_TOOLSETS), flair and the `done <tool> in N ms` line.
+instrumentTools(server);
+
+// Read-time freshness: every file-returning tool checks its rows against the
+// disk (and each repo's HEAD) before answering. See freshness.ts.
+const fresh = new FreshnessGuard(db);
+
 // ─── Tool: index_directory ───────────────────────────────────────────────────
 server.tool(
   "index_directory",
@@ -108,7 +134,9 @@ server.tool(
         }
       }
 
+      const indexStart = Date.now();
       const stats = indexDirectory(db, rootDir);
+      slog("INFO", `index_directory: files=${stats.files} exports=${stats.exports} deps=${stats.deps} pruned=${stats.prunedFiles} duration_ms=${Date.now() - indexStart}`);
 
       // Build structured description output
       const sections: string[] = [];
@@ -175,30 +203,37 @@ server.tool(
 
       return { content: [{ type: "text", text: sections.join("\n") }] };
     } catch (err: any) {
+      slog("CRITICAL", `tool index_directory: failed error=${errorClass(err)}`);
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
     }
   }
 );
 
 // ─── Tool: find_symbol ───────────────────────────────────────────────────────
+const findSymbolStmt = db.prepare(`
+  SELECT e.name, e.kind, f.path, f.summary, f.size_bytes, f.modified_at, f.indexed_at
+  FROM exports e JOIN files f ON e.file_id = f.id
+  WHERE e.name LIKE ?
+  ORDER BY e.name
+`);
 server.tool(
   "find_symbol",
-  "Find which file(s) export a given function, component, type, or constant",
+  "Find which file(s) export a given function, component, type, or constant. Results are checked against the disk first (changed files are re-indexed, deleted ones dropped) and carry their indexed_at.",
   { name: z.string().describe("Symbol name to search for (supports % wildcards)") },
   async ({ name }) => {
-    const rows = db.prepare(`
-      SELECT e.name, e.kind, f.path, f.summary
-      FROM exports e JOIN files f ON e.file_id = f.id
-      WHERE e.name LIKE ?
-      ORDER BY e.name
-    `).all(name) as { name: string; kind: string; path: string; summary: string }[];
+    type Row = FreshRow & { name: string; kind: string; summary: string; indexed_at: string };
+    const repo = fresh.checkRepos();
+    let rows = findSymbolStmt.all(name) as Row[];
+    const files = fresh.checkFiles(rows);
+    if (files.changed) rows = findSymbolStmt.all(name) as Row[];
+    const notice = freshnessNotice(repo, files);
 
     if (rows.length === 0) {
-      return { content: [{ type: "text", text: `No exports matching "${name}" found.` }] };
+      return { content: [{ type: "text", text: `${notice}No exports matching "${name}" found.` }] };
     }
 
-    const text = rows.map(r => `${r.name} (${r.kind}) — ${r.path}\n  ${r.summary}`).join("\n\n");
-    return { content: [{ type: "text", text }] };
+    const text = rows.map(r => `${r.name} (${r.kind}) — ${r.path}\n  ${r.summary} | indexed ${r.indexed_at}`).join("\n\n");
+    return { content: [{ type: "text", text: notice + text }] };
   }
 );
 
@@ -212,11 +247,22 @@ server.tool(
     change_limit: z.number().optional().describe("Max number of recent changes to include (default: 3)"),
   },
   async ({ path: filePath, include_changes, change_limit }) => {
-    const file = db.prepare(`SELECT * FROM files WHERE path = ?`)
-      .get(filePath) as any | undefined;
+    const getFile = () => db.prepare(`SELECT * FROM files WHERE path = ?`).get(filePath) as any | undefined;
+    const repo = fresh.checkRepos();
+    let file = getFile();
+    let files = { changed: false, reindexed: 0, dropped: 0 };
+    if (file) {
+      files = fresh.checkFiles([file]);
+      if (files.changed) file = getFile();
+    } else if (fresh.indexIfEligible(filePath)) {
+      file = getFile();
+      files = { changed: true, reindexed: 1, dropped: 0 };
+    }
+    const notice = freshnessNotice(repo, files);
 
     if (!file) {
-      return { content: [{ type: "text", text: `File "${filePath}" not in index. Run index_directory first.` }] };
+      const gone = files.dropped > 0 ? "was deleted from disk and dropped from the index" : "not in index. Run index_directory first";
+      return { content: [{ type: "text", text: `${notice}File "${filePath}" ${gone}.` }] };
     }
 
     const exports = db.prepare(`SELECT name, kind FROM exports WHERE file_id = ?`)
@@ -242,7 +288,7 @@ server.tool(
 
     const sections = [
       `# ${file.path}`,
-      `${file.language} | ${formatSize(file.size_bytes)} | ${file.line_count} lines | modified ${file.modified_at}`,
+      `${file.language} | ${formatSize(file.size_bytes)} | ${file.line_count} lines | modified ${file.modified_at} | indexed ${file.indexed_at}`,
       file.summary,
       file.description && file.description !== file.summary ? file.description : "",
       exports.length > 0 ? `## Exports (${exports.length})\n${exports.map(e => `- ${e.name} (${e.kind})`).join("\n")}` : "",
@@ -289,7 +335,7 @@ server.tool(
       }
     }
 
-    return { content: [{ type: "text", text: sections.join("\n") }] };
+    return { content: [{ type: "text", text: notice + sections.join("\n") }] };
   }
 );
 
@@ -423,30 +469,35 @@ server.tool(
 );
 
 // ─── Tool: search_files ──────────────────────────────────────────────────────
+const searchFilesStmt = db.prepare(`
+  SELECT path, language, extension, size_bytes, line_count, summary, created_at, modified_at, indexed_at,
+    (SELECT COUNT(*) FROM exports WHERE file_id = files.id) as export_count,
+    (SELECT COUNT(*) FROM dependencies WHERE source_id = files.id) as dep_count
+  FROM files
+  WHERE path LIKE ? OR summary LIKE ?
+  ORDER BY path
+  LIMIT 25
+`);
 server.tool(
   "search_files",
-  "Search indexed files by path or summary (supports % wildcards)",
+  "Search indexed files by path or summary (supports % wildcards). Results are checked against the disk first (changed files are re-indexed, deleted ones dropped) and carry their indexed_at.",
   { query: z.string().describe("Search term (matched against path and summary, use % for wildcards)") },
   async ({ query }) => {
     const pattern = query.includes("%") ? query : `%${query}%`;
-    const rows = db.prepare(`
-      SELECT path, language, extension, size_bytes, line_count, summary, created_at, modified_at,
-        (SELECT COUNT(*) FROM exports WHERE file_id = files.id) as export_count,
-        (SELECT COUNT(*) FROM dependencies WHERE source_id = files.id) as dep_count
-      FROM files
-      WHERE path LIKE ? OR summary LIKE ?
-      ORDER BY path
-      LIMIT 25
-    `).all(pattern, pattern) as any[];
+    const repo = fresh.checkRepos();
+    let rows = searchFilesStmt.all(pattern, pattern) as any[];
+    const files = fresh.checkFiles(rows);
+    if (files.changed) rows = searchFilesStmt.all(pattern, pattern) as any[];
+    const notice = freshnessNotice(repo, files);
 
     if (rows.length === 0) {
-      return { content: [{ type: "text", text: `No files matching "${query}".` }] };
+      return { content: [{ type: "text", text: `${notice}No files matching "${query}".` }] };
     }
 
     const text = rows.map(r =>
-      `${r.path} (${r.language}, ${r.line_count} lines, ${r.export_count} exports, ${r.dep_count} deps)\n  Modified: ${r.modified_at} | ${r.summary}`
+      `${r.path} (${r.language}, ${r.line_count} lines, ${r.export_count} exports, ${r.dep_count} deps)\n  Modified: ${r.modified_at} | indexed ${r.indexed_at} | ${r.summary}`
     ).join("\n\n");
-    return { content: [{ type: "text", text }] };
+    return { content: [{ type: "text", text: notice + text }] };
   }
 );
 
@@ -531,3 +582,4 @@ registerScrumTools(server, db);
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(`code-context MCP server running — db: ${DB_PATH}`);
+slog("INFO", `server: started version=${PKG_VERSION} db=${path.basename(resolvedDbPath)}`);
