@@ -1,6 +1,6 @@
 ---
 name: configure-accessibility
-description: Use when making a frontend accessible — turns on a11y linting (Biome a11y rules for React/JSX, eslint-plugin-vuejs-accessibility for Vue templates), establishes semantic-HTML/focus/reduced-motion conventions, and adds axe checks to the test stack so accessibility regressions fail CI.
+description: Use when making a frontend accessible — turns on a11y linting (Biome a11y rules for React/JSX and, with full SFC support, for Vue templates), establishes semantic-HTML/focus/reduced-motion conventions, and adds axe checks to the test stack so accessibility regressions fail CI.
 ---
 
 # Configure Accessibility
@@ -20,18 +20,18 @@ Detect a11y lint, axe in tests, and whether a skip link / landmarks exist. **Pre
 - Both present → confirm the conventions in `a11y-rules.md` and the keyboard pass.
 
 ## 3. Detect framework
-React/JSX → Biome's a11y rules cover it. Vue → Biome lints `<script>` only, so add `eslint-plugin-vuejs-accessibility` for templates (the same Biome-doesn't-do-Vue-templates gap as `configure-linting`).
+React/JSX → Biome's a11y rules cover it. Vue → the same rules run on `<template>` once `html.experimentalFullSupportEnabled` is on (`configure-linting`); check it is.
 
 ## 4. Lint for accessibility
 
 Biome's `recommended` set (from `configure-linting`) already enables the core a11y rules — keep them at `error`, don't downgrade:
 - `useAltText`, `useButtonType`, `useKeyWithClickEvents`, `useValidAnchor`, `noSvgWithoutTitle`, `useAriaPropsForRole`, `noAutofocus`, …
 
-### Vue templates (Biome gap)
+### Vue templates
 ```bash
-pnpm add -D eslint eslint-plugin-vuejs-accessibility
+grep -n '"experimentalFullSupportEnabled": true' biome.json   # must match
 ```
-Run it over `.vue` files only (templates); let Biome keep `<script>`/TS. See `a11y-rules.md`.
+With full support, Biome reports `useAltText`, `useButtonType`, `useValidAnchor`, … inside `.vue` templates. It does not port the long tail of `eslint-plugin-vuejs-accessibility` (e.g. `form-control-has-label`, `no-redundant-roles`) — axe in step 6 catches those at runtime. Add the ESLint plugin back only if a missed rule class shows up in review. See `a11y-rules.md`.
 
 ## 5. App conventions (the part lint can't check)
 
@@ -86,5 +86,5 @@ pnpm test:e2e             # axe spec passes
 Plus a keyboard-only walk of the main flow.
 
 ## References
-- ./a11y-rules.md — semantic HTML, focus, reduced motion, contrast, the lint-vs-axe-vs-manual split, Vue template linting.
+- ./a11y-rules.md — semantic HTML, focus, reduced motion, contrast, the lint-vs-axe-vs-manual split, Vue template linting via Biome full support.
 - ../_shared/conventions.md — atoms (primitives carry focus rings), `@/` alias.

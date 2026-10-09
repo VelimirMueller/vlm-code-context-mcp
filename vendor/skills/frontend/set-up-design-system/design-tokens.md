@@ -20,6 +20,10 @@ Reference for `set-up-design-system`. How tokens, variants, and theming hang tog
 **Why:** A class strategy (`<html class="dark">`) lets users override the OS preference and lets you toggle instantly without a reload. The choice is UI state — it must persist across reloads.
 **How to apply:** `@custom-variant dark (&:where(.dark, .dark *))` in CSS; a persisted `useThemeStore` (Zustand/Pinia) holds `'light' | 'dark'`; a single root effect toggles `documentElement.classList`. Respect `prefers-color-scheme` as the initial default.
 
+## Rule: themes swap token values, never utilities
+**Why:** If a theme changes class names (`bg-zinc-900` → `bg-cyan-950`), every component must know every theme. Swapping the *values* behind semantic tokens keeps components theme-blind: `bg-surface` is right in every theme and mode.
+**How to apply:** `@theme inline { --color-surface: var(--surface); … }`; one CSS block per `[data-theme]` × `.dark` redefines the variables. Brand palettes (and decorative extras such as gradients or glows) are variables too. Shared design tokens across repos ship as one package that exports this CSS.
+
 ## Rule: the theme toggle is UI state, not server state
 **Why:** It exists because of what the user chose in the browser — textbook UI state (see `../_shared/glossary.md`). It never belongs in the query cache.
 **How to apply:** `useThemeStore` with `persist`. If the user has an account, sync the preference via a mutation on login — but the live toggle stays in the store.

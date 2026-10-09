@@ -1,6 +1,69 @@
 # Folder Conventions
 
-Reference for `set-up-frontend-structure`. Naming, barrel patterns, and the React-vs-Vue split for hooks/composables.
+Reference for `set-up-frontend-structure`. The one layout every repo shares, naming, barrel patterns, and the React-vs-Vue split for hooks/composables.
+
+## Rule: same concept, same folder — in every repo
+**Why:** A developer who knows one repo should find things in any other without searching. The layout below maps 1:1 between Vue and React; only the framework idiom changes (`composables/` vs `hooks/`, `router/` vs `routes/`).
+**How to apply:**
+```
+src/
+├── main.ts | main.tsx         # bootstrap + providers only
+├── App.vue | App.tsx          # app shell
+├── router/ (Vue) | routes/ (React)   # thin: params, prefetch, render a page
+├── components/                # shared UI, no domain knowledge
+│   ├── atoms/ molecules/ organisms/
+│   ├── templates/             # layouts
+│   └── pages/                 # page components, compose features
+├── features/<domain>/         # once a second domain exists
+│   ├── api/                   # <domain>.keys.ts · <domain>.queries.ts · <domain>.api.ts
+│   ├── composables/ | hooks/
+│   ├── components/            # domain UI
+│   ├── stores/                # domain UI state only
+│   ├── schemas/               # Zod schemas + inferred types
+│   └── index.ts               # the public surface
+├── composables/ | hooks/      # cross-feature view logic
+├── stores/                    # cross-feature UI state (theme, locale, sidebar)
+├── libs/                      # seams: fetcher, env, queryClient, queryKeys, i18n
+├── utils/                     # pure helpers
+├── locales/{de,en}/
+├── styles/                    # tokens.css (themes) + main.css
+└── types/                     # ambient types only
+tests/{unit,integration,ui,e2e,mocks,setup}/
+```
+
+### Findability — "I look for X → it is in Y"
+
+| I look for … | Vue | React |
+|---|---|---|
+| URL → screen mapping | `src/router/index.ts` | `src/routes/` |
+| A page's UI | `src/components/pages/` | `src/components/pages/` |
+| Everything about one domain | `src/features/<d>/` | `src/features/<d>/` |
+| A query key | `features/<d>/api/<d>.keys.ts` (registry `libs/queryKeys.ts`) | same |
+| The HTTP call for an entity | `features/<d>/api/<d>.api.ts` | same |
+| Query / mutation hooks | `features/<d>/composables/` | `features/<d>/hooks/` |
+| UI state | `features/<d>/stores/` or `stores/` | same |
+| Base URL, auth headers, env | `libs/fetcher.ts`, `libs/env.ts` | same |
+| Design tokens and themes | `styles/tokens.css` | same |
+| Translations | `locales/{de,en}/` | same |
+| A test | `tests/<type>/` | same |
+
+## Rule: Nuxt and Next use the same names inside their own roots
+**Why:** The meta-frameworks fix the routing folder and the source root; everything else is free. Filling the free part with the same names keeps the findability table valid.
+**How to apply:**
+
+| Standard (Vite SPA) | Nuxt 4 | Next.js 16 |
+|---|---|---|
+| `src/` | `app/` (Nuxt's `srcDir`) | `src/` |
+| `router/` / `routes/` | `app/pages/` (thin) + `app/middleware/` (guards) | `src/app/` — routing files only, route groups `(marketing)` / `(app)` |
+| `components/templates/` | `app/layouts/` | `layout.tsx` per segment |
+| `features/<d>/` | `app/features/<d>/` | `src/features/<d>/` (+ `actions.ts` for Server Actions) |
+| `libs/`, `utils/`, `stores/`, `locales/` | same under `app/` | same under `src/` |
+| — | `server/` (Nitro BFF), `shared/` (code for app + server) | `src/server/` (`import 'server-only'`), `src/app/api/**/route.ts` |
+| `tests/` | `tests/` (map the `nuxt` Vitest project to `tests/ui` + `tests/integration`) | `tests/` |
+
+- **Nuxt auto-imports:** keep them for framework APIs (`ref`, `useRoute`, `useFetch`); import project code explicitly — `imports: { scan: false }`, `components: { dirs: [] }`. Grep and "find usages" then behave like the SPA, and a feature moves between SPA and Nuxt unchanged.
+- **Nuxt layers:** a feature becomes a layer (`layers/<name>/`) only when two apps ship it.
+- **Next colocation:** Next allows project files inside `app/` (`_components`); the standard keeps `app/` for routing files so routes stay thin in every framework.
 
 ## Rule: hooks (React) vs composables (Vue)
 **Why:** Each framework's idiom. Mixing terms creates cognitive overhead.
@@ -58,7 +121,8 @@ export * from './ErrorFallback';
 ## When to deviate
 
 - **`pages/` for route components:** if using a file-based router (Next.js, Nuxt, TanStack Router), the routing layer dictates a `pages/` or `routes/` folder. In that case, the atomic-design `pages/` layer redundantly mirrors that — pick one. The skill audits and asks.
-- **Test location:** this project's default is the typed top-level `tests/` tree. A team that prefers co-located `*.test.*` can keep them in `src/` — follow what's there; don't churn an established choice.
+- **Test location:** this project's default is the typed top-level `tests/` tree (Nuxt's own docs also keep tests in a top-level `test/`; Next and the Vitest examples colocate). A team that prefers co-located `*.test.*` can keep them in `src/` — follow what's there; don't churn an established choice.
+- **Small app, one domain:** skip `features/`; promote the root `hooks|composables/` + `stores/` content into `features/<d>/` when the second domain arrives, in its own commit.
 
 ## Empty-folder placeholders
 

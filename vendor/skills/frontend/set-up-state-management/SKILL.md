@@ -52,9 +52,10 @@ pnpm add -D @tanstack/react-query-devtools
 
 ### Vue
 ```bash
-pnpm add @tanstack/vue-query pinia
+pnpm add @tanstack/vue-query pinia @vue/devtools-api
 pnpm add -D @tanstack/vue-query-devtools
 ```
+Pinia 4 lists `@vue/devtools-api` (v8) as a required peer — install it explicitly.
 
 ## 5. Generate the seams
 
@@ -66,7 +67,7 @@ Write the **base version** from [`../_shared/fetcher.md`](../_shared/fetcher.md)
 
 ### `src/libs/queryKeys.ts` (both frameworks)
 
-The hand-rolled, typed query-key factory. Also the home of the example domain types, so the store, the hooks, and the cache key all import from one place.
+The hand-rolled, typed query-key factory — the one registry of cache addresses. Also the home of the example domain types, so the store, the hooks, and the cache key all import from one place. In a multi-domain app each feature owns `features/<d>/api/<d>.keys.ts` and this file composes them (`export const queryKeys = { todos: todoKeys }`), so prefix invalidation still works app-wide.
 
 ```ts
 // src/libs/queryKeys.ts
@@ -77,8 +78,10 @@ export type Todo = { id: string; text: string; done: boolean };
 export const queryKeys = {
   todos: {
     all: ['todos'] as const,
-    list: (filters: TodoFilters) => [...queryKeys.todos.all, 'list', filters] as const,
-    detail: (id: string) => [...queryKeys.todos.all, 'detail', id] as const,
+    lists: () => [...queryKeys.todos.all, 'list'] as const,
+    list: (filters: TodoFilters) => [...queryKeys.todos.lists(), filters] as const,
+    details: () => [...queryKeys.todos.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.todos.details(), id] as const,
   },
 } as const;
 ```
@@ -111,15 +114,19 @@ The example is a pair that cooperates across the boundary without crossing it: t
 
 ```ts
 // src/hooks/useTodos.ts
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery } from '@tanstack/react-query';
 import { fetcher } from '@/libs/fetcher';
 import { queryKeys, type Todo, type TodoFilters } from '@/libs/queryKeys';
 
-export function useTodos(filters: TodoFilters) {
-  return useQuery({
+// One object for the hook, the route loader, prefetch and setQueryData.
+export const todosQueryOptions = (filters: TodoFilters) =>
+  queryOptions({
     queryKey: queryKeys.todos.list(filters),
     queryFn: () => fetcher<Todo[]>(`/todos?status=${filters.status}`),
   });
+
+export function useTodos(filters: TodoFilters) {
+  return useQuery(todosQueryOptions(filters));
 }
 ```
 
@@ -134,10 +141,12 @@ export function useCreateTodo() {
   return useMutation({
     mutationFn: (input: { text: string }) =>
       fetcher<Todo>('/todos', { method: 'POST', body: JSON.stringify(input) }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.todos.all }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.todos.lists() }),
   });
 }
 ```
+
+A create adds to lists and touches no detail, so it invalidates `lists()`. The full rule set (update, delete, logout, realtime) and optimistic updates: `./server-state.md`.
 
 ```ts
 // src/stores/useTodoFiltersStore.ts — UI state only (which filter is active)
@@ -169,15 +178,23 @@ Consume with inline selectors: `const status = useTodoFiltersStore((s) => s.stat
 
 ```ts
 // src/composables/useTodos.ts — Vue keys must be reactive (computed)
-import { useQuery } from '@tanstack/vue-query';
-import { computed, type Ref } from 'vue';
+import { queryOptions, useQuery } from '@tanstack/vue-query';
+import { computed, type MaybeRefOrGetter, toValue } from 'vue';
 import { fetcher } from '@/libs/fetcher';
 import { queryKeys, type Todo, type TodoFilters } from '@/libs/queryKeys';
 
-export function useTodos(filters: Ref<TodoFilters>) {
+const fetchTodos = (filters: TodoFilters) =>
+  fetcher<Todo[]>(`/todos?status=${filters.status}`);
+
+// Plain-value options for router guards, prefetch and setQueryData.
+export const todosQueryOptions = (filters: TodoFilters) =>
+  queryOptions({ queryKey: queryKeys.todos.list(filters), queryFn: () => fetchTodos(filters) });
+
+// The composable accepts a value, a ref or a getter and keeps the key reactive.
+export function useTodos(filters: MaybeRefOrGetter<TodoFilters>) {
   return useQuery({
-    queryKey: computed(() => queryKeys.todos.list(filters.value)),
-    queryFn: () => fetcher<Todo[]>(`/todos?status=${filters.value.status}`),
+    queryKey: computed(() => queryKeys.todos.list(toValue(filters))),
+    queryFn: () => fetchTodos(toValue(filters)),
   });
 }
 ```
@@ -193,7 +210,7 @@ export function useCreateTodo() {
   return useMutation({
     mutationFn: (input: { text: string }) =>
       fetcher<Todo>('/todos', { method: 'POST', body: JSON.stringify(input) }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.todos.all }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.todos.lists() }),
   });
 }
 ```
@@ -275,7 +292,7 @@ Playwright e2e is deferred to skill `configure-test-stack`, matching the `set-up
 
 ## References
 - ./state-boundaries.md — which state goes where; the decision table; anti-patterns. The most important file.
-- ./server-state.md — TanStack Query patterns (React + Vue): hooks-only rule, query-key factory, invalidation, client defaults, the Suspense upgrade.
+- ./server-state.md — TanStack Query patterns (React + Vue): hooks-only rule, query-key factory, `queryOptions`, the invalidation table, optimistic updates, client defaults, the Suspense upgrade.
 - ./ui-state.md — Zustand + Pinia patterns: small stores, inline selectors (React Compiler note), slices, persistence.
 - ../_shared/conventions.md — `@/` alias, file naming, and the `stores/` rule.
 - ../_shared/stack-versions.md — runtime-dep versioning.

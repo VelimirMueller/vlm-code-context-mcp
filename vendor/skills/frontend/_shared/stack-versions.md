@@ -2,6 +2,26 @@
 
 Version policy for frontend projects scaffolded by these skills.
 
+## Current lines (verified against the npm registry, 2026-10-09)
+
+| Package | Line | Note |
+|---|---|---|
+| `react` / `react-dom` | 19.3 | `<ViewTransition>`, Fragment refs stable |
+| `babel-plugin-react-compiler` | 1.0 | Stable; see `optimize-performance` |
+| `vue` | 3.5 | 3.6 (Vapor) is a release candidate — not for production yet |
+| `vite` | 8.3 | Rolldown bundler; `@vitejs/plugin-react` 6 / `@vitejs/plugin-vue` 6 |
+| `vitest` | 5.0 | Node ≥ 22.12; `clearMocks` on by default; `vitest-browser-vue` `render` is async |
+| `typescript` | 6.0 in Vue repos, 7.0 elsewhere | TS 7 has no programmatic API yet, so `vue-tsc` needs 6.x |
+| `@biomejs/biome` | 2.5 | Lint + format; `rules.preset` replaces `rules.recommended` |
+| `tailwindcss` | 4.3 | CSS-first `@theme` |
+| `@tanstack/react-query` / `@tanstack/vue-query` | 5.104 | |
+| `pinia` | 4.0 | Install `@vue/devtools-api` ^8 next to it (required peer) |
+| `zustand` | 5.0 | |
+| `@playwright/test` | 1.64 | |
+| Frameworks (pointers only) | Next.js 16.4, Nuxt 4.6 | See `framework-idioms.md` |
+
+Re-verify with `npm view <pkg> dist-tags` before a scaffold; this table is a floor, not a pin.
+
 ## Rule: Node — track the active LTS line (24 today)
 **Why:** The active LTS line gets the long support window that simplifies CI choices. Pinning to "whatever LTS is current" rather than a frozen number keeps the policy from going stale; Node 24 is the active LTS in 2026.
 **How to apply:** Pin via `.nvmrc` (the active LTS major — `24` today) and `engines.node` in `package.json` (`>=24.0.0`). Bump both when the next even-numbered LTS lands.
@@ -14,7 +34,8 @@ Version policy for frontend projects scaffolded by these skills.
 **Why:** Runtime deps benefit from minor-version updates (security, perf). Build/test tooling churn breaks reproducibility — pin to patch only.
 **How to apply:**
 - `react`, `vue`, `@tanstack/react-query`, `@tanstack/vue-query`, `zustand`, `pinia`, etc. → `^X.Y.Z`
-- `vite`, `vitest`, `playwright`, `@biomejs/biome`, `prettier`, `typescript` → `~X.Y.Z`
+- `vite`, `vitest`, `playwright`, `typescript` → `~X.Y.Z`
+- `@biomejs/biome` → exact (`-E`): a new lint rule must not fail CI unannounced
 
 **Anti-example:**
 ```json
@@ -22,12 +43,16 @@ Version policy for frontend projects scaffolded by these skills.
 "dependencies": { "react": "19.2.0" }
 
 // bad: every dep on caret (test/build tooling can break minor)
-"devDependencies": { "vite": "^6.0.0" }
+"devDependencies": { "vite": "^8.0.0" }
 ```
 
-## Rule: Vue 3 only; React 19+
-**Why:** Vue 2 reached EOL 2023-12-31. React 19 stabilized concurrent features.
-**How to apply:** Scaffold skill rejects requests for Vue 2; defaults React to 19.
+## Rule: Vue 3.5+ only; React 19+
+**Why:** Vue 2 reached EOL 2023-12-31; 3.5 brought `useTemplateRef`, `useId` and reactive props destructure, which the skills use. React 19 stabilized actions and the compiler-ready model.
+**How to apply:** Scaffold skill rejects requests for Vue 2; defaults React to 19. Write Vue in `<script setup>` only — that is also the entry ticket to Vapor Mode later.
+
+## Rule: TypeScript 6.x in Vue projects until `vue-tsc` supports 7
+**Why:** TS 7.0 is the Go-native compiler and ships no stable programmatic API; `vue-tsc`/Volar build on that API. React and plain-TS packages can use 7.0.
+**How to apply:** Vue: `"typescript": "~6.0.x"` (the `create-vite` template already pins it). Revisit when TS 7.1 and a matching `vue-tsc` release land.
 
 ## Rule: Storybook latest stable major
 **Why:** Storybook major versions ship breaking config changes. Pin in lockfile but accept majors via explicit upgrade.

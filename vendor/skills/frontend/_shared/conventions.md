@@ -48,6 +48,18 @@ export const Button = () => null;
 export * from './ErrorFallback';
 ```
 
+## Rule: one domain = one feature module once a second domain exists
+**Why:** A domain (todos, billing, users) changes together — its queries, hooks, components, UI store and schemas. Spread over five root folders, one change touches five places and nobody finds the whole. A feature folder keeps the domain in one place while the inside repeats the root layout, so the "where does it go" rules don't change.
+**How to apply:** `src/features/<domain>/{api,hooks|composables,components,stores,schemas}/` + `index.ts` (the public surface). Root folders keep cross-feature code only. Other code imports a feature through its `index.ts`, never its internals. A one-domain app skips `features/` until the second domain arrives. Full layout and the Nuxt/Next mapping: `../set-up-frontend-structure/folder-conventions.md`.
+
+```ts
+// good
+import { TodoList, useTodos } from '@/features/todos';
+
+// bad: reaching past the public surface
+import { todoKeys } from '@/features/todos/api/todos.keys';
+```
+
 ## Rule: framework-specific folder for hooks vs composables
 **Why:** Mirrors framework idiom. React projects say "hook"; Vue projects say "composable". Mixing terms creates cognitive overhead.
 **How to apply:**
@@ -59,9 +71,10 @@ export * from './ErrorFallback';
 **How to apply:**
 - React → `src/stores/use<Domain>Store.ts` (Zustand). Example: `useTodoFiltersStore.ts`.
 - Vue → `src/stores/use<Domain>Store.ts` (Pinia, setup-store style).
+- Domain-only UI state → `src/features/<domain>/stores/`; cross-feature (theme, locale, sidebar) → `src/stores/`.
 - Server data never goes in a store. See the `set-up-state-management` skill, ref `state-boundaries.md`.
 
 ## When to deviate
 
 - **Path alias prefix:** if the project already uses `~/` (Nuxt convention) or `app/` (legacy), keep the existing prefix. Don't churn imports.
-- **Source root:** if the project uses a non-`src/` layout (e.g., `app/` for Next.js App Router), follow what's there. Skills audit the layout before assuming.
+- **Source root:** Nuxt 4 uses `app/` as its source root — treat it as `src/`. Next.js keeps `src/` with routing in `src/app/`. Skills audit the layout before assuming.

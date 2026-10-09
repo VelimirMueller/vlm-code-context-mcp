@@ -28,7 +28,7 @@ const status = useTodoFiltersStore.use.status();
 
 > **React Compiler note:** the compiler auto-memoizes rendering, so drop manual `useMemo`/`useCallback`. It does *not* replace selectors — those control store *subscription*, a different axis — so inline selectors stay required.
 
-## Rule (Vue): setup-store style + storeToRefs
+## Rule (Vue): setup-store style + storeToRefs (Pinia 4)
 **Why:** Setup stores (`defineStore('x', () => { ... })`) read like the Composition API and map 1:1 onto Zustand's functional store. `storeToRefs` keeps destructured state reactive; actions can be destructured directly.
 **How to apply:**
 ```ts
@@ -36,6 +36,7 @@ const store = useTodoFiltersStore();
 const { status } = storeToRefs(store); // reactive state
 const { setStatus, reset } = store;    // actions: plain destructure
 ```
+Pinia 4 is ESM-only and needs `@vue/devtools-api` v8 installed beside it; the store API is unchanged from v3.
 
 ## Growing a store: the slices pattern (React)
 When one store legitimately needs several cohesive parts, compose typed slices rather than splitting into coupled stores.

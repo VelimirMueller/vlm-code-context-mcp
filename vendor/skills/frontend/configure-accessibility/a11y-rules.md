@@ -36,7 +36,7 @@ Reference for `configure-accessibility`. What to enforce and how the three layer
 
 ## Rule: three layers, none sufficient alone
 **Why:** Lint catches static markup mistakes; axe catches ~30–40% of issues at runtime; only a human catches focus order, meaningful labels, and "does this actually make sense by keyboard". Skipping the manual pass ships inaccessible-but-green UIs.
-**How to apply:** Biome a11y rules (JSX) + eslint-plugin-vuejs-accessibility (Vue templates) in CI → axe in `tests/ui` + `tests/e2e` → a keyboard-only walkthrough of each critical flow.
+**How to apply:** Biome a11y rules (JSX, and Vue templates with full SFC support) in CI → axe in `tests/ui` + `tests/e2e` → a keyboard-only walkthrough of each critical flow.
 
 ## When to deviate
 - **Design-system-only repo:** ship a11y-correct primitives and document usage; the consuming app still owns landmarks, skip links, and flow-level focus.

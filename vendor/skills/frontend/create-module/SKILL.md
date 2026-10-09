@@ -1,6 +1,6 @@
 ---
 name: create-module
-description: Use when adding a new module, utility, helper, hook, or any piece of logic to a frontend project — keeps UI components thin by routing logic into the right layer (utils / libs / hooks / composables / stores) behind a typed interface, with a barrel export and a colocated unit test.
+description: Use when adding a new module, utility, helper, hook, or any piece of logic to a frontend project — keeps UI components thin by routing logic into the right layer (utils / libs / hooks / composables / stores) behind a typed interface — inside a feature module once the app has more than one domain — with a barrel export and a unit test in tests/unit.
 ---
 
 # Create Module
@@ -12,7 +12,7 @@ The everyday authoring move: you need new code — a helper, a hook, a wrapper, 
 ## 1. Audit current state
 
 ```bash
-ls src/utils src/libs src/hooks src/composables src/stores 2>/dev/null   # which homes exist?
+ls src/utils src/libs src/hooks src/composables src/stores src/features 2>/dev/null   # which homes exist?
 grep -rn "<the thing you're about to write>" src/ 2>/dev/null            # already exists? reuse, don't duplicate
 grep '"@/\*"' tsconfig.json tsconfig.app.json 2>/dev/null                 # @/ alias present?
 ```
@@ -24,13 +24,16 @@ React → `src/hooks/`. Vue → `src/composables/`. The other homes (`utils/`, `
 
 ## 3. Classify — where does it go?
 
-Walk top to bottom; the first row that fits wins.
+**First: whose is it?** Code that belongs to one domain goes into `src/features/<domain>/` and the same table applies *inside* it (`features/todos/hooks/`, `features/todos/api/`, …). Code two or more features use goes into the root folders. No `features/` yet and this is the second domain → create `features/` now (see `../_shared/conventions.md`).
+
+Then walk top to bottom; the first row that fits wins.
 
 | What you're writing | Home | The boundary it exposes |
 |---|---|---|
 | Pure function — deterministic, no deps, no side effects | `src/utils/` | named export, explicit input/output types |
 | Wraps a third-party lib, or does IO (fetch, storage, SDK) | `src/libs/` | a small seam surface; internals stay private |
 | Stateful view logic — lifecycle, reads a store/query, returns handlers | `src/hooks/` \| `src/composables/` | returns data + handlers, never internals |
+| Server data: key factory, `queryOptions`, fetch functions | `features/<d>/api/` (or `src/libs/queryKeys.ts` in a one-domain app) | `queryOptions` objects + a typed fetch function |
 | Shared client UI state read across unrelated parts of the tree | `src/stores/` | one store per domain; inline selectors |
 | Renders UI | a component in the right atomic layer | imports only from lower layers |
 
@@ -77,7 +80,7 @@ import { useTodos } from '@/composables/useTodos';
 import { openTodos } from '@/utils/openTodos';
 
 export function useTodoSummary() {
-  const todos = useTodos(computed(() => ({ status: 'all' as const })));
+  const todos = useTodos({ status: 'all' });
   const openCount = computed(() => openTodos(todos.data.value ?? []).length);
   return { openCount };
 }
@@ -105,9 +108,9 @@ const { openCount } = useTodoSummary();
 ```
 
 ## 6. Boundary + barrel
-Add the module to its layer's `index.ts` barrel (the layer's single re-export home). Import a module by its path — `@/utils/openTodos`, `@/hooks/useTodoSummary` — and never reach *past* it into another module's private internals. One module, one responsibility; file name matches the primary export.
+Add the module to its layer's `index.ts` barrel (the layer's single re-export home). Inside a feature, export only what other features need from `features/<d>/index.ts`; everything else stays private. Import a module by its path — `@/utils/openTodos`, `@/features/todos` — and never reach *past* it into another module's private internals. One module, one responsibility; file name matches the primary export.
 
-## 7. Colocated unit test
+## 7. Unit test in `tests/unit`
 Extraction's payoff — pure logic tests with zero setup:
 ```ts
 // tests/unit/openTodos.test.ts
@@ -133,10 +136,11 @@ describe('openTodos', () => {
 ## 9. Verify
 ```bash
 pnpm tsc --noEmit                              # the module + its consumers type-check
-pnpm vitest run tests/unit/openTodos.test.ts   # the colocated test passes (if configure-test-stack ran)
+pnpm vitest run tests/unit/openTodos.test.ts   # the unit test passes (if configure-test-stack ran)
 ```
 
 ## References
 - ./module-patterns.md — the thin-UI rule, the decision table, the typed-surface boundary, pure-by-default, the graduation rule, and when a feature folder beats layers.
 - ../set-up-frontend-structure/SKILL.md — the folders this routes into.
-- ../_shared/conventions.md — naming, barrels, `libs/` vs `utils/`.
+- ../_shared/conventions.md — naming, barrels, `libs/` vs `utils/`, feature modules.
+- ../_shared/framework-idioms.md — the Vue 3.5 / React 19 shape of the code inside each block.

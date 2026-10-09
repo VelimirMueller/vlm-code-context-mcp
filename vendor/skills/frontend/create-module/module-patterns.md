@@ -32,6 +32,10 @@ function Summary() {
 ## Rule: one module, one responsibility; file name = export
 **Why:** Predictable navigation; a file that does two things is two files.
 
+## Rule: group by domain first, then by layer
+**Why:** Layers answer "what kind of code is this"; domains answer "what changes together". With one domain the layers suffice. With several, a domain spread over `hooks/`, `stores/`, `components/organisms/` and `libs/` is invisible as a unit and easy to couple by accident.
+**How to apply:** From the second domain on, `src/features/<domain>/` holds that domain's `api/`, `hooks|composables/`, `components/`, `stores/`, `schemas/`, behind `index.ts`. The layer rules above apply unchanged inside. A feature never imports another feature's internals — only its `index.ts`; two features that need each other's internals are one feature or share a root module.
+
 ## When to deviate
-- **Feature colocation:** for a large, self-contained domain, a `features/<domain>/` folder colocating its hook + components + schema can beat spreading across layers. This set defaults to layers (fewer conventions); reach for a feature folder only when a domain clearly earns it.
+- **One-domain app:** keep the root layers; don't create `features/` for a single domain.
 - **Trivial inline helpers:** a one-line, single-use transform inside a component isn't worth a module. Extract on the second use, or when it stops being obvious.

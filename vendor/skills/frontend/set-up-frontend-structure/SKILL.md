@@ -1,6 +1,6 @@
 ---
 name: set-up-frontend-structure
-description: Use when laying down folder structure for a frontend project — creates atomic-design component layout (atoms / molecules / organisms / templates / pages) plus hooks-or-composables, libs, and utils folders, with index.ts barrels and one example component (with a story) per atomic layer to document the pattern.
+description: Use when laying down folder structure for a frontend project — creates the shared layout every repo uses (atomic-design components, hooks-or-composables, libs, utils, stores, styles, locales, and feature modules from the second domain on), with index.ts barrels and one example component (with a story) per atomic layer to document the pattern.
 ---
 
 # Set Up Frontend Structure
@@ -16,6 +16,9 @@ For each folder below, check if it already exists and is non-empty:
 - `src/hooks` (React) **or** `src/composables` (Vue)
 - `src/libs`
 - `src/utils`
+- `src/stores`
+- `src/styles`
+- `src/features` (only if the app already has two or more domains)
 
 (The test tree lives at a top-level `tests/`, created by `configure-test-stack` — not here.)
 
@@ -43,8 +46,12 @@ src/
 │   └── pages/
 ├── hooks/        (React) OR composables/ (Vue)
 ├── libs/
-└── utils/
+├── utils/
+├── stores/
+└── styles/
 ```
+
+`src/features/<domain>/` is created by `create-module` when the second domain arrives; `src/locales/` by `set-up-i18n`. The full map, the findability table and the Nuxt/Next mapping: `folder-conventions.md`.
 
 (Tests are **not** under `src/`. `configure-test-stack` creates a top-level `tests/{unit,ui,integration,e2e}` tree.)
 
@@ -59,7 +66,7 @@ Create one `index.ts` per atomic layer (5 files) and one for hooks/composables, 
 // Barrel: re-exports every atom in this folder.
 ```
 
-Repeat for molecules, organisms, templates, pages, hooks (or composables), libs, utils.
+Repeat for molecules, organisms, templates, pages, hooks (or composables), libs, utils, stores.
 
 ## 5. Generate one example per atomic layer
 
@@ -138,7 +145,7 @@ export const Default: StoryObj<typeof Button> = {
 };
 ```
 
-For Vue projects, mirror this structure with `.vue` SFCs and `.stories.ts` siblings (no co-located tests).
+For Vue projects, mirror this structure with `.vue` SFCs and `.stories.ts` siblings (no co-located tests). Write them in the Vue 3.5 shape — `<script setup>`, destructured props with defaults, `useTemplateRef`, `defineModel` — see `../_shared/framework-idioms.md`.
 
 After generating one example per layer, also update each barrel:
 
@@ -159,5 +166,6 @@ If stories fail to resolve `@storybook/*`, the deps weren't installed — run `s
 
 ## References
 - ./atomic-design.md — methodology, criteria for each layer, anti-patterns.
-- ./folder-conventions.md — naming, barrel pattern, hooks vs composables decision.
+- ./folder-conventions.md — the shared layout, the findability table, the Nuxt/Next mapping, naming, barrels, hooks vs composables.
+- ../_shared/framework-idioms.md — Vue 3.5 / React 19 idioms for the generated examples.
 - ../_shared/glossary.md — atomic terms (atom / molecule / organism / template / page) with the "test" question for each.
