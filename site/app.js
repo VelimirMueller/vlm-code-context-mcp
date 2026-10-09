@@ -143,6 +143,21 @@
     if (pr.version && CFG.PREREG_VERSION_EXPECTED && pr.version !== CFG.PREREG_VERSION_EXPECTED)
       card.appendChild(el("div", { class: "note" }, ["This run was measured under pre-registration " + String(pr.version) + ", not " + CFG.PREREG_VERSION_EXPECTED + ". Compare it only against runs of the same version."]));
     box.appendChild(card);
+    renderNotes(r);
+  }
+
+  function rawfmt(x) {
+    if (!isNum(x)) return "n/a";
+    return Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(3);
+  }
+  function renderNotes(r) {
+    var box = $("headline-body");
+    var notes = Array.isArray(r.notes) ? r.notes.filter(function (n) { return typeof n === "string" && n; }) : [];
+    if (r.fake === true) notes.unshift("This run is flagged as fake (harness self-test). Its numbers are not results.");
+    if (!notes.length) return;
+    var ul = el("ul");
+    notes.forEach(function (n) { ul.appendChild(el("li", null, [n])); });
+    box.appendChild(el("div", { class: "note", id: "run-notes" }, [el("strong", null, ["Run notes (" + String(r.run_id || r.date) + ")"]), ul]));
   }
 
   function pcell(p) { return isNum(p) ? (p < 0.001 ? "<0.001" : p.toFixed(3)) : "n/a"; }
@@ -166,9 +181,11 @@
     }
     CRIT.forEach(function (c, i) {
       if (i === 5) summary("Q (quality gain)", r.q);
-      var d = by[c[0]], isQ = c[2] === "q";
-      var tr = el("tr", null, [el("td", null, [c[1]]), el("td", null, [c[3].toFixed(2)]),
-        el("td", null, [d ? fmt(d.vanilla, 2) : "n/a"]), el("td", null, [d ? fmt(d.cc, 2) : "n/a"])]);
+      var d = by[c[0]], isQ = d && d.direction ? d.direction !== "lower_better" : c[2] === "q";
+      var lbl = [c[1]];
+      if (d && d.raw_unit) lbl.push(el("div", { class: "sub" }, [String(d.raw_unit) + (isQ ? "" : "; Δ = cost increase of cc, positive is worse")]));
+      var tr = el("tr", null, [el("td", null, lbl), el("td", null, [(d && isNum(d.weight) ? d.weight : c[3]).toFixed(2)]),
+        el("td", null, [d ? rawfmt(d.vanilla) : "n/a"]), el("td", null, [d ? rawfmt(d.cc) : "n/a"])]);
       tr.appendChild(dcell(d && d.delta, isQ));
       tr.appendChild(el("td", null, [d ? pcell(d.p_holm) : "n/a"]));
       tr.appendChild(el("td", null, [d && d.n != null ? String(d.n) : "n/a"]));
