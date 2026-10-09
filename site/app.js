@@ -187,7 +187,9 @@
       others.forEach(function (r) {
         var v = verdict(r.nv), inv = isInvalid(r), old = ver(r) !== CFG.PREREG_CURRENT;
         var label = ver(r) + " \u2014 " + (inv && !old ? "INVALID" : (v || "N/A"));
-        if (old) label += ", treatment not received";
+        var known = (CFG.KNOWN_TREATMENT_FAILURES || {})[r.run_id];
+        if (trate(r) != null && trate(r) < (CFG.MIN_TREATMENT_RATE || 0.8)) label += ", treatment not received (" + pct(trate(r)) + " of cc sessions)";
+        else if (trate(r) == null && known) label += ", treatment not received (" + known + ")";
         else if (inv && trate(r) != null) label += ", treatment received in " + pct(trate(r)) + " of cc sessions";
         if (CFG.PREREG_VERSIONS.indexOf(ver(r)) < 0) label += " (unknown pre-registration version)";
         var c = el("div", { class: "card" }, [
@@ -219,7 +221,7 @@
     if (!notes.length) return;
     var ul = el("ul");
     notes.forEach(function (n) { ul.appendChild(el("li", null, [n])); });
-    box.appendChild(el("div", { class: "note", id: "run-notes" }, [el("strong", null, ["Run notes (" + String(r.run_id || r.date) + ")"]), ul]));
+    box.appendChild(el("div", { class: "note run-notes" }, [el("strong", null, ["Run notes (" + String(r.run_id || r.date) + ")"]), ul]));
   }
 
   function pcell(p) { return isNum(p) ? (p < 0.001 ? "<0.001" : p.toFixed(3)) : "n/a"; }
