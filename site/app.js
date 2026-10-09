@@ -7,6 +7,8 @@
  *   model, claude_code_version,
  *   prereg: { version, sha256 },
  *   hidden: { tests_sha256, answer_key_sha256 },
+ *   valid: bool (prereg v2; absent = not asserted),  treatment_received_rate: 0..1 (share of cc sessions with >= 1 code-context call),
+ *   notes: [string], fixture: { repo_url?, commit_sha?, ... },
  *   nv: {mean, lo, hi},  q: {mean, lo, hi},  c: {mean, lo, hi},
  *   criteria: [ { id: accuracy|code_quality|systems|stakeholder|control|time|tokens,
  *                 vanilla, cc, delta: {mean, lo, hi}, p_holm, n } ],
@@ -92,7 +94,7 @@
       var tasks = [], k, van = 0, cc = 90;
       for (k = 1; k <= 5; k++) { van += 100; cc += 70; tasks.push({ k: k, vanilla_tokens: van, cc_tokens: cc }); }
       runs.push({ run_id: "demo-" + i, date: dt, kind: monthly ? "monthly" : "weekly", n: monthly ? 10 : 3,
-        model: "DEMO-model", claude_code_version: "0.0.0-demo", prereg: { version: "DEMO", sha256: "0".repeat(64) },
+        model: "DEMO-model", claude_code_version: "0.0.0-demo", valid: true, treatment_received_rate: 0.95, prereg: { version: CFG.PREREG_CURRENT, sha256: "0".repeat(64) },
         hidden: { tests_sha256: "0".repeat(64), answer_key_sha256: "0".repeat(64) },
         nv: { mean: m[i], lo: m[i] - h, hi: m[i] + h }, q: { mean: m[i] + 0.04, lo: m[i] - h, hi: m[i] + h + 0.08 },
         c: { mean: 0.06, lo: -0.05, hi: 0.17 }, criteria: crit, s5: { tasks: tasks, break_even_k: 3 } });
@@ -100,13 +102,57 @@
     return runs;
   }
 
+  function ver(r) { return String((r.prereg && r.prereg.version) || "unknown"); }
+  function trate(r) {
+    var x = r.treatment_received_rate;
+    if (!isNum(x) && r.treatment && isNum(r.treatment.rate)) x = r.treatment.rate;
+    return isNum(x) ? x : null;
+  }
+  // INVALID: explicit valid:false, or a measured treatment rate below the preregistered minimum.
+  function isInvalid(r) {
+    if (r.valid === false) return true;
+    var t = trate(r);
+    return isNum(t) && t < (CFG.MIN_TREATMENT_RATE || 0.8) && r.valid !== true;
+  }
+  // Runs that may drive the headline, table, trend: current prereg version and valid.
+  function usable(runs) {
+    return runs.filter(function (r) { return ver(r) === CFG.PREREG_CURRENT && !isInvalid(r); });
+  }
   function headlineRun(runs) {
+    runs = usable(runs);
+    if (!runs.length) return null;
     for (var i = runs.length - 1; i >= 0; i--) if (runs[i].kind === "monthly") return { run: runs[i], monthly: true };
     return { run: runs[runs.length - 1], monthly: false };
   }
 
   function pendingBox(text) {
     return el("div", { class: "pending" }, [el("b", null, ["First registered run pending. "]), text]);
+  }
+
+  function pendingV2() {
+    return el("div", { class: "card" }, [
+      el("div", { class: "verdict" }, [el("div", { class: "badge pend" }, ["PENDING"]),
+        el("div", null, [el("div", { class: "big" }, ["First valid " + CFG.PREREG_CURRENT + " run pending"]),
+          el("div", { class: "sub" }, ["No valid " + CFG.PREREG_CURRENT + " result exists yet. No number here is a placeholder. A run counts only if at least " + Math.round((CFG.MIN_TREATMENT_RATE || 0.8) * 100) + " % of its cc sessions actually used code-context."])])])]);
+  }
+
+  function metaList(r) {
+    var meta = el("dl", { class: "meta" });
+    function row(k, val) { meta.appendChild(el("dt", null, [k])); meta.appendChild(el("dd", null, [val])); }
+    row("Model", String(r.model || "unknown"));
+    row("Claude Code", String(r.claude_code_version || "unknown"));
+    row("Date", String(r.date));
+    row("Run", String(r.run_id || "") + " " + (r.kind || "unknown") + ", n = " + (r.n != null ? r.n : "?") + " per arm and task");
+    var pr = r.prereg || {};
+    row("Pre-registration", String(pr.version || "unknown") + ", SHA-256 " + String(pr.sha256 || "unknown"));
+    var t = trate(r);
+    row("Treatment received", (t != null ? pct(t) + " of cc sessions used code-context (valid needs at least " + Math.round((CFG.MIN_TREATMENT_RATE || 0.8) * 100) + " %)" : "not recorded") + (r.valid === true ? "; run VALID" : r.valid === false ? "; run INVALID" : ""));
+    var fx = r.fixture || {};
+    if (fx.repo_url || fx.commit_sha) row("Codebase", String(fx.repo_url || "") + " @ " + String(fx.commit_sha || ""));
+    var hd = r.hidden || {};
+    row("Hidden tests SHA-256", String(hd.tests_sha256 || "n/a"));
+    row("Answer key SHA-256", String(hd.answer_key_sha256 || "n/a"));
+    return meta;
   }
 
   function renderHeadline(runs) {
@@ -118,40 +164,47 @@
             el("div", { class: "sub" }, ["No result exists yet. No number on this page is a placeholder: the method below is already fixed, and results will appear here after the first registered run."])])])]));
       return;
     }
-    var h = headlineRun(runs), r = h.run, v = verdict(r.nv);
-    var meta = el("dl", { class: "meta" });
-    function row(k, val) { meta.appendChild(el("dt", null, [k])); meta.appendChild(el("dd", null, [val])); }
-    row("Model", String(r.model || "unknown"));
-    row("Claude Code", String(r.claude_code_version || "unknown"));
-    row("Date", String(r.date));
-    row("Run", (r.kind || "unknown") + ", n = " + (r.n != null ? r.n : "?") + " per arm and task");
-    var pr = r.prereg || {};
-    row("Pre-registration", String(pr.version || "unknown") + ", SHA-256 " + String(pr.sha256 || "unknown"));
-    var hd = r.hidden || {};
-    row("Hidden tests SHA-256", String(hd.tests_sha256 || "n/a"));
-    row("Answer key SHA-256", String(hd.answer_key_sha256 || "n/a"));
-    var card = el("div", { class: "card" }, [
-      el("div", { class: "verdict" }, [
-        el("div", { class: "badge " + (VCLS[v] || "pend") }, [v || "N/A"]),
-        el("div", null, [el("div", { class: "big" }, ["NV " + ci(r.nv)]),
-          el("div", { class: "sub" }, ["net value, 95 % bootstrap CI. KEEP needs the lower bound above 0."])])]),
-      meta]);
-    if (r.verdict && v && String(r.verdict).toUpperCase() !== v)
-      card.appendChild(el("div", { class: "note" }, ["The data file states verdict " + String(r.verdict) + ", but the pre-registered rule applied to its CI gives " + v + ". The rule wins."]));
-    if (!h.monthly)
-      card.appendChild(el("div", { class: "note" }, ["No monthly run (n = 10) exists yet. This is a weekly run with n = " + (r.n != null ? r.n : 3) + "; read the interval, not the point."]));
-    if (pr.version && CFG.PREREG_VERSION_EXPECTED && pr.version !== CFG.PREREG_VERSION_EXPECTED)
-      card.appendChild(el("div", { class: "note" }, ["This run was measured under pre-registration " + String(pr.version) + ", not " + CFG.PREREG_VERSION_EXPECTED + ". Compare it only against runs of the same version."]));
-    box.appendChild(card);
-    renderNotes(r);
+    var h = headlineRun(runs);
+    if (!h) box.appendChild(pendingV2());
+    else {
+      var r = h.run, v = verdict(r.nv);
+      var card = el("div", { class: "card" }, [
+        el("div", { class: "verdict" }, [
+          el("div", { class: "badge " + (VCLS[v] || "pend") }, [v || "N/A"]),
+          el("div", null, [el("div", { class: "big" }, ["NV " + ci(r.nv)]),
+            el("div", { class: "sub" }, ["net value, 95 % bootstrap CI, pre-registration " + ver(r) + ". KEEP needs the lower bound above 0."])])]),
+        metaList(r)]);
+      if (r.verdict && v && String(r.verdict).toUpperCase() !== v)
+        card.appendChild(el("div", { class: "note" }, ["The data file states verdict " + String(r.verdict) + ", but the pre-registered rule applied to its CI gives " + v + ". The rule wins."]));
+      if (!h.monthly)
+        card.appendChild(el("div", { class: "note" }, ["No monthly run (n = 10) exists yet. This is a weekly run with n = " + (r.n != null ? r.n : 3) + "; read the interval, not the point."]));
+      box.appendChild(card);
+      renderNotes(r, box);
+    }
+    var others = runs.filter(function (r) { return usable(runs).indexOf(r) < 0; }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    if (others.length) {
+      box.appendChild(el("h3", null, ["Other registered runs (not in the headline or the trend)"]));
+      others.forEach(function (r) {
+        var v = verdict(r.nv), inv = isInvalid(r), old = ver(r) !== CFG.PREREG_CURRENT;
+        var label = ver(r) + " \u2014 " + (inv ? "INVALID" : (v || "N/A"));
+        if (old) label += ", treatment not received";
+        else if (inv && trate(r) != null) label += ", treatment received in " + pct(trate(r)) + " of cc sessions";
+        if (CFG.PREREG_VERSIONS.indexOf(ver(r)) < 0) label += " (unknown pre-registration version)";
+        var c = el("div", { class: "card" }, [
+          el("div", { class: "big " + (inv ? "drop" : VCLS[v] || "pend") }, [label]),
+          el("div", { class: "sub" }, ["NV " + ci(r.nv) + (old ? ". Measured under an earlier method; not comparable with " + CFG.PREREG_CURRENT + " runs." : "")]),
+          metaList(r)]);
+        box.appendChild(c);
+        renderNotes(r, box);
+      });
+    }
   }
 
   function rawfmt(x) {
     if (!isNum(x)) return "n/a";
     return Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(3);
   }
-  function renderNotes(r) {
-    var box = $("headline-body");
+  function renderNotes(r, box) {
     var notes = Array.isArray(r.notes) ? r.notes.filter(function (n) { return typeof n === "string" && n; }) : [];
     if (r.fake === true) notes.unshift("This run is flagged as fake (harness self-test). Its numbers are not results.");
     if (!notes.length) return;
@@ -170,7 +223,9 @@
   function renderResults(runs) {
     var box = $("results-body"); clear(box);
     if (!runs.length) { box.appendChild(pendingBox("The table fills from the first registered run.")); return; }
-    var r = headlineRun(runs).run, by = {};
+    var h = headlineRun(runs);
+    if (!h) { box.appendChild(pendingBox("The table fills from the first valid " + CFG.PREREG_CURRENT + " run.")); return; }
+    var r = h.run, by = {};
     (r.criteria || []).forEach(function (c) { by[c.id] = c; });
     var tb = el("table"), hd = el("tr");
     ["Criterion", "Weight", "vanilla", "cc", "Δ (95 % CI)", "p (Holm)", "n"].forEach(function (t) { hd.appendChild(el("th", null, [t])); });
@@ -207,8 +262,8 @@
 
   function renderTrend(runs) {
     var box = $("trend-body"); clear(box);
-    var pts = runs.filter(function (r) { return r.nv && isNum(r.nv.mean) && isNum(r.nv.lo) && isNum(r.nv.hi); });
-    if (!pts.length) { box.appendChild(pendingBox("The trend needs at least one registered run.")); return; }
+    var pts = usable(runs).filter(function (r) { return r.nv && isNum(r.nv.mean) && isNum(r.nv.lo) && isNum(r.nv.hi); });
+    if (!pts.length) { box.appendChild(pendingBox("The trend shows valid runs of the current method only and needs at least one.")); return; }
     var W = 720, H = 320, L = 52, R = 16, T = 16, B = 40;
     var t = pts.map(function (r) { return Date.parse(r.date + "T00:00:00Z"); });
     var t0 = Math.min.apply(null, t), t1 = Math.max.apply(null, t);
@@ -256,6 +311,7 @@
   function renderAmort(runs) {
     var box = $("amort-body"); clear(box);
     var mr = null;
+    runs = usable(runs);
     for (var i = runs.length - 1; i >= 0; i--) if (runs[i].s5 && runs[i].s5.tasks && runs[i].s5.tasks.length) { mr = runs[i]; break; }
     if (!mr) { box.appendChild(pendingBox("S5 runs monthly. No S5 data exists yet.")); return; }
     var tk = mr.s5.tasks, be = mr.s5.break_even_k;
