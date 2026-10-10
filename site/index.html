@@ -48,11 +48,14 @@
       DEMO DATA - NOT REAL RESULTS - generated in your browser by ?demo
     </div>
     <div class="wrap">
+      <!-- Hero banner: a block of its own ABOVE the header, never a layer behind
+           the wordmark (text is never put over art that has its own text). Same
+           files as the README hero; test/site-pages.test.ts keeps them identical. -->
+      <div class="hero">
+        <img class="only-dark" src="assets/hero-v2-dark.svg" width="1280" height="540" alt="" />
+        <img class="only-light" src="assets/hero-v2-light.svg" width="1280" height="540" alt="" />
+      </div>
       <header class="top">
-        <!-- No hero image here: .github/readme/hero.jpg carries its own baked-in
-             "CODE CONTEXT" text + tagline, which showed through under the block
-             wordmark and as a faint ghost at the top-left. Text is never layered
-             over art that has its own text. -->
         <pre class="wordmark" id="wordmark" aria-hidden="true">CODE CONTEXT</pre>
         <h1 class="visually-hidden">code-context benchmark</h1>
         <p class="tagline">
@@ -64,19 +67,30 @@
             <a href="#latest">Latest</a><a href="#history">All runs</a><a href="#detail">Detail</a
             ><a href="#method">Method</a>
           </nav>
-          <button type="button" id="theme-toggle" aria-label="Toggle dark mode" aria-pressed="false">
+          <button
+            type="button"
+            id="theme-toggle"
+            aria-label="Toggle dark mode"
+            aria-pressed="false"
+          >
             [ theme ]
           </button>
         </div>
       </header>
 
       <section id="latest" aria-labelledby="h-latest">
-        <h2 id="h-latest"><span class="marker" aria-hidden="true">// 01</span> LATEST RUN</h2>
+        <img class="divider" src="assets/divider-latest-v2.svg" width="1280" height="200" alt="" />
+        <h2 id="h-latest" class="visually-hidden">
+          <span class="marker" aria-hidden="true">// 01</span> LATEST RUN
+        </h2>
         <div id="latest-body"></div>
       </section>
 
       <section id="history" aria-labelledby="h-history">
-        <h2 id="h-history"><span class="marker" aria-hidden="true">// 02</span> ALL RUNS</h2>
+        <img class="divider" src="assets/divider-history-v2.svg" width="1280" height="200" alt="" />
+        <h2 id="h-history" class="visually-hidden">
+          <span class="marker" aria-hidden="true">// 02</span> ALL RUNS
+        </h2>
         <p class="sub">
           Every published run, newest first, across all kinds. History is append-only: runs are
           never rewritten or deleted.
@@ -85,12 +99,16 @@
       </section>
 
       <section id="detail" aria-labelledby="h-detail">
-        <h2 id="h-detail"><span class="marker" aria-hidden="true">// 03</span> RUN DETAIL</h2>
+        <img class="divider" src="assets/divider-detail-v2.svg" width="1280" height="200" alt="" />
+        <h2 id="h-detail" class="visually-hidden">
+          <span class="marker" aria-hidden="true">// 03</span> RUN DETAIL
+        </h2>
         <div id="detail-body"></div>
       </section>
 
       <section id="method" aria-labelledby="h-method">
-        <h2 id="h-method">
+        <img class="divider" src="assets/divider-method-v2.svg" width="1280" height="200" alt="" />
+        <h2 id="h-method" class="visually-hidden">
           <span class="marker" aria-hidden="true">// 04</span> METHOD (CLAUDE RUNS)
         </h2>
         <details class="method">
@@ -440,10 +458,10 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
           <p>
             Every run starts on demand — never from a timer, and nothing is weekly or monthly
             scheduled. The legacy Claude runs carry a <code>kind</code> label set at run time
-            (<code>weekly</code>: 3 repeats per arm per task, T1 to T4;
-            <code>monthly</code>: 10 repeats per arm, plus S5). That label describes how each
-            recorded run was made. It is not a plan for future runs; each new run records whatever
-            repeat count it was started with. Results are pushed to the <code>bench-results</code>
+            (<code>weekly</code>: 3 repeats per arm per task, T1 to T4; <code>monthly</code>: 10
+            repeats per arm, plus S5). That label describes how each recorded run was made. It is
+            not a plan for future runs; each new run records whatever repeat count it was started
+            with. Results are pushed to the <code>bench-results</code>
             branch and this page rebuilds from it. Site code and the method change only through
             reviewed pull requests on main.
           </p>
@@ -510,11 +528,11 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
               rule. That difference is part of the treatment and cannot be separated from the server
               itself.
             </li>
-              <li>
-                <strong>Small n.</strong> Legacy weekly runs have n = 3, which gives wide CIs; the
-                monthly n = 10 runs are the headline runs. Runs start on demand, so n is whatever
-                the started run recorded.
-              </li>
+            <li>
+              <strong>Small n.</strong> Legacy weekly runs have n = 3, which gives wide CIs; the
+              monthly n = 10 runs are the headline runs. Runs start on demand, so n is whatever the
+              started run recorded.
+            </li>
           </ul>
         </details>
       </section>
