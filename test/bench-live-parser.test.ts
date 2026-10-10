@@ -65,8 +65,9 @@ describe('parseEventStream', () => {
 
   it('skips malformed lines and unknown event types, counting them', () => {
     const u = parseEventStream(lines);
-    // step_start (unhandled part type), subscription_idle, "not json{", error event
-    expect(u.skippedLines).toBe(4);
+    // subscription_idle, "not json{", error event — malformed/unknown only.
+    // The stream's step_start part is expected-but-unhandled and not counted.
+    expect(u.skippedLines).toBe(3);
   });
 
   it('captures the session id from the stream', () => {

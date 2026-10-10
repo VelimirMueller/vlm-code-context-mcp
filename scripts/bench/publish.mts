@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { buildIndex, pickLatest } from './lib/index-builder.mts';
+import { buildIndex, pickLatest, runFileProblem } from './lib/index-builder.mts';
 
 export interface PublishOptions {
   repoDir?: string;
@@ -62,15 +62,23 @@ function toplevel(cwd: string): string {
 
 function readRuns(dir: string): LocalRun[] {
   if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => {
-      const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
-      const rawId = (data as Record<string, unknown>).run_id;
-      const runId = typeof rawId === 'string' ? rawId : path.basename(f, '.json');
-      return { runId, file: path.join(dir, f), data };
-    });
+  const out: LocalRun[] = [];
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const file = path.join(dir, f);
+    let data: unknown;
+    try {
+      data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (e) {
+      throw new Error(`bench:publish: invalid JSON in ${file}: ${(e as Error).message}`);
+    }
+    const problem = runFileProblem(data);
+    if (problem) {
+      console.warn(`bench:publish: skipping ${file}: ${problem}`);
+      continue;
+    }
+    out.push({ runId: (data as Record<string, unknown>).run_id as string, file, data });
+  }
+  return out;
 }
 
 function remoteRunStems(
@@ -80,7 +88,12 @@ function remoteRunStems(
   branch: string,
 ): Set<string> {
   const out = runMaybe(cwd, env, ['ls-tree', '-r', '--name-only', `${remote}/${branch}`, '--', 'data/runs']);
-  if (!out) return new Set();
+  if (!out) {
+    // The ref exists (callers check first), so a failed ls-tree is a real
+    // error (network, permissions) — treating it as "remote has no runs"
+    // would re-publish or bootstrap over existing data.
+    throw new Error(`bench:publish: git ls-tree failed on ${remote}/${branch} (data/runs)`);
+  }
   return new Set(
     out
       .split('\n')
@@ -142,6 +155,13 @@ export function publish(opts: PublishOptions = {}): PublishResult {
       run(cwd, env, ['worktree', 'add', '--detach', tmp, 'HEAD']);
       run(tmp, env, ['checkout', '--orphan', branch]);
       run(tmp, env, ['rm', '-rf', '--cached', '.']);
+      // The orphan branch must contain ONLY data/: verify the destructive
+      // index clear above actually emptied the index before copying files.
+      if (run(tmp, env, ['ls-files']) !== '') {
+        throw new Error(
+          `bench:publish: orphan ${branch} index is not empty after git rm --cached — refusing to commit`,
+        );
+      }
     }
 
     const runsDir = path.join(tmp, 'data', 'runs');
@@ -167,10 +187,20 @@ export function publish(opts: PublishOptions = {}): PublishResult {
       commitEnv.GIT_COMMITTER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
     }
     run(tmp, commitEnv, ['add', '-A', '--', 'data']);
-    run(tmp, commitEnv, ['commit', '-m', commitMessage]);
+    // All listed runs may already be byte-identical on the branch (e.g. a
+    // re-publish after a failed push): commit only when something is staged,
+    // because `git commit` with nothing staged aborts the publish.
+    let committed = true;
+    try {
+      run(tmp, commitEnv, ['diff', '--cached', '--quiet', '--', 'data']);
+      committed = false; // exits 0 only when there is nothing staged
+      console.warn('bench:publish: data/ unchanged after staging — nothing to commit');
+    } catch {
+      run(tmp, commitEnv, ['commit', '-m', commitMessage]);
+    }
 
     let pushed = false;
-    if (opts.push !== false) {
+    if (opts.push !== false && committed) {
       run(tmp, commitEnv, ['push', remote, branch]);
       pushed = true;
     }

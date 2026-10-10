@@ -36,12 +36,14 @@ function onBlock(content: string): string | null {
 }
 
 describe('bench guard — benchmarks run on demand only, never on a schedule', () => {
-  it('no workflow contains schedule: or cron:', () => {
+  it('no workflow contains schedule: or cron: (block or flow style)', () => {
     for (const f of workflowFiles()) {
       if (NON_BENCHMARK_SCHEDULED.has(f)) continue;
       const content = readFileSync(join(WORKFLOWS, f), 'utf-8');
-      expect(content, `${f} must not contain a schedule trigger`).not.toMatch(/^\s*schedule\s*:/m);
-      expect(content, `${f} must not contain a cron expression`).not.toMatch(/^\s*cron\s*:/m);
+      // Not anchored to line starts: also catches flow style (`on: [push,
+      // schedule]`) and inline mappings (`triggers: { schedule: … }`).
+      expect(content, `${f} must not contain a schedule trigger`).not.toMatch(/(^|\s)schedule\s*:/);
+      expect(content, `${f} must not contain a cron expression`).not.toMatch(/\bcron\s*:/);
     }
   });
 

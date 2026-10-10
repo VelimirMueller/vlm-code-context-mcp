@@ -41,7 +41,7 @@ export const LIVE_TASKS: LiveTask[] = [
       type: 'answer',
       answerMustMatch: [
         'utils/helpers\\.(ts|js)\\b',
-        'no (external )?(imports|dependencies|deps)|self[- ]contained|standalone|zero (imports|dependencies)|nothing (to import|outside)|does.?t (import|depend|rely) (on|anything)|depend(s)? only on (the )?(built[- ]?in|standard|native|js|javascript|date)',
+        'no (external |third[- ]party |npm |node )?(imports|dependencies|deps)( at all)?|self[- ]contained|standalone|zero (imports|dependencies)|nothing (to import|outside|imported)|does.?t (import|depend|rely|use) (on |anything |any |external)|only (uses?|imports?)( the )?(built[- ]?in|standard|native|js|javascript|date)|depend(s)? only on (the )?(built[- ]?in|standard|native|js|javascript|date)',
       ],
     },
   },

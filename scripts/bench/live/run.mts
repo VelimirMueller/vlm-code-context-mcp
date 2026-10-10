@@ -14,7 +14,7 @@
  *     PATH, HOME, TMPDIR, CODE_CONTEXT_ALLOWED_ROOTS and the one provider key;
  *     never echoed, never logged). No `--auto`: the per-workspace opencode.json
  *     carries a deny-by-default `permission` block (opencode-config.mts), so the
- *     agent gets only the allowlisted read/test commands, no webfetch/websearch,
+ *     agent gets only the allowlisted read-only commands, no webfetch/websearch,
  *     and no access outside the workspace — refused non-interactively.
  *   - parse the event stream (task 7), run the deterministic checker (task 6)
  *
@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { initSchema } from '../../../src/server/schema.js';
 import { indexDirectory } from '../../../src/server/indexer.js';
-import { buildIndex, pickLatest } from '../lib/index-builder.mts';
+import { buildIndex, pickLatest, runFileProblem } from '../lib/index-builder.mts';
 import { formatStamp } from '../lib/stamp.mts';
 import { normalizeLive, type LiveProvider, type LiveSessions } from '../normalize-live.mts';
 import { DEFAULT_LIVE_TASKS, tasksByIds, type LiveTask } from './tasks.mts';
@@ -202,6 +202,7 @@ async function runSession(opts: {
   );
 
   let killTimer: NodeJS.Timeout | undefined;
+  let closed = false; // set on close so a late SIGKILL timer never hits a recycled pid
   const killer = setTimeout(() => {
     timedOut = true;
     try {
@@ -210,6 +211,7 @@ async function runSession(opts: {
       /* already gone */
     }
     killTimer = setTimeout(() => {
+      if (closed) return;
       try {
         if (child.pid) process.kill(-child.pid, 'SIGKILL');
       } catch {
@@ -224,14 +226,17 @@ async function runSession(opts: {
   child.stderr.on('data', (c: Buffer) => stderrChunks.push(c));
 
   await new Promise<void>((resolve) => {
-    child.on('close', () => resolve());
+    child.on('close', () => {
+      closed = true;
+      clearTimeout(killTimer);
+      resolve();
+    });
     child.on('error', (err: Error) => {
       spawnError = err.message;
       resolve();
     });
   });
   clearTimeout(killer);
-  clearTimeout(killTimer);
 
   const wallMs = Date.now() - t0;
   const stdout = Buffer.concat(stdoutChunks);
@@ -287,6 +292,9 @@ async function runSession(opts: {
 }
 
 async function main(): Promise<void> {
+  if (process.platform === 'win32') {
+    fail('bench:live requires a POSIX platform — timeout handling kills whole process groups.');
+  }
   const args = parseArgs(process.argv.slice(2));
   const providerMeta = PROVIDERS[args.provider];
   const tasks = tasksByIds(
@@ -339,8 +347,8 @@ async function main(): Promise<void> {
 
   const vanilla: SessionResult[] = [];
   const cc: SessionResult[] = [];
-  let indexMs: number | null = null;
-  let dbBytes: number | null = null;
+  const indexMsSamples: number[] = [];
+  const dbBytesSamples: number[] = [];
 
   for (const task of tasks) {
     for (let r = 1; r <= args.repeats; r++) {
@@ -348,8 +356,8 @@ async function main(): Promise<void> {
         const ws = freshWorkspace(os.tmpdir());
         if (arm === 'cc') {
           const indexInfo = buildIndexDb(ws);
-          indexMs = indexInfo.indexMs;
-          dbBytes = indexInfo.dbBytes;
+          indexMsSamples.push(indexInfo.indexMs);
+          dbBytesSamples.push(indexInfo.dbBytes);
           writeOpencodeConfig(ws, {
             mcp: { command: [process.execPath, DIST_SERVER, path.join(ws, 'context.db')] },
             includeDeepseekProvider: args.provider === 'deepseek',
@@ -383,7 +391,16 @@ async function main(): Promise<void> {
     }
   }
 
-  const sessions: LiveSessions = { vanilla, cc, indexMs, dbBytes };
+  // Indexing stats: mean over every cc workspace built for this run (each
+  // task × repeat rebuilds the db), not just the last one measured.
+  const meanOf = (xs: number[]): number | null =>
+    xs.length > 0 ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : null;
+  const sessions: LiveSessions = {
+    vanilla,
+    cc,
+    indexMs: meanOf(indexMsSamples),
+    dbBytes: meanOf(dbBytesSamples),
+  };
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8')) as {
     version: string;
   };
@@ -401,7 +418,9 @@ async function main(): Promise<void> {
     notes: [
       'tokens from opencode step-finish events; reasoning tokens folded into output',
       `key ${providerMeta.keyEnv} exported to opencode as ${providerMeta.exportAs}`,
-      `artefacts: ${artefactDir}`,
+      // No absolute temp paths in the run JSON (machine-dependent, diff-noisy):
+      // the artefact dir is only printed to the runner console above.
+      `artefacts retained by the runner for run ${runId}`,
     ],
   });
 
@@ -413,7 +432,21 @@ async function main(): Promise<void> {
   const allRuns = fs
     .readdirSync(runsDir)
     .filter((f) => f.endsWith('.json'))
-    .map((f) => JSON.parse(fs.readFileSync(path.join(runsDir, f), 'utf-8')));
+    .flatMap((f) => {
+      const p = path.join(runsDir, f);
+      let data: unknown;
+      try {
+        data = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      } catch (e) {
+        throw new Error(`bench:live: invalid JSON in data/runs/${f}: ${(e as Error).message}`);
+      }
+      const problem = runFileProblem(data);
+      if (problem) {
+        console.warn(`bench:live: skipping data/runs/${f}: ${problem}`);
+        return [];
+      }
+      return [data];
+    });
   const index = buildIndex(allRuns);
   const latest = pickLatest(allRuns);
   fs.writeFileSync(path.join(args.dataDir, 'index.json'), `${JSON.stringify(index, null, 2)}\n`);

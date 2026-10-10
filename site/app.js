@@ -1314,7 +1314,7 @@
           mcpMean: 294,
           vanillaMean: 585,
           savingsPct: 49.7,
-          ci95: { lower: 17.9, upper: 44.9 },
+          ci95: { lower: 40.1, upper: 58.3 },
         },
         statistics: {
           wilcoxon: { W: 471, z: 11.688, p: 0, n: 200 },
@@ -1581,5 +1581,16 @@
     framesBlock: framesBlock,
     headlineText: headlineText,
   };
-  if (D) init();
+  if (D) {
+    init();
+  } else {
+    // site/data.js failed to load (or loaded after app.js): fail loudly and
+    // visibly instead of leaving a silently empty page.
+    console.error('bench site: window.BenchData is missing — site/data.js must load before site/app.js');
+    renderWordmark();
+    var main = document.querySelector('main') || document.body;
+    main.textContent =
+      'Site data failed to load: site/data.js is missing or failed. Check that it is served next to app.js.';
+    document.documentElement.setAttribute('data-state', 'error');
+  }
 })();

@@ -22,10 +22,29 @@ import path from 'node:path';
 import { CODE_CONTEXT_SERVER_ALIAS } from './parse-events.mts';
 
 /**
- * Agent sandbox permissions for the live bench. `bash` defaults to deny and
- * allowlists only the read/test commands the tasks need; `webfetch`/`websearch`
- * are denied (no network); `external_directory` denies every path outside the
- * workspace; `task` (sub-agent spawn) and `question` (user prompt) are denied.
+ * Agent sandbox permissions for the live bench. The agent NEVER executes
+ * code: `bash` defaults to deny and allowlists only pure read commands
+ * (`ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `find`,
+ * `git status|diff|log`). No `npm`, `npx`, `node`, `tsx`, `vitest`, `sh`,
+ * `bash`, `python` — nothing that runs workspace code or package scripts.
+ * Task correctness is decided by the checker alone (checkers.mts), which
+ * runs the hidden vitest file in its own scrubbed environment.
+ *
+ * Rule ordering is load-bearing (verified against opencode 1.18.30,
+ * packages/opencode/src/permission/index.ts): rules are evaluated
+ * last-match-wins over the config key order, and patterns are full-string
+ * globs where a trailing `" *"` means "with any arguments (or none)". So
+ * `'*': 'deny'` comes first, the command allows override it, and the
+ * argument-form denies at the end override the allows:
+ *   - `find -exec/-ok…` and `rg --pre…` execute commands via arguments
+ *   - `>` / `>>` redirections would turn read commands into writes
+ * Compound commands (`&&`, `;`, `|`, `$(…)`) are split per sub-command by
+ * opencode's tree-sitter pass and EVERY part must pass the allowlist, so
+ * `ls | sh` or `grep x; npm test` are refused on the second part.
+ *
+ * `webfetch`/`websearch` are denied (no network); `external_directory` denies
+ * every path outside the workspace; `task` (sub-agent spawn), `question`
+ * (user prompt), `skill` and `lsp` (spawns language servers) are denied.
  */
 export const SANDBOX_PERMISSIONS: Record<string, unknown> = {
   read: 'allow',
@@ -35,20 +54,29 @@ export const SANDBOX_PERMISSIONS: Record<string, unknown> = {
   list: 'allow',
   bash: {
     '*': 'deny',
-    'ls*': 'allow',
-    'cat*': 'allow',
-    'grep*': 'allow',
-    'rg*': 'allow',
-    'find*': 'allow',
-    'npx vitest*': 'allow',
-    'npm test*': 'allow',
-    'npm run test*': 'allow',
+    'ls *': 'allow',
+    'cat *': 'allow',
+    'head *': 'allow',
+    'tail *': 'allow',
+    'wc *': 'allow',
+    'grep *': 'allow',
+    'rg *': 'allow',
+    'find *': 'allow',
+    'git status *': 'allow',
+    'git diff *': 'allow',
+    'git log *': 'allow',
+    'find *-exec*': 'deny',
+    'find *-ok*': 'deny',
+    'rg *--pre*': 'deny',
+    '*>*': 'deny',
   },
   external_directory: { '*': 'deny' },
   webfetch: 'deny',
   websearch: 'deny',
   task: 'deny',
   question: 'deny',
+  skill: 'deny',
+  lsp: 'deny',
   todowrite: 'allow',
 };
 

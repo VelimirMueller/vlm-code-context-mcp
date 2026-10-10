@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildIndex, pickLatest } from './lib/index-builder.mts';
+import { buildIndex, pickLatest, runFileProblem } from './lib/index-builder.mts';
 import { normalizeSimulated } from './lib/normalize-simulated.mts';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -105,7 +105,15 @@ function main(): void {
   const runs = fs
     .readdirSync(runsDir)
     .filter((f) => f.endsWith('.json'))
-    .map((f) => readJson(path.join(runsDir, f)));
+    .flatMap((f) => {
+      const data = readJson(path.join(runsDir, f));
+      const problem = runFileProblem(data);
+      if (problem) {
+        console.warn(`bench: skipping ${f}: ${problem} (not a run file)`);
+        return [];
+      }
+      return [data];
+    });
   const index = buildIndex(runs);
   const latest = pickLatest(runs);
   fs.writeFileSync(path.join(repoRoot, 'data', 'index.json'), `${JSON.stringify(index, null, 2)}\n`);

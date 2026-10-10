@@ -40,6 +40,7 @@ export const CANONICAL_INDEXED_AT = "2026-01-01 00:00:00";
 export function canonicalPath(p: string): string {
   const rel = path.relative(FIXTURE_DIR, p).replace(/\\/g, "/");
   const escapes =
+    rel === "" || // p is the fixture dir itself — not a file under it
     rel.startsWith("../") ||
     rel === ".." ||
     rel.startsWith("/") ||

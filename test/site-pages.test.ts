@@ -61,6 +61,20 @@ describe('site shell', () => {
     expect(bodyText.includes('█')).toBe(true);
     expect(frames).toBeGreaterThan(0);
   });
+  it('fails visibly when site/data.js never loaded (no window.BenchData)', async () => {
+    const dom = new JSDOM(readFileSync(join(SITE, 'index.html'), 'utf8'), {
+      url: 'http://x/',
+      runScripts: 'outside-only',
+    });
+    const w = dom.window as any;
+    w.fetch = () => Promise.resolve({ ok: false, status: 404 });
+    w.eval(readFileSync(join(SITE, 'config.js'), 'utf8'));
+    // site/data.js deliberately NOT loaded — app.js must not crash silently.
+    w.eval(readFileSync(join(SITE, 'app.js'), 'utf8'));
+    await tick();
+    expect(w.document.documentElement.getAttribute('data-state')).toBe('error');
+    expect(w.document.body.textContent).toContain('Site data failed to load');
+  });
   it('marks the demo mode banner', async () => {
     const dom = new JSDOM(readFileSync(join(SITE, 'index.html'), 'utf8'), {
       url: 'http://x/?demo',

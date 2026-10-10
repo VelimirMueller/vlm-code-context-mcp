@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildIndex, legacyKindOf, pickLatest } from '../scripts/bench/lib/index-builder.mts';
+import {
+  buildIndex,
+  legacyKindOf,
+  pickLatest,
+  runFileProblem,
+} from '../scripts/bench/lib/index-builder.mts';
 
 const sim = (ts: string, run_id: string) => ({
   schema: 'ccc-bench/1',
@@ -9,7 +14,7 @@ const sim = (ts: string, run_id: string) => ({
   date: ts.slice(0, 10),
   model: null,
   trigger: 'manual',
-  headline: { tokensSavedPct: 44.9 },
+  headline: { tokens_saved_pct: 44.9 },
 });
 
 const glm = (ts: string, run_id: string) => ({
@@ -118,5 +123,66 @@ describe('pickLatest', () => {
       run_id: string;
     };
     expect(latest.run_id).toBe('s1');
+  });
+
+  it('a legacy run newer than a ccc-bench run wins (owner decision: newest across ALL kinds)', () => {
+    const runs = [
+      sim('2026-10-10T00:00:00+0200', 's1'),
+      glm('2026-10-08T00:00:00+0200', 'g1'),
+      legacy('l-new', '2026-10-12T10:00:00+0200'),
+    ];
+    expect((pickLatest(runs) as { run_id: string }).run_id).toBe('l-new');
+    expect(buildIndex(runs).runs.map((r) => r.run_id)).toEqual(['l-new', 's1', 'g1']);
+    expect(buildIndex(runs).runs.map((r) => r.kind)).toEqual([
+      'agent-claude',
+      'simulated',
+      'agent-glm',
+    ]);
+  });
+
+  it('a legacy run older than a ccc-bench run loses, including date-only stamps', () => {
+    const runs = [
+      legacy('l-old', '2026-10-12'), // date-only legacy stamp = UTC midnight
+      sim('2026-10-12T00:00:01Z', 's1'), // one second past that midnight: newer
+      legacy('l-older', '2026-10-01T10:00:00+0200'),
+    ];
+    expect((pickLatest(runs) as { run_id: string }).run_id).toBe('s1');
+    expect(buildIndex(runs).runs.map((r) => r.run_id)).toEqual(['s1', 'l-old', 'l-older']);
+  });
+
+  it('compares stamps as instants, not strings: +0200 vs Z', () => {
+    // 12:00+0200 is 10:00Z, so the 11:00Z run is the newer instant — even
+    // though the +0200 string would sort lexicographically greater.
+    const runs = [glm('2026-10-12T12:00:00+0200', 'g1'), sim('2026-10-12T11:00:00Z', 's1')];
+    expect((pickLatest(runs) as { run_id: string }).run_id).toBe('s1');
+  });
+
+  it('breaks exact timestamp ties on run_id, deterministically', () => {
+    const ts = '2026-10-10T00:00:00Z';
+    const runs = [legacy('l-a', ts), sim(ts, 's-b'), glm(ts, 'g-c')];
+    expect((pickLatest(runs) as { run_id: string }).run_id).toBe('s-b');
+    expect(buildIndex(runs).runs.map((r) => r.run_id)).toEqual(['s-b', 'l-a', 'g-c']);
+  });
+
+  it('a run without any timestamp counts as the oldest', () => {
+    const noTs = { schema: 'ccc-bench/1', run_id: 's9', kind: 'simulated', date: '' };
+    const runs = [noTs, legacy('l1', '2026-10-01T10:00:00+0200')];
+    expect((pickLatest(runs) as { run_id: string }).run_id).toBe('l1');
+    expect(buildIndex(runs).runs.map((r) => r.run_id)).toEqual(['l1', 's9']);
+  });
+});
+
+describe('runFileProblem', () => {
+  it('accepts new-kind runs and legacy runs', () => {
+    expect(runFileProblem(sim('2026-10-10T00:00:00Z', 's1'))).toBeNull();
+    expect(runFileProblem(glm('2026-10-10T00:00:00Z', 'g1'))).toBeNull();
+    expect(runFileProblem(legacy('l1', '2026-10-01T10:00:00+0200'))).toBeNull();
+  });
+
+  it('rejects non-run JSON with a reason', () => {
+    expect(runFileProblem({ hello: 'world' })).toMatch(/run_id/);
+    expect(runFileProblem({ run_id: 'x', kind: 'mystery' })).toMatch(/unknown kind/);
+    expect(runFileProblem(null)).toMatch(/not a JSON object/);
+    expect(runFileProblem('nope')).toMatch(/not a JSON object/);
   });
 });

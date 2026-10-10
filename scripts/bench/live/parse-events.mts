@@ -15,7 +15,8 @@
  * they update, so the parser keeps the LAST state per part id (last-write-wins,
  * never double-counted). Token fields live on step-finish parts; reasoning
  * tokens are generated output and count into `outputTokens`. Malformed lines
- * and unknown event types are skipped and counted, never fatal.
+ * and unknown event/part types are skipped and counted, never fatal; expected
+ * but unhandled parts (step-start, reasoning) are skipped silently.
  */
 
 /**
@@ -82,6 +83,8 @@ interface StreamEvent {
 }
 
 const HANDLED_PART_TYPES = new Set(['text', 'tool', 'step-finish']);
+/** Healthy-stream part types we deliberately ignore — not worth counting. */
+const EXPECTED_UNHANDLED_PART_TYPES = new Set(['step-start', 'reasoning']);
 
 const num = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
 
@@ -105,13 +108,14 @@ export function parseEventStream(lines: string[]): SessionUsage {
     }
     if (typeof event.sessionID === 'string' && event.sessionID) sessionId = event.sessionID;
     const part = event.part;
+    if (EXPECTED_UNHANDLED_PART_TYPES.has(part.type ?? '')) continue; // healthy stream
     if (
       typeof part.id !== 'string' ||
       !part.id ||
       !part.type ||
       !HANDLED_PART_TYPES.has(part.type)
     ) {
-      skippedLines++; // unknown part types (step-start, reasoning, …)
+      skippedLines++; // malformed parts and truly unknown types
       continue;
     }
     parts.set(part.id, part); // last write wins per part id

@@ -35,7 +35,15 @@ function checkAnswer(task: LiveTask, finalAnswer: string): CheckResult {
   if (!norm) return { pass: false, detail: 'empty final answer' };
   const missing: string[] = [];
   for (const source of (task.checker as { answerMustMatch: string[] }).answerMustMatch) {
-    if (!new RegExp(source).test(norm)) missing.push(`/${source}/`);
+    let re: RegExp;
+    try {
+      re = new RegExp(source);
+    } catch {
+      // A bad pattern is a checker bug, not a crash of the whole live run:
+      // fail this task with a clear reason instead.
+      return { pass: false, detail: `invalid checker pattern /${source}/` };
+    }
+    if (!re.test(norm)) missing.push(`/${source}/`);
   }
   return missing.length === 0
     ? { pass: true, detail: 'answer matches all patterns' }
@@ -112,7 +120,7 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
   const { code, tail } = await new Promise<{ code: number | null; tail: string }>((resolve) => {
     const child = spawn(
       process.execPath,
-      [vitestBin, 'run', path.posix.join('test', checkFile)],
+      [vitestBin, 'run', path.join('test', checkFile)],
       {
         cwd: workspaceDir,
         env: checkerSpawnEnv({ fakeHome }),
@@ -122,11 +130,13 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
     );
 
     let timedOut = false;
+    let closed = false; // guards the SIGKILL timer against a recycled pid
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on('data', (c: Buffer) => stdout.push(c));
     child.stderr.on('data', (c: Buffer) => stderr.push(c));
 
+    let settled = false; // 'error' and 'close' can both fire; resolve once
     let killTimer: NodeJS.Timeout | undefined;
     const killer = setTimeout(() => {
       timedOut = true;
@@ -136,6 +146,7 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
         /* already gone */
       }
       killTimer = setTimeout(() => {
+        if (closed) return;
         try {
           if (child.pid) process.kill(-child.pid, 'SIGKILL');
         } catch {
@@ -145,6 +156,9 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
     }, CHECK_TIMEOUT_MS);
 
     const finish = (code: number | null): void => {
+      if (settled) return;
+      settled = true;
+      closed = true;
       clearTimeout(killer);
       clearTimeout(killTimer);
       const out = Buffer.concat([...stdout, ...stderr]).toString('utf-8');

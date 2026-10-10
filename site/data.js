@@ -93,6 +93,13 @@
   }
 
   // Sort key: (ts || date, run_id), newest first. Nulls dropped, never thrown.
+  // ts stamps parse as UTC milliseconds when possible (date-only legacy stamps
+  // count as UTC midnight); a missing or unparseable stamp sorts oldest, and
+  // equal timestamps tie-break on run_id — same contract as the index builder.
+  function tsMillis(ts) {
+    var t = Date.parse(ts);
+    return isNaN(t) ? null : t;
+  }
   function sortRunsDesc(list) {
     return arr(list)
       .map(normalizeRun)
@@ -100,9 +107,12 @@
         return !!r;
       })
       .sort(function (a, b) {
-        var ka = a.ts + '\u0000' + a.id;
-        var kb = b.ts + '\u0000' + b.id;
-        return ka < kb ? 1 : ka > kb ? -1 : 0;
+        var ma = tsMillis(a.ts);
+        var mb = tsMillis(b.ts);
+        if (ma !== null && mb !== null && ma !== mb) return ma > mb ? -1 : 1;
+        if (ma !== mb) return ma !== null ? -1 : 1; // parseable beats missing/garbage
+        if (a.ts !== b.ts) return a.ts > b.ts ? -1 : 1;
+        return a.id > b.id ? -1 : a.id < b.id ? 1 : 0;
       });
   }
 

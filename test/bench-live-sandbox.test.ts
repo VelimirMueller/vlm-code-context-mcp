@@ -8,7 +8,7 @@
  *      never GITHUB_TOKEN or the other provider's key;
  *   3. the checker (vitest over model-written code) spawn env is scrubbed.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,8 +39,19 @@ const setEnv = (): void => {
   process.env.DEEPSEEK_API_KEY = 'dsk_dummy';
 };
 
+// Snapshot the real environment so the stripProviderKeys test cannot destroy
+// key values for test files that run after this one in the same process.
+let envSnapshot: Record<string, string | undefined> = {};
+
+beforeAll(() => {
+  for (const k of ENV_KEYS) envSnapshot[k] = process.env[k];
+});
+
 afterEach(() => {
-  for (const k of ENV_KEYS) delete process.env[k];
+  for (const k of ENV_KEYS) {
+    if (envSnapshot[k] === undefined) delete process.env[k];
+    else process.env[k] = envSnapshot[k];
+  }
   if (tmpRoot) {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     tmpRoot = '';
@@ -55,12 +66,104 @@ describe('sandbox permission config', () => {
     expect(SANDBOX_PERMISSIONS.websearch).toBe('deny');
     expect(SANDBOX_PERMISSIONS.task).toBe('deny');
     expect(SANDBOX_PERMISSIONS.question).toBe('deny');
+    expect(SANDBOX_PERMISSIONS.skill).toBe('deny');
+    expect(SANDBOX_PERMISSIONS.lsp).toBe('deny');
   });
 
-  it('SANDBOX_PERMISSIONS allowlists the read/test commands the tasks need', () => {
+  it('allowlists ONLY pure read commands — nothing that executes code', () => {
     const bash = SANDBOX_PERMISSIONS.bash as Record<string, string>;
-    for (const cmd of ['ls*', 'cat*', 'grep*', 'rg*', 'find*', 'npx vitest*', 'npm test*']) {
-      expect(bash[cmd], `${cmd} must be allowed`).toBe('allow');
+    expect(Object.keys(bash).filter((k) => bash[k] === 'allow')).toEqual([
+      'ls *',
+      'cat *',
+      'head *',
+      'tail *',
+      'wc *',
+      'grep *',
+      'rg *',
+      'find *',
+      'git status *',
+      'git diff *',
+      'git log *',
+    ]);
+    for (const forbidden of ['npm *', 'npx *', 'node *', 'tsx *', 'vitest *', 'sh *', 'bash *', 'python*']) {
+      expect(
+        Object.keys(bash).some((k) => k.startsWith(forbidden) && bash[k] === 'allow'),
+        `${forbidden} must not be allowed`,
+      ).toBe(false);
+    }
+  });
+
+  /**
+   * Replicates opencode 1.18.30's permission evaluation (packages/opencode/
+   * src/permission/index.ts evaluate + packages/core/src/util/wildcard.ts):
+   * rules are checked with findLast in config key order — the LAST matching
+   * rule wins — and patterns are full-string globs where a trailing " *"
+   * means "with any arguments (or none)".
+   */
+  function opencodeWildcardMatch(input: string, pattern: string): boolean {
+    const normalized = input.replaceAll('\\', '/');
+    let escaped = pattern
+      .replaceAll('\\', '/')
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+    if (escaped.endsWith(' .*')) escaped = escaped.slice(0, -3) + '( .*)?';
+    return new RegExp(`^${escaped}$`, 's').test(normalized);
+  }
+
+  function evaluateBash(command: string): string {
+    const rules = Object.entries(SANDBOX_PERMISSIONS.bash as Record<string, string>).map(
+      ([pattern, action]) => ({ pattern, action }),
+    );
+    const rule = rules.findLast((r) => opencodeWildcardMatch(command, r.pattern));
+    return rule ? rule.action : 'ask';
+  }
+
+  it('read commands pass; code execution and argument abuse are denied', () => {
+    for (const ok of [
+      'ls',
+      'ls -la src',
+      'cat src/utils/helpers.ts',
+      'head -5 package.json',
+      'tail -n 3 README.md',
+      'wc -l src/utils/helpers.ts',
+      'grep -rn formatDate src',
+      'rg formatDate src',
+      'find . -name "*.ts"',
+      'git status',
+      'git diff --stat',
+      'git log --oneline',
+    ]) {
+      expect(evaluateBash(ok), `${ok} must be allowed`).toBe('allow');
+    }
+    for (const refused of [
+      // code runners (deny-by-default)
+      'npx vitest run',
+      'npm test',
+      'npm run test',
+      'node script.js',
+      'tsx script.ts',
+      'sh -c ls',
+      'bash -c ls',
+      'python -c pass',
+      'vitest run',
+      // argument abuse of allowed commands
+      'find . -type f -exec rm -rf {} +',
+      'find . -execdir sh -c ls \\;',
+      'find . -ok rm {} \\;',
+      'rg --pre=/bin/sh pattern .',
+      'rg pattern --pre cat src',
+      // prefix lookalikes are NOT the allowed command
+      'lsof -i',
+      'catastrophic-command',
+      // git: only status/diff/log subcommands
+      'git -c core.fsmonitor=sh status',
+      'git checkout main',
+      // redirections turn reads into writes
+      'cat src/utils/helpers.ts > ../outside.ts',
+      'ls >> stash.txt',
+    ]) {
+      expect(evaluateBash(refused), `${refused} must be denied`).toBe('deny');
     }
   });
 
@@ -76,7 +179,8 @@ describe('sandbox permission config', () => {
     const permission = written.permission as Record<string, unknown>;
     const bash = permission.bash as Record<string, string>;
     expect(bash['*']).toBe('deny');
-    expect(bash['npx vitest*']).toBe('allow');
+    expect(bash['ls *']).toBe('allow');
+    expect(bash['find *-exec*']).toBe('deny');
     expect(permission.webfetch).toBe('deny');
     expect(permission.websearch).toBe('deny');
     const ext = permission.external_directory as Record<string, string>;
