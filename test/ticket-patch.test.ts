@@ -14,15 +14,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { freePort } from "./helpers/free-port.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const DASHBOARD_ENTRY = path.join(REPO_ROOT, "src/dashboard/dashboard.ts");
 
 const TOKEN = "test-ticket-patch-token-0123456789abcdef";
-// Randomized high port per run: avoids colliding with the dev dashboard (3333) or a
-// stray server from a prior run (waitForServer additionally checks our own temp DB).
-const PORT = 40000 + Math.floor(Math.random() * 20000);
+// OS-assigned free port (helpers/free-port.ts); waitForServer additionally checks our
+// own temp DB.
+const PORT = freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: ChildProcess;

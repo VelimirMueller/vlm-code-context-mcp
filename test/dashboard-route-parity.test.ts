@@ -27,6 +27,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { freePort } from "./helpers/free-port.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -34,7 +35,7 @@ const DASHBOARD_ENTRY = path.join(REPO_ROOT, "src/dashboard/dashboard.ts");
 const TSX_CLI = path.join(REPO_ROOT, "node_modules/tsx/dist/cli.mjs");
 
 const TOKEN = "test-route-parity-token-0123456789abcdef";
-const PORT = 40000 + Math.floor(Math.random() * 20000);
+const PORT = freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: ChildProcess;

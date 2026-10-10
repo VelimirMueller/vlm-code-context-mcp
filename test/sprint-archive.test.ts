@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initScrumSchema, runMigrations } from "../src/scrum/schema.js";
+import { freePort } from "./helpers/free-port.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -125,10 +126,10 @@ describe("T-218 migration v20: add archived_at to sprints", () => {
 // ── T-219: archive/unarchive/bulk API (spawned dashboard, temp DB) ─────────
 
 const TOKEN = "test-archive-token-0123456789abcdef";
-// Randomized high port per run: avoids colliding with the dev dashboard (3333) or a stray
-// server from a prior run. (The dashboard auto-increments on EADDRINUSE, so we additionally
-// confirm in waitForServer that the server answering is the one we pointed at our temp DB.)
-const PORT = 40000 + Math.floor(Math.random() * 20000);
+// OS-assigned free port (helpers/free-port.ts). The dashboard still auto-increments on
+// EADDRINUSE, so waitForServer additionally confirms that the server answering is the one
+// we pointed at our temp DB.
+const PORT = freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: ChildProcess;

@@ -21,6 +21,7 @@ import { createTestDb } from "./helpers/db.js";
 import { initScrumSchema, runMigrations } from "../src/scrum/schema.js";
 import { archiveEntity, unarchiveEntity } from "../src/scrum/archive.js";
 import { registerScrumTools } from "../src/scrum/tools.js";
+import { freePort } from "./helpers/free-port.js";
 
 // MCP tools resolve a bearer token for their dashboard notify call — never let that
 // generate a token file in the repo during tests.
@@ -251,7 +252,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const DASHBOARD_ENTRY = path.join(REPO_ROOT, "src/dashboard/dashboard.ts");
 const TSX_CLI = path.join(REPO_ROOT, "node_modules/tsx/dist/cli.mjs");
 const TOKEN = "test-me-archive-token-0123456789abcdef";
-const PORT = 40000 + Math.floor(Math.random() * 20000);
+const PORT = freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: ChildProcess;
