@@ -1,3 +1,5 @@
+<img alt="CODE CONTEXT. MCP server for AI coding agents. Released on npm, v2.8. 81 tools, about 40 % fewer tokens, 9 benchmark tasks." src=".github/readme/hero.jpg" width="100%">
+
 <div align="center">
 
 # vlm-code-context-mcp
