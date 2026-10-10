@@ -2,6 +2,21 @@
   "schema": "ccc-bench-index/1",
   "runs": [
     {
+      "run_id": "sim-20261010-205102",
+      "kind": "simulated",
+      "date": "2026-10-10",
+      "ts": "2026-10-10T20:51:02Z",
+      "model": null,
+      "trigger": "manual",
+      "headline": {
+        "tokensSavedPct": 46.3,
+        "callsSavedPct": 27.9,
+        "mcpWinsPct": 91.5,
+        "wilcoxonP": 0,
+        "effectSizeR": 0.958
+      }
+    },
+    {
       "run_id": "sim-20261010-203937",
       "kind": "simulated",
       "date": "2026-10-10",
