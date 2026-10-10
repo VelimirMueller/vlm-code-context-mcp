@@ -34,7 +34,7 @@ Your agents forget everything between sessions. This one file does not.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/stats-v2-dark.svg">
-  <img alt="93 MCP TOOLS. 44.9% FEWER TOKENS. 1 SQLITE FILE. 0 API KEYS" src="assets/readme/stats-v2-light.svg" width="100%">
+  <img alt="93 MCP TOOLS. 46.3% FEWER TOKENS. 1 SQLITE FILE. 0 API KEYS" src="assets/readme/stats-v2-light.svg" width="100%">
 </picture>
 
 <br>
