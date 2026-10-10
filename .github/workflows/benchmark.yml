@@ -115,6 +115,11 @@ jobs:
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Artifact actions pinned by SHA. Verified 2026-10-10 with
+      # `git ls-remote --tags https://github.com/actions/<repo>`:
+      #   upload-artifact   v7.0.1 = 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a (runs: node24)
+      #   download-artifact v8.0.1 = 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c (runs: node24)
+      # v4 ran on Node 20, which GitHub deprecated. Both releases are older than 2 weeks.
       - name: Upload run data
         if: steps.decide.outputs.should_publish == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
