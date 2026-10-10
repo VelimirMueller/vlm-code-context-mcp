@@ -315,6 +315,12 @@ npm run dashboard:dev
 
 ### Release highlights
 
+#### New in 2.8 — Python in the Index 🐍
+
+- **`find_symbol` and the dependency graph work for Python repos.** `.py`/`.pyi` files now get `exports` rows and `dependencies` edges: module-level `def`/`async def`, `class` and `UPPER_CASE =` constants, with the first docstring line as description. `_`-prefixed names are skipped unless `__all__` lists them; `__all__` filters the list.
+- **Imports resolve inside the repo.** `import a.b`, `from .mod import x`, multi-line `from` imports and `from . import mod` resolve to `<path>.py` or `<path>/__init__.py` from the repo root or `root/src`; stdlib and third-party imports land in `external_imports`. Regex-based like the JS/TS parsers, no new dependencies; JS/TS behaviour is unchanged.
+- **Skill sync follows the claude_development_skills 0.7.0 layout.** The `workflow` set now reads `skills/core/` (names stay `wf:*`), so the `wf:` rows no longer freeze at 0.6.0. `scripts/sync-skills.mjs` vendors only the catalogues `skill-set-registry.json` names.
+
 #### New in 2.7 — Archive Milestones & Epics 🗄️
 
 - **Done is out of sight** — completed milestones and epics can be archived like sprints: `update_milestone` / `update_epic` take `archived: true` (`force: true` for unfinished work), and `archived: false` brings them back.
