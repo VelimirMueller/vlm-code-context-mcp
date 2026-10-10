@@ -1,16 +1,33 @@
-<img alt="CODE CONTEXT. MCP server for AI coding agents. Released on npm, v2.8. 81 tools, about 40 % fewer tokens, 9 benchmark tasks." src=".github/readme/hero.jpg" width="100%">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="assets/banner/hero-v1-light.svg">
+  <img alt="code-context — Read less. Know more." src="assets/banner/hero-v1-dark.svg" width="100%">
+</picture>
 
-<div align="center">
+[![npm version](https://img.shields.io/npm/v/vlm-code-context-mcp.svg?style=flat-square&labelColor=0a0a0b&color=8b5cf6)](https://www.npmjs.com/package/vlm-code-context-mcp) [![npm downloads](https://img.shields.io/npm/dt/vlm-code-context-mcp.svg?style=flat-square&labelColor=0a0a0b&color=a1a1aa)](https://www.npmjs.com/package/vlm-code-context-mcp) [![License: MIT](https://img.shields.io/badge/License-MIT-a1a1aa.svg?style=flat-square&labelColor=0a0a0b)](LICENSE) ![group](https://img.shields.io/badge/VM.-vlm-8b5cf6?style=flat-square&labelColor=0a0a0b)
 
-# vlm-code-context-mcp
+> Read less. Know more.
 
-### Persistent memory for AI coding agents.
+```text
+ █████   ████   █████   ██████
+██      ██  ██  ██  ██  ██
+██      ██  ██  ██  ██  █████   █████
+██      ██  ██  ██  ██  ██
+ █████   ████   █████   ██████
+ █████   ████   ██  ██  ██████  ██████  ██  ██  ██████
+██      ██  ██  ███ ██    ██    ██       ████     ██
+██      ██  ██  ██████    ██    █████     ██      ██
+██      ██  ██  ██ ███    ██    ██       ████     ██
+ █████   ████   ██  ██    ██    ██████  ██  ██    ██    ██
+```
 
-**Your agents forget everything between sessions. This fixes that.**
+## // 01 WHAT IT DOES
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![npm version](https://img.shields.io/npm/v/vlm-code-context-mcp.svg)](https://www.npmjs.com/package/vlm-code-context-mcp)
-[![npm downloads](https://img.shields.io/npm/dt/vlm-code-context-mcp.svg)](https://www.npmjs.com/package/vlm-code-context-mcp)
+- Gives AI coding agents **persistent memory**. Your agents forget everything between sessions. This fixes that.
+- Indexes your codebase into one SQLite file, `context.db`. Agents query file roles, exports and dependents instead of reading raw files: about 45 % fewer tokens in the benchmark below.
+- Runs a full sprint process for a 9-agent team: vision, discovery, milestones, epics, tickets, gates and retros, through 93 MCP tools and 6 slash commands.
+- Shows everything on a live React dashboard at `:3333`. Zero API keys.
+
+## // 02 QUICK START
 
 ```bash
 npm install vlm-code-context-mcp
@@ -19,94 +36,6 @@ npx code-context-dashboard ./context.db   # optional — live dashboard on :3333
 ```
 
 Two commands, then restart Claude Code — `setup` writes `.mcp.json`, so the server loads automatically. Zero API keys. One `context.db` file.
-
-</div>
-
----
-
-## Benchmark
-
-Simulated, not live sessions: 10 scripted development tasks (retrieval, debugging, refactoring, implementation) replayed against an 11-file fixture project, with token counts estimated from what each approach reads — no model calls. A stochastic run of 200 randomized trials with a Wilcoxon signed-rank test checks the result is not a fluke. Method and limits: [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
-
-| | MCP | Vanilla | Saved |
-|---|---|---|---|
-| **Tokens (estimated)** | 4,806 | 8,726 | **44.9%** |
-| **Tool calls** | 49 | 68 | **27.9%** |
-| **Stochastic win rate** | — | — | **90.5%** (p < 0.001) |
-
-MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more. (Re-validated for v2.0.0 — and since 2.0, sprint ceremonies themselves cost **−39% output tokens** via compact-by-default tools, measured on a replayed kickoff.)
-
-<img width="1239" height="716" alt="benchmark2" src="https://github.com/user-attachments/assets/97662418-e16b-4c12-9d32-66546d3f95b7" />
-
-
-<details>
-<summary>Reproduce it yourself</summary>
-
-```bash
-# Deterministic — 10 tasks, 6 categories
-npm test -- test/benchmark.test.ts
-
-# Stochastic — 200 randomized trials, Wilcoxon test, bootstrap CI
-npm test -- test/benchmark-stochastic.test.ts
-```
-
-Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
-</details>
-
----
-
-## New in 2.7 — Archive Milestones & Epics 🗄️
-
-- **Done is out of sight** — completed milestones and epics can be archived like sprints: `update_milestone` / `update_epic` take `archived: true` (`force: true` for unfinished work), and `archived: false` brings them back.
-- **Lists stay short** — `list_epics` and the new `list_milestones` hide archived rows unless `include_archived: true`; the Planning page tucks them into a collapsed **Archived** section with one-click **Archive** / **Unarchive**.
-- **Safe upgrade** — schema v24 only adds a nullable `archived_at` column to both tables; nothing existing is archived.
-
----
-
-## New in 2.6 — Fresh Index 🧊
-
-- **Answers are checked against the disk.** `search_files`, `find_symbol` and `get_file_context` stat every row they return: a changed file is re-indexed and a deleted one dropped *before* the answer goes out, and each row carries its `indexed_at`. Per repo, a moved git `HEAD` re-indexes exactly the files `git diff --name-only <indexed>..HEAD` lists and says so in one `⚠ STALE` line; above 500 changed files it warns on every call instead of blocking.
-- **Only your code is indexed.** Git checkouts are listed with `git ls-files` (every `.gitignore`, at any depth), on top of a hard deny: `node_modules`, `vendor`, `dist`, `build`, `.next`, `coverage`, Laravel `storage/`, dot-dirs (`.git`, `.worktrees`), lockfiles, minified bundles, source maps, binaries, files over 512 KB (`CODE_CONTEXT_MAX_FILE_KB`).
-- **`code-context-reindex`** re-indexes every repo under a root: `[--all | <repo>…] [--root <dir>] [--db <file>] [--prune-missing] [--vacuum]`. A `.code-context-ignore` file in a repo keeps it out (and purges its rows). Exit 0/1.
-- **Fewer tools in context.** The gamification (`record_mood`, `get_mood_trends`, `generate_vision_animation`) and the dashboard live-output stream (`send_step_progress`, `send_claude_output`, `send_claude_step`) are hidden unless `CODE_CONTEXT_TOOLSETS=fun,stream` (or `all`). No data is removed.
-
-## New in 2.4 — Roster Control 🎛️
-
-- **`update_agent`** — change a role's model, tools, system prompt, name, description or department from a single MCP call, and the reply names the Task-tool tier the new model routes to. No raw SQL and no dashboard detour. The sprint instructions used to advertise a `create_agent` tool that never existed; they now point here.
-- **One model catalog** — `claude-opus-5` is offered and accepted everywhere, and seeds the QA role. `KNOWN_AGENT_MODELS` is the single source of truth the dashboard re-exports, so server and UI can no longer drift; `claude-opus-4-8` joins `claude-sonnet-4-6` as a legacy id that still renders and edits.
-- **`assigned_to` is validated** — a model or provider name such as `opus` or `glm` used to find no agent and route silently to the sonnet fallback. Both ticket tools now reject anything that is not a roster role and point at `impl:*` tags for the runtime.
-
----
-
-## New in 2.3 — Current-Gen Models & Hardening 🧭
-
-- **Sonnet 5 defaults** — support roles seed on `claude-sonnet-5`; the dashboard offers the full current generation (Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5) from one shared model catalog, and Fable agents finally render (and are pickable) everywhere.
-- **Reset tools un-broken** — `reset_agents`/`reset_skills` no longer crash with `require is not defined`, and a reset preserves agent departments.
-- **Backups you can trust** — `--force` checkpoints the WAL before renaming and uses SQLite-pairable backup names, so the `.bak` alone holds every committed write.
-- **Groomed fatal errors** — a DB from a newer version refuses the boot with a clean two-line error (no stack trace, no stray `-wal`/`-shm` files), and `--help` finally tells the truth about setup-vs-update.
-
----
-
-## New in 2.2 — Discipline & Telemetry 📐
-
-- **Commit contract, injected and enforced** — delegated implementation prompts carry the `Why:/What:/How:` commit-body contract (derived live from the `wf:write-commit-messages` skill), and `update_ticket` refuses `qa_verified` while a ticket's commits don't follow it — offending hashes named, docs-only tickets exempt, always fail-open.
-- **Telemetry without ceremony** — closing a ticket auto-snapshots the burndown and can log `actual_hours` against the assigned agent; phase transitions snapshot too. Retros quote real numbers instead of `0h`.
-- **Leaner internals** — `tools.ts` and `dashboard.ts` both decomposed into domain modules (dashboard server −37%), with byte-identical tool/route surfaces pinned by mutation-verified parity tests.
-- **Claude Fable 5 tier** — dev roles default to `claude-fable-5`; ticket routing gains the `fable` tier.
-
----
-
-## New in 2.0 — Process 2.0 🚦
-
-- **Planning gates that close the retro loop** — sprints refuse to start while retro `try_next` learnings sit untriaged; adopt, drop, or defer each one (`triage_retro_finding`), and adopted items auto-flag as applied when their ticket lands.
-- **Honest velocity** — commitment freezes when implementation starts; mid-sprint scope shows as `+added / removed` instead of inflating completion rates.
-- **Terminal cockpit** — tools render width-locked progress cards in colored ```diff fences, and the `code-context-statusline` bin puts a live sprint HUD in Claude Code's status line at zero token cost.
-- **Live-editable board + session reaction** — edit tickets on the dashboard; the Claude session sees a `⚠ CHANGED TICKETS` diff block and acknowledges your changes.
-- **Multi-agent tickets** — several agents per ticket with per-assignment model overrides: the lead implements, supporters verify in parallel, QA aggregates the verdicts.
-
----
-
-## Quick Start
 
 **1 · Install**
 
@@ -151,63 +80,24 @@ Type in Claude Code:
 
 The orchestrator walks you through vision → discovery → milestone → epics → tickets → sprint → implementation → retro — one question at a time. Smart resume lets you stop and pick up later.
 
----
+## // 03 HOW IT WORKS
 
-## Dashboard
-
-**7 pages. Live SSE updates. Zero polling.**
-
-<img width="3840" height="2585" alt="Dashboard overview showing sprint board with kanban, phase stepper, and completion checklist" src="https://github.com/user-attachments/assets/52e2fbca-1e65-4ec9-a0fe-f11f000b1510" />
-
-| Page | What it shows |
-|---|---|
-| **Dashboard** | Kanban board, phase gate stepper, burndown, velocity, sprint checklist |
-| **Planning** | Milestone tracker, epic progress, discovery pipeline |
-| **Code** | File tree, dependency graph, export/import map, change history |
-| **Team** | Agent cards, model badges, mood trends, workload bars |
-| **Retro** | Bento grid insights, cross-sprint patterns, recurring themes |
-| **Benchmark** | MCP vs Vanilla comparison with animated metrics |
-| **Velocity** | Sprint-by-sprint trends, committed vs completed |
-
-Every database mutation triggers an instant refresh via SQLite WAL monitoring. Since 2.0 the board is **live-editable** — title, description, points, status, and multi-agent assignments (with per-assignment models) — and every edit raises a change flag the Claude session sees and acknowledges at its next context load. Completion stays earned: the UI can never set DONE or `qa_verified`.
-
----
-
-## Slash Commands
-
-Type these directly in Claude Code.
-
-| Command | What it does |
-|---|---|
-| `/kickoff` | Full guided lifecycle — vision to retro. **Start here.** |
-| `/sprint` | Sprint-only loop — plan → implement → QA → retro → archive |
-| `/ticket` | Move tickets through their lifecycle with full context |
-| `/milestone` | Create, update, close milestones with epic verification |
-| `/retro` | Data-backed retrospectives with burndown + velocity analysis |
-| `/sprint-connect` | Bridge the dashboard UI to your Claude session |
-
-> `/kickoff` auto-loads the frontend skill playbook into the session when a sprint has `fe-engineer` work — pull any skill's full guidance with `get_skill`.
-
----
-
-## Skill Sets (server-provided)
-
-The server ships three predefined skill libraries — **Frontend** (22 skills: React 19 / Vue 3 scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, plus an editable **house-style primer**), **Landing pages** (structure, SEO, lead capture, content audits), and **Workflow** (write-pull-requests, write-commit-messages).
-
-Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. `/kickoff` asks once which sets to enable (frontend is on by default; `update_skill_sets` changes it any time). When a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and the enabled skill indexes — workflow skills inject for every implementer; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
-
-| | |
-|---|---|
-| Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored under `vendor/skills/` (build input) |
-| Storage | seeded into the project DB `skills` table (`fe:*`, `la:*`, `wf:*`); **edit them to make them yours** — re-seeds never overwrite your edits |
-| Opt-in | `/kickoff` Phase 1b asks once; `update_skill_sets({ landing: true, ... })` any time |
-| Trigger | fe/la on `fe-engineer` tickets, wf on any implementation work during `/kickoff` |
-| Load | index + primer up front; full body via `get_skill({ name })` |
-| Update | opt-in boot-time sync from the latest upstream release (`CODE_CONTEXT_SKILLS_AUTOSYNC=1`); `npm run sync:skills` re-vendors the offline fallback |
-
----
-
-## How It Works
+```text
+  agent  ·  Claude Code or any MCP client
+     │  search_files · get_file_context · find_symbol · /kickoff · /sprint
+     ▼
+  ┌────────────────────┐   stat + git diff   ┌────────────────────┐
+  │  MCP server        │ ──────────────────▸ │  your repo         │
+  │  93 tools          │ ◂────────────────── │  git ls-files only │
+  │  compact cards     │   re-index changed  └────────────────────┘
+  └─────────┬──────────┘
+            │  reads · writes
+            ▼
+  ┌────────────────────┐   WAL watcher   ┌────────────────────┐
+  │  context.db        │ ──────────────▸ │  dashboard :3333   │
+  │  SQLite, WAL mode  │ ◂────────────── │  live-editable     │
+  └────────────────────┘   ticket edits  └────────────────────┘
+```
 
 Every command follows the same pattern: **load context from the database before doing anything.**
 
@@ -244,9 +134,86 @@ No agent holds the full project in its context window. They query what they need
 └─────────────────────────────────────────────────────┘
 ```
 
----
+## // 04 USAGE
 
-## The Agent Team
+### Benchmark
+
+Simulated, not live sessions: 10 scripted development tasks (retrieval, debugging, refactoring, implementation) replayed against an 11-file fixture project, with token counts estimated from what each approach reads — no model calls. A stochastic run of 200 randomized trials with a Wilcoxon signed-rank test checks the result is not a fluke. Method and limits: [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+
+| | MCP | Vanilla | Saved |
+|---|---|---|---|
+| **Tokens (estimated)** | 4,806 | 8,726 | **44.9%** |
+| **Tool calls** | 49 | 68 | **27.9%** |
+| **Stochastic win rate** | — | — | **90.5%** (p < 0.001) |
+
+MCP tools return structured summaries (exports, deps, file role) instead of raw file content. Agents read less, know more. (Re-validated for v2.0.0 — and since 2.0, sprint ceremonies themselves cost **−39% output tokens** via compact-by-default tools, measured on a replayed kickoff.)
+
+<img width="1239" height="716" alt="benchmark2" src="https://github.com/user-attachments/assets/97662418-e16b-4c12-9d32-66546d3f95b7" />
+
+
+<details>
+<summary>Reproduce it yourself</summary>
+
+```bash
+# Deterministic — 10 tasks, 6 categories
+npm test -- test/benchmark.test.ts
+
+# Stochastic — 200 randomized trials, Wilcoxon test, bootstrap CI
+npm test -- test/benchmark-stochastic.test.ts
+```
+
+Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+</details>
+
+### Dashboard
+
+**7 pages. Live SSE updates. Zero polling.**
+
+<img width="3840" height="2585" alt="Dashboard overview showing sprint board with kanban, phase stepper, and completion checklist" src="https://github.com/user-attachments/assets/52e2fbca-1e65-4ec9-a0fe-f11f000b1510" />
+
+| Page | What it shows |
+|---|---|
+| **Dashboard** | Kanban board, phase gate stepper, burndown, velocity, sprint checklist |
+| **Planning** | Milestone tracker, epic progress, discovery pipeline |
+| **Code** | File tree, dependency graph, export/import map, change history |
+| **Team** | Agent cards, model badges, mood trends, workload bars |
+| **Retro** | Bento grid insights, cross-sprint patterns, recurring themes |
+| **Benchmark** | MCP vs Vanilla comparison with animated metrics |
+| **Velocity** | Sprint-by-sprint trends, committed vs completed |
+
+Every database mutation triggers an instant refresh via SQLite WAL monitoring. Since 2.0 the board is **live-editable** — title, description, points, status, and multi-agent assignments (with per-assignment models) — and every edit raises a change flag the Claude session sees and acknowledges at its next context load. Completion stays earned: the UI can never set DONE or `qa_verified`.
+
+### Slash Commands
+
+Type these directly in Claude Code.
+
+| Command | What it does |
+|---|---|
+| `/kickoff` | Full guided lifecycle — vision to retro. **Start here.** |
+| `/sprint` | Sprint-only loop — plan → implement → QA → retro → archive |
+| `/ticket` | Move tickets through their lifecycle with full context |
+| `/milestone` | Create, update, close milestones with epic verification |
+| `/retro` | Data-backed retrospectives with burndown + velocity analysis |
+| `/sprint-connect` | Bridge the dashboard UI to your Claude session |
+
+> `/kickoff` auto-loads the frontend skill playbook into the session when a sprint has `fe-engineer` work — pull any skill's full guidance with `get_skill`.
+
+### Skill Sets (server-provided)
+
+The server ships three predefined skill libraries — **Frontend** (22 skills: React 19 / Vue 3 scaffolding, routing, state, forms, auth, i18n, testing, accessibility, performance, design systems, motion, PWA, plus an editable **house-style primer**), **Landing pages** (structure, SEO, lead capture, content audits), and **Workflow** (write-pull-requests, write-commit-messages).
+
+Unlike a plugin, these are **served by the MCP server into your live session**, not copied into your repo. `/kickoff` asks once which sets to enable (frontend is on by default; `update_skill_sets` changes it any time). When a sprint has `fe-engineer` work, `load_phase_context` injects the house-style primer and the enabled skill indexes — workflow skills inject for every implementer; your agent then pulls any skill's full guidance on demand with `get_skill({ name })`. No restart, no files to manage.
+
+| | |
+|---|---|
+| Source | [`claude_development_skills`](https://github.com/VelimirMueller/claude_development_skills) — vendored under `vendor/skills/` (build input) |
+| Storage | seeded into the project DB `skills` table (`fe:*`, `la:*`, `wf:*`); **edit them to make them yours** — re-seeds never overwrite your edits |
+| Opt-in | `/kickoff` Phase 1b asks once; `update_skill_sets({ landing: true, ... })` any time |
+| Trigger | fe/la on `fe-engineer` tickets, wf on any implementation work during `/kickoff` |
+| Load | index + primer up front; full body via `get_skill({ name })` |
+| Update | opt-in boot-time sync from the latest upstream release (`CODE_CONTEXT_SKILLS_AUTOSYNC=1`); `npm run sync:skills` re-vendors the offline fallback |
+
+### The Agent Team
 
 9 configurable agents, each with a role, model, and mood score. Dev roles default to the strongest model (`claude-fable-5`), QA to `claude-opus-5`; the rest use `claude-sonnet-5`. Change a model, tools or system prompt with the `update_agent` MCP tool or in the dashboard.
 
@@ -266,9 +233,7 @@ Add, remove, or swap models through MCP tools or with a single click in the dash
 
 Since 2.0, tickets can carry **multiple agents with per-assignment model overrides**: the lead implements, supporting agents verify the diff in parallel from their role's perspective, and the QA gate requires every verdict before a ticket counts as done.
 
----
-
-## Sprint Process
+### Sprint Process
 
 4 phases with enforced gate checks:
 
@@ -289,9 +254,7 @@ Since 2.0, planning is **gated**: `start_sprint` and `advance_sprint` refuse to 
 
 Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `qa_verified` while its referencing commits lack the `Why:/What:/How:` body groups — and closes feed the burndown automatically.
 
----
-
-## Tech Stack
+### Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -304,9 +267,7 @@ Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `
 | Testing | Vitest |
 | Build | TypeScript strict mode |
 
----
-
-## Engine Numbers
+### Engine Numbers
 
 | Component | Count |
 |---|---|
@@ -319,9 +280,7 @@ Since 2.2, the QA gate also checks **commit discipline**: a ticket can't reach `
 | Slash commands | 6 |
 | CLI bins | 3 (`code-context-mcp`, `code-context-dashboard`, `code-context-statusline`) |
 
----
-
-## Manual MCP Server Setup
+### Manual MCP Server Setup
 
 If the automatic `.mcp.json` setup doesn't work:
 
@@ -336,9 +295,7 @@ claude mcp add --scope user code-context node /path/to/node_modules/vlm-code-con
 claude mcp remove code-context
 ```
 
----
-
-## Development
+### Development
 
 ```bash
 # MCP server
@@ -348,8 +305,61 @@ npm run dev
 npm run dashboard:dev
 ```
 
----
+## // 05 STATUS
 
-## License
+| | |
+|---|---|
+| 🟢 **Stable** | 2.8.0 on npm (the npm badge shows the live version) |
+| Tests | `npm test` (backend) · `npm run test:all` (backend + frontend) |
+| Changes | [`CHANGELOG.md`](CHANGELOG.md) |
+
+### Release highlights
+
+#### New in 2.7 — Archive Milestones & Epics 🗄️
+
+- **Done is out of sight** — completed milestones and epics can be archived like sprints: `update_milestone` / `update_epic` take `archived: true` (`force: true` for unfinished work), and `archived: false` brings them back.
+- **Lists stay short** — `list_epics` and the new `list_milestones` hide archived rows unless `include_archived: true`; the Planning page tucks them into a collapsed **Archived** section with one-click **Archive** / **Unarchive**.
+- **Safe upgrade** — schema v24 only adds a nullable `archived_at` column to both tables; nothing existing is archived.
+
+#### New in 2.6 — Fresh Index 🧊
+
+- **Answers are checked against the disk.** `search_files`, `find_symbol` and `get_file_context` stat every row they return: a changed file is re-indexed and a deleted one dropped *before* the answer goes out, and each row carries its `indexed_at`. Per repo, a moved git `HEAD` re-indexes exactly the files `git diff --name-only <indexed>..HEAD` lists and says so in one `⚠ STALE` line; above 500 changed files it warns on every call instead of blocking.
+- **Only your code is indexed.** Git checkouts are listed with `git ls-files` (every `.gitignore`, at any depth), on top of a hard deny: `node_modules`, `vendor`, `dist`, `build`, `.next`, `coverage`, Laravel `storage/`, dot-dirs (`.git`, `.worktrees`), lockfiles, minified bundles, source maps, binaries, files over 512 KB (`CODE_CONTEXT_MAX_FILE_KB`).
+- **`code-context-reindex`** re-indexes every repo under a root: `[--all | <repo>…] [--root <dir>] [--db <file>] [--prune-missing] [--vacuum]`. A `.code-context-ignore` file in a repo keeps it out (and purges its rows). Exit 0/1.
+- **Fewer tools in context.** The gamification (`record_mood`, `get_mood_trends`, `generate_vision_animation`) and the dashboard live-output stream (`send_step_progress`, `send_claude_output`, `send_claude_step`) are hidden unless `CODE_CONTEXT_TOOLSETS=fun,stream` (or `all`). No data is removed.
+
+#### New in 2.4 — Roster Control 🎛️
+
+- **`update_agent`** — change a role's model, tools, system prompt, name, description or department from a single MCP call, and the reply names the Task-tool tier the new model routes to. No raw SQL and no dashboard detour. The sprint instructions used to advertise a `create_agent` tool that never existed; they now point here.
+- **One model catalog** — `claude-opus-5` is offered and accepted everywhere, and seeds the QA role. `KNOWN_AGENT_MODELS` is the single source of truth the dashboard re-exports, so server and UI can no longer drift; `claude-opus-4-8` joins `claude-sonnet-4-6` as a legacy id that still renders and edits.
+- **`assigned_to` is validated** — a model or provider name such as `opus` or `glm` used to find no agent and route silently to the sonnet fallback. Both ticket tools now reject anything that is not a roster role and point at `impl:*` tags for the runtime.
+
+#### New in 2.3 — Current-Gen Models & Hardening 🧭
+
+- **Sonnet 5 defaults** — support roles seed on `claude-sonnet-5`; the dashboard offers the full current generation (Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5) from one shared model catalog, and Fable agents finally render (and are pickable) everywhere.
+- **Reset tools un-broken** — `reset_agents`/`reset_skills` no longer crash with `require is not defined`, and a reset preserves agent departments.
+- **Backups you can trust** — `--force` checkpoints the WAL before renaming and uses SQLite-pairable backup names, so the `.bak` alone holds every committed write.
+- **Groomed fatal errors** — a DB from a newer version refuses the boot with a clean two-line error (no stack trace, no stray `-wal`/`-shm` files), and `--help` finally tells the truth about setup-vs-update.
+
+#### New in 2.2 — Discipline & Telemetry 📐
+
+- **Commit contract, injected and enforced** — delegated implementation prompts carry the `Why:/What:/How:` commit-body contract (derived live from the `wf:write-commit-messages` skill), and `update_ticket` refuses `qa_verified` while a ticket's commits don't follow it — offending hashes named, docs-only tickets exempt, always fail-open.
+- **Telemetry without ceremony** — closing a ticket auto-snapshots the burndown and can log `actual_hours` against the assigned agent; phase transitions snapshot too. Retros quote real numbers instead of `0h`.
+- **Leaner internals** — `tools.ts` and `dashboard.ts` both decomposed into domain modules (dashboard server −37%), with byte-identical tool/route surfaces pinned by mutation-verified parity tests.
+- **Claude Fable 5 tier** — dev roles default to `claude-fable-5`; ticket routing gains the `fable` tier.
+
+#### New in 2.0 — Process 2.0 🚦
+
+- **Planning gates that close the retro loop** — sprints refuse to start while retro `try_next` learnings sit untriaged; adopt, drop, or defer each one (`triage_retro_finding`), and adopted items auto-flag as applied when their ticket lands.
+- **Honest velocity** — commitment freezes when implementation starts; mid-sprint scope shows as `+added / removed` instead of inflating completion rates.
+- **Terminal cockpit** — tools render width-locked progress cards in colored ```diff fences, and the `code-context-statusline` bin puts a live sprint HUD in Claude Code's status line at zero token cost.
+- **Live-editable board + session reaction** — edit tickets on the dashboard; the Claude session sees a `⚠ CHANGED TICKETS` diff block and acknowledges your changes.
+- **Multi-agent tickets** — several agents per ticket with per-assignment model overrides: the lead implements, supporters verify in parallel, QA aggregates the verdicts.
+
+### License
 
 MIT
+
+---
+
+<sub>VM. studio / vlm · open source · look per <code>vm-brand</code> playbook</sub>
