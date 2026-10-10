@@ -143,7 +143,7 @@ export function BurndownChart({ sprintId }: BurndownChartProps) {
             ))}
 
             {/* Completed area */}
-            <path d={completedArea} fill="var(--accent)" opacity={0.1} />
+            <path d={completedArea} fill="var(--green)" opacity={0.1} />
 
             {/* Ideal burndown line */}
             <line

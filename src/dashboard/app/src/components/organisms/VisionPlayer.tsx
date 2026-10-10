@@ -14,7 +14,7 @@ import {
 const DARK_BG = '#0a0a0b';
 const W = '#ffffff';
 const W2 = 'rgba(255,255,255,0.6)';
-const ACCENT = '#10b981';
+const ACCENT = '#818cf8';
 const BLUE = '#3b82f6';
 const PURPLE = '#a78bfa';
 const PINK = '#ec4899';

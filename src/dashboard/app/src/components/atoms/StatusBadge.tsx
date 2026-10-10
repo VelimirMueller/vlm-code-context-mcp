@@ -13,7 +13,7 @@ interface StatusBadgeProps {
 }
 
 const defaultColors: Record<string, string> = {
-  success: 'var(--accent)',
+  success: 'var(--green)',
   warning: 'var(--orange)',
   error: 'var(--red)',
   info: 'var(--blue)',

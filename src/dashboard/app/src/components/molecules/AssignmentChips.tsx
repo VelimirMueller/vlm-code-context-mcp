@@ -35,8 +35,8 @@ export function AssignmentChips({ assignments }: AssignmentChipsProps) {
             borderRadius: 8,
             fontSize: 10,
             lineHeight: 1.6,
-            background: a.is_lead ? 'rgba(16,185,129,.12)' : 'var(--bg)',
-            border: `1px solid ${a.is_lead ? 'rgba(16,185,129,.35)' : 'var(--border)'}`,
+            background: a.is_lead ? 'rgba(99,102,241,.12)' : 'var(--bg)',
+            border: `1px solid ${a.is_lead ? 'rgba(99,102,241,.35)' : 'var(--border)'}`,
             color: a.is_lead ? 'var(--accent)' : 'var(--text3)',
             whiteSpace: 'nowrap',
           }}

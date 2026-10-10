@@ -19,7 +19,7 @@ interface ColConfig {
 const COLUMNS: Record<string, ColConfig> = {
   TODO: { label: 'To Do', color: '#6b7280' },
   IN_PROGRESS: { label: 'In Progress', color: 'var(--blue)' },
-  DONE: { label: 'Done', color: 'var(--accent)' },
+  DONE: { label: 'Done', color: 'var(--green)' },
   NOT_DONE: { label: 'Not Done', color: 'var(--red)' },
 };
 
@@ -143,7 +143,7 @@ export function KanbanBoard({ tickets }: KanbanBoardProps) {
             }}
             onDrop={e => handleDrop(e, status)}
             style={{
-              background: dragOverCol === status ? 'rgba(16,185,129,0.04)' : 'var(--bg)',
+              background: dragOverCol === status ? 'rgba(99,102,241,0.04)' : 'var(--bg)',
               border: dragOverCol === status ? '1px solid var(--accent)' : '1px solid var(--border)',
               borderRadius: 'var(--radius)',
               display: 'flex',

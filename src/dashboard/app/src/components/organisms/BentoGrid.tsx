@@ -125,10 +125,10 @@ export function BentoGrid() {
 
         {/* Recent Went Well */}
         <BentoCard
-          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--accent)" strokeWidth="1.5"/><path d="M6 9l2 2 4-4" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          icon={<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="var(--green)" strokeWidth="1.5"/><path d="M6 9l2 2 4-4" stroke="var(--green)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           title="Recent Wins"
           subtitle="What went well"
-          borderColor="var(--accent)"
+          borderColor="var(--green)"
           iconBg="rgba(16,185,129,.15)"
           items={
             well.length > 0

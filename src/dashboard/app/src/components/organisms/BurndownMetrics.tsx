@@ -184,14 +184,14 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
             label="Current Velocity"
             value={`${analysis.prediction.currentVelocity.toFixed(1)} pts/day`}
             subtitle={`Ideal: ${analysis.prediction.idealVelocity.toFixed(1)} pts/day`}
-            color={analysis.prediction.currentVelocity >= analysis.prediction.idealVelocity ? 'var(--accent)' : 'var(--orange)'}
+            color={analysis.prediction.currentVelocity >= analysis.prediction.idealVelocity ? 'var(--green)' : 'var(--orange)'}
             icon={<svg width={16} height={16} viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>}
           />
           <MetricCard
             label="Completion Rate"
             value={`${analysis.progressMetrics.burnRate}%`}
             subtitle={analysis.progressMetrics.completionRate >= 0 ? 'Ahead of schedule' : 'Behind schedule'}
-            color={analysis.progressMetrics.completionRate >= 0 ? 'var(--accent)' : 'var(--red)'}
+            color={analysis.progressMetrics.completionRate >= 0 ? 'var(--green)' : 'var(--red)'}
             icon={<svg width={16} height={16} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={2}/><polyline points="12 6 12 12 16 14" stroke="currentColor" strokeWidth={2}/></svg>}
           />
           <MetricCard
@@ -205,7 +205,7 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
             label="Projected"
             value={analysis.prediction.projectedCompletion || 'TBD'}
             subtitle={analysis.prediction.onTrack ? 'On track' : 'Needs attention'}
-            color={analysis.prediction.onTrack ? 'var(--accent)' : 'var(--red)'}
+            color={analysis.prediction.onTrack ? 'var(--green)' : 'var(--red)'}
             icon={<svg width={16} height={16} viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke="currentColor" strokeWidth={2}/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" strokeWidth={2}/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth={2}/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" strokeWidth={2}/></svg>}
           />
         </div>
@@ -248,7 +248,7 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
                         padding: '8px',
                         textAlign: 'right',
                         fontFamily: 'var(--mono)',
-                        color: change.netChange > 0 ? 'var(--red)' : change.netChange < 0 ? 'var(--accent)' : 'var(--text3)'
+                        color: change.netChange > 0 ? 'var(--red)' : change.netChange < 0 ? 'var(--green)' : 'var(--text3)'
                       }}>
                         {change.netChange > 0 ? '+' : ''}{change.netChange}
                       </td>
@@ -280,7 +280,7 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
                     style={{
                       width: `${Math.min(100, (analysis.prediction.currentVelocity / Math.max(0.1, analysis.prediction.idealVelocity)) * 100)}%`,
                       height: '100%',
-                      background: analysis.prediction.currentVelocity >= analysis.prediction.idealVelocity ? 'var(--accent)' : 'var(--orange)',
+                      background: analysis.prediction.currentVelocity >= analysis.prediction.idealVelocity ? 'var(--green)' : 'var(--orange)',
                       borderRadius: 4,
                       transition: 'width 0.3s ease'
                     }}
@@ -486,7 +486,7 @@ function ScopeChangeItem({ label, value, type }: { label: string; value: number;
   const colors = {
     added: 'var(--orange)',
     removed: 'var(--accent)',
-    net: value > 0 ? 'var(--red)' : value < 0 ? 'var(--accent)' : 'var(--text3)'
+    net: value > 0 ? 'var(--red)' : value < 0 ? 'var(--green)' : 'var(--text3)'
   };
 
   return (

@@ -49,8 +49,8 @@ export function Topbar() {
           width: 8,
           height: 8,
           borderRadius: '50%',
-          background: 'var(--accent)',
-          boxShadow: '0 0 6px var(--accent)',
+          background: 'var(--green)',
+          boxShadow: '0 0 6px var(--green)',
           flexShrink: 0,
         }}
       />

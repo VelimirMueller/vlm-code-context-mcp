@@ -292,12 +292,12 @@ function LargeBurndownChart({ data }: { data: BurndownData }) {
             border: `1px solid ${isOnTrack ? 'var(--accent)40' : 'var(--red)40'}`,
             fontSize: 11,
             fontWeight: 600,
-            color: isOnTrack ? 'var(--accent)' : 'var(--red)',
+            color: isOnTrack ? 'var(--green)' : 'var(--red)',
             display: 'flex',
             alignItems: 'center',
             gap: 6,
           }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isOnTrack ? 'var(--accent)' : 'var(--red)' }} />
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isOnTrack ? 'var(--green)' : 'var(--red)' }} />
             {isOnTrack ? 'On Track' : 'Behind'}
           </div>
           <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
@@ -368,7 +368,7 @@ function LargeBurndownChart({ data }: { data: BurndownData }) {
       <div style={{ display: 'flex', gap: 20, padding: '8px 20px 16px', borderTop: '1px solid var(--border)' }}>
         <LegendItem color="var(--accent)" line label="Remaining" />
         <LegendItem color="var(--text3)" dashed label="Ideal" />
-        <LegendItem color="var(--accent)" area label={`Completed (${current.completed} pts)`} />
+        <LegendItem color="var(--green)" area label={`Completed (${current.completed} pts)`} />
         <LegendItem color="var(--accent)" dashed label="Prediction" opacity={0.4} />
       </div>
     </div>
@@ -445,7 +445,7 @@ function BurndownMetricsCard({ data, sprintName }: { data: BurndownData; sprintN
             label="Velocity"
             value={`${analysis.avgVelocity.toFixed(1)} pts/d`}
             sub={`Ideal: ${analysis.idealVelocity.toFixed(1)}`}
-            color={analysis.onTrack ? 'var(--accent)' : 'var(--orange)'}
+            color={analysis.onTrack ? 'var(--green)' : 'var(--orange)'}
           />
           <MetricCell
             label="Remaining"
@@ -463,7 +463,7 @@ function BurndownMetricsCard({ data, sprintName }: { data: BurndownData; sprintN
             label="Scope Change"
             value={`${analysis.scopeNet > 0 ? '+' : ''}${analysis.scopeNet} pts`}
             sub={`${analysis.scopeAdded} added, ${analysis.scopeRemoved} removed`}
-            color={analysis.scopeNet > 0 ? '#f59e0b' : analysis.scopeNet < 0 ? 'var(--accent)' : 'var(--text3)'}
+            color={analysis.scopeNet > 0 ? '#f59e0b' : analysis.scopeNet < 0 ? 'var(--green)' : 'var(--text3)'}
           />
         </div>
       )}
@@ -486,7 +486,7 @@ function BurndownMetricsCard({ data, sprintName }: { data: BurndownData; sprintN
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '6px 8px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>{m.date.slice(5)}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text)', fontFamily: 'var(--mono)' }}>{m.remaining_points}</td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--accent)', fontFamily: 'var(--mono)' }}>+{m.completed_points}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--green)', fontFamily: 'var(--mono)' }}>+{m.completed_points}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'right', color: '#f59e0b', fontFamily: 'var(--mono)' }}>+{m.added_points}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--blue)', fontFamily: 'var(--mono)' }}>-{m.removed_points}</td>
                   </tr>
@@ -618,9 +618,9 @@ function MultiSprintComparison({ entries }: { entries: SprintBurndownEntry[] }) 
                     </div>
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--text)' }}>{total}</td>
-                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{current.completed}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--green)' }}>{current.completed}</td>
                   <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: pct >= 80 ? 'var(--accent)' : '#f59e0b' }}>{pct}%</td>
-                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: scopeNet > 0 ? '#f59e0b' : scopeNet < 0 ? 'var(--accent)' : 'var(--text3)' }}>
+                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: scopeNet > 0 ? '#f59e0b' : scopeNet < 0 ? 'var(--green)' : 'var(--text3)' }}>
                     {scopeNet > 0 ? '+' : ''}{scopeNet}
                   </td>
                 </tr>

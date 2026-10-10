@@ -209,7 +209,7 @@ export function EnhancedCapacityView() {
         <KPICard label="Total Capacity" value={`${metrics.totalCapacity} pts`} color="var(--blue)" />
         <KPICard label="Allocated" value={`${metrics.allocated} pts`} color="var(--accent)" />
         <KPICard label="Avg Utilization" value={`${metrics.avgUtil}%`} color={metrics.avgUtil > 100 ? '#ef4444' : metrics.avgUtil > 80 ? '#f59e0b' : 'var(--accent)'} />
-        <KPICard label="Health Score" value={`${healthScore}/100`} color={healthScore >= 80 ? 'var(--accent)' : healthScore >= 50 ? '#f59e0b' : '#ef4444'} />
+        <KPICard label="Health Score" value={`${healthScore}/100`} color={healthScore >= 80 ? 'var(--green)' : healthScore >= 50 ? '#f59e0b' : '#ef4444'} />
         <div style={{ display: 'flex', gap: 8 }}>
           <KPICard label="Optimal" value={metrics.optimalCount} color="#3b82f6" compact />
           <KPICard label="Overloaded" value={metrics.overCount} color="#ef4444" compact />
