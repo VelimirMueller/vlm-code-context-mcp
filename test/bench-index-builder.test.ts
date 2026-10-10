@@ -185,4 +185,40 @@ describe('runFileProblem', () => {
     expect(runFileProblem(null)).toMatch(/not a JSON object/);
     expect(runFileProblem('nope')).toMatch(/not a JSON object/);
   });
+
+  it('run_id must be inert: ^[a-z0-9][a-z0-9-]{0,80}$ (security audit 2026-10-10)', () => {
+    // accepted: bench-generated stamps, legacy ids, digits-first ids
+    for (const ok of [
+      's1',
+      'g1',
+      'l-new',
+      'glm-20261010-120000',
+      'dsk-20261010-120000',
+      '20261009-101417', // published legacy stamp
+      'a'.repeat(81), // max length
+    ]) {
+      expect(runFileProblem(sim('2026-10-10T00:00:00Z', ok)), `${ok} must be accepted`).toBeNull();
+    }
+    // rejected: traversal, shell fodder, wrong charset, too long
+    for (const bad of [
+      '', // missing value (empty string)
+      '../../x',
+      '..\\..\\x',
+      'a b',
+      'A-1',
+      'SIM-1',
+      'a_b',
+      'a.b',
+      'a\nb',
+      '-leading-dash',
+      'a'.repeat(82), // over max length
+    ]) {
+      expect(runFileProblem(sim('2026-10-10T00:00:00Z', bad)), `${JSON.stringify(bad)} must be rejected`).toMatch(
+        /invalid run_id|missing string run_id/,
+      );
+    }
+    // the two dangerous shapes are specifically called invalid run_id
+    expect(runFileProblem(sim('2026-10-10T00:00:00Z', '../../x'))).toMatch(/invalid run_id/);
+    expect(runFileProblem(sim('2026-10-10T00:00:00Z', 'a\nb'))).toMatch(/invalid run_id/);
+  });
 });

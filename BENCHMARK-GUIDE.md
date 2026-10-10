@@ -43,11 +43,12 @@ In GitHub Actions: open the **Benchmark** workflow (`.github/workflows/benchmark
 
 A live agent run executes untrusted code — a model through the OpenCode CLI, then vitest over the code that model wrote. The runner hardens this but it is **not a full container sandbox**:
 
-- **The agent may** read and edit files inside its own temp workspace, run an allowlist of pure read commands (`ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `find`, `git status|diff|log`), and call the code-context MCP server.
-- **The agent may not execute code**: no `npm`, `npx`, `node`, `tsx`, `vitest`, `sh`, `bash`, `python` — bash is deny-by-default, and the allowlist denies argument forms that execute commands (`find -exec`, `rg --pre`) or redirect output into files. Task correctness is decided by the checker, not by the agent running tests.
-- **The agent may not** run arbitrary shell commands, fetch or search the web, ask the user, spawn sub-agents, spawn language servers, or read/write anything outside the workspace.
+- **The agent may** read, grep, glob and edit files inside its own temp workspace (built-in tools only) and call the code-context MCP server. It may not edit `opencode.json`, its own sandbox config.
+- **The agent may not run any shell command**: `bash` is denied outright — no command allowlist at all (a `grep`/`head`/`find` allowlist would bypass the workspace boundary, because opencode does not apply `external_directory` to those commands). No `npm`, `npx`, `node`, `tsx`, `vitest`, `sh`, `python` either. Task correctness is decided by the checker, not by the agent running tests.
+- **The agent may not** fetch or search the web, ask the user, spawn sub-agents, spawn language servers, or read/write anything outside the workspace (`external_directory: deny`, enforced by the built-in read/grep/glob/edit tools).
 - **The agent sees a minimal environment**: `PATH`, `HOME`, `TMPDIR`, `CODE_CONTEXT_ALLOWED_ROOTS`, and the single provider key it needs. No `GITHUB_TOKEN`, no other provider keys, nothing else from the runner's environment.
-- The checker runs vitest on the model's code with a scrubbed environment and a hard timeout.
+- Every arm — vanilla and cc, glm and deepseek — gets the same sandbox `opencode.json` from one preparation path (`scripts/bench/live/prepare.mts`) before anything spawns.
+- The checker runs vitest on the model's code with a scrubbed environment, a harness-owned vitest config outside the workspace (`--config`/`--root`, so an agent-planted `vitest.config.*` is ignored), and a hard timeout.
 
 For local runs, use throwaway provider keys with spending limits: the checker executes code a model wrote (in a scrubbed environment), and a hostile or buggy model could spend tokens or write files inside its own workspace. The sandbox narrows blast radius; it does not isolate the process like a container would.
 

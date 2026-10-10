@@ -73,6 +73,15 @@ function readRuns(dir: string): LocalRun[] {
     }
     const problem = runFileProblem(data);
     if (problem) {
+      // A file that claims to be a run (non-empty run_id) but fails
+      // validation — above all a malformed run_id, which would become a
+      // filename and a commit-message token — is REJECTED, not skipped:
+      // publish stops before anything is written or pushed. Files without
+      // a run_id are stray JSON (editor temps), skipped with a warning.
+      const id = (data as Record<string, unknown> | null)?.run_id;
+      if (typeof id === 'string' && id) {
+        throw new Error(`bench:publish: ${file}: ${problem} — refusing to publish`);
+      }
       console.warn(`bench:publish: skipping ${file}: ${problem}`);
       continue;
     }

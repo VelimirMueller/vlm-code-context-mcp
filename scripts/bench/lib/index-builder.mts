@@ -33,15 +33,28 @@ const NEW_RUN_KINDS: ReadonlySet<string> = new Set<NewRunKind>([
 ]);
 
 /**
- * Null when `x` is a publishable run file (string `run_id`, and either a
- * legacy run or a known `kind`); otherwise a short reason. Lets the runners
- * skip stray JSON in data/runs (editor temp files, partial writes) instead of
- * feeding them into the index builder.
+ * Run-id charset (security audit 2026-10-10): run ids become filenames
+ * (`<run_id>.json`) and commit-message tokens during publish, so they must
+ * be inert — lowercase alphanumerics and dashes, 1–81 chars, starting with
+ * a letter or digit. Everything else (`../x`, newlines, spaces, …) is
+ * rejected before any file is written.
+ */
+export const RUN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,80}$/;
+
+/**
+ * Null when `x` is a publishable run file (string `run_id` matching
+ * RUN_ID_PATTERN, and either a legacy run or a known `kind`); otherwise a
+ * short reason. Lets the runners skip stray JSON in data/runs (editor temp
+ * files, partial writes) instead of feeding them into the index builder.
+ * Publish treats an invalid run_id as fatal (publish.mts).
  */
 export function runFileProblem(x: unknown): string | null {
   if (!x || typeof x !== 'object') return 'not a JSON object';
   const r = x as Record<string, unknown>;
   if (typeof r.run_id !== 'string' || !r.run_id) return 'missing string run_id';
+  if (!RUN_ID_PATTERN.test(r.run_id)) {
+    return `invalid run_id ${JSON.stringify(r.run_id)} (must match ^[a-z0-9][a-z0-9-]{0,80}$)`;
+  }
   if (legacyKindOf(x)) return null;
   if (typeof r.kind !== 'string' || !NEW_RUN_KINDS.has(r.kind)) {
     return `unknown kind ${JSON.stringify(r.kind)}`;

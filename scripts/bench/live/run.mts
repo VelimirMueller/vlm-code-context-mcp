@@ -4,18 +4,21 @@
  * CLI: npm run bench:live -- --provider glm|deepseek [--tasks L1,L2,L3]
  *      [--repeats 1] [--timeout 300] [--data-dir <dir>]
  *
- * For every task × arm (vanilla, cc), in a fresh temp copy of the fixture:
- *   - cc arm: build <ws>/context.db via the indexer, register ONLY code-context
- *     in the per-workspace opencode.json (node <repo>/dist/server/index.js <db>)
- *   - vanilla arm: no MCP config, no db
- *   - run `opencode run --dir <ws> -m <model> --format json "<prompt>"` with an
- *     isolated HOME (the user's global opencode config — with its own MCP
- *     servers — must not leak into either arm) and a MINIMAL child env (only
- *     PATH, HOME, TMPDIR, CODE_CONTEXT_ALLOWED_ROOTS and the one provider key;
- *     never echoed, never logged). No `--auto`: the per-workspace opencode.json
- *     carries a deny-by-default `permission` block (opencode-config.mts), so the
- *     agent gets only the allowlisted read-only commands, no webfetch/websearch,
- *     and no access outside the workspace — refused non-interactively.
+ * For every task × arm (vanilla, cc), the ONE preparation path
+ * (prepare.mts prepareArmSession) builds a fresh temp copy of the fixture
+ * and ALWAYS writes <ws>/opencode.json with the SANDBOX_PERMISSIONS block:
+ *   - cc arm: build <ws>/context.db via the indexer, register ONLY
+ *     code-context in the per-workspace opencode.json (node <repo>/dist/server/index.js <db>)
+ *   - vanilla arm: no MCP config, no db — same permission block
+ * Then the ONE spawn site (runSession) runs
+ * `opencode run --dir <ws> -m <model> --format json "<prompt>"` with an
+ * isolated HOME (the user's global opencode config — with its own MCP
+ * servers — must not leak into either arm) and a MINIMAL child env (only
+ * PATH, HOME, TMPDIR, CODE_CONTEXT_ALLOWED_ROOTS and the one provider key;
+ * never echoed, never logged). No `--auto`: the per-workspace opencode.json
+ * denies bash outright and confines the built-in read/grep/glob/list/edit
+ * tools to the workspace (`external_directory: deny`), so nothing outside
+ * it is reachable and every refusal is non-interactive.
  *   - parse the event stream (task 7), run the deterministic checker (task 6)
  *
  * Emits the run JSON (kind agent-<provider>) into <data-dir>/runs/ and
@@ -29,17 +32,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
-import { initSchema } from '../../../src/server/schema.js';
-import { indexDirectory } from '../../../src/server/indexer.js';
 import { buildIndex, pickLatest, runFileProblem } from '../lib/index-builder.mts';
 import { formatStamp } from '../lib/stamp.mts';
 import { normalizeLive, type LiveProvider, type LiveSessions } from '../normalize-live.mts';
-import { DEFAULT_LIVE_TASKS, tasksByIds, type LiveTask } from './tasks.mts';
+import { DEFAULT_LIVE_TASKS, tasksByIds, renderPrompt, type LiveTask } from './tasks.mts';
 import { runChecker } from './checkers.mts';
 import { parseEventStream } from './parse-events.mts';
-import { writeOpencodeConfig } from './opencode-config.mts';
-import { agentSpawnEnv, stripProviderKeys } from './sandbox.mts';
+import { ARMS, prepareArmSession, type PreparedArm } from './prepare.mts';
+import { stripProviderKeys } from './sandbox.mts';
 import type { SessionResult } from '../lib/types.mts';
 
 /**
@@ -63,7 +63,6 @@ const PROVIDERS: Record<LiveProvider, { model: string; keyEnv: string; exportAs:
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..', '..', '..');
-const FIXTURE = path.join(repoRoot, 'test', 'fixtures', 'sample-project');
 const DIST_SERVER = path.join(repoRoot, 'dist', 'server', 'index.js');
 
 function fail(message: string): never {
@@ -146,56 +145,43 @@ function git(...args: string[]): string {
   }
 }
 
-function freshWorkspace(parent: string): string {
-  const ws = fs.mkdtempSync(path.join(parent, 'bench-ws-'));
-  fs.cpSync(FIXTURE, ws, { recursive: true });
-  return ws;
-}
-
-function buildIndexDb(ws: string): { indexMs: number; dbBytes: number } {
-  const dbPath = path.join(ws, 'context.db');
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  initSchema(db);
-  const t0 = Date.now();
-  indexDirectory(db, ws);
-  const indexMs = Date.now() - t0;
-  db.close();
-  return { indexMs, dbBytes: fs.statSync(dbPath).size };
-}
-
 interface SessionOutcome {
   result: SessionResult;
   checkDetail: string;
 }
 
+/**
+ * The ONE opencode spawn site. Consumes a PreparedArm (prepare.mts) — the
+ * workspace it reads, the config that confines it and the env it runs with
+ * were all built together, so no arm can reach this spawn without its
+ * sandbox opencode.json in place.
+ */
 async function runSession(opts: {
   task: LiveTask;
-  ws: string;
+  prep: PreparedArm;
   model: string;
-  keyExportName: string;
-  key: string;
   timeoutSec: number;
   eventsFile: string;
   stderrFile: string;
 }): Promise<SessionOutcome> {
-  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-home-'));
   const t0 = Date.now();
   let timedOut = false;
   let spawnError = ''; // e.g. ENOENT when opencode is not spawnable
 
   const child = spawn(
     'opencode',
-    ['run', '--dir', opts.ws, '-m', opts.model, '--format', 'json', opts.task.prompt],
+    [
+      'run',
+      '--dir',
+      opts.prep.ws,
+      '-m',
+      opts.model,
+      '--format',
+      'json',
+      renderPrompt(opts.task, { fakeHome: opts.prep.fakeHome }),
+    ],
     {
-      env: agentSpawnEnv({
-        fakeHome,
-        keyExportName: opts.keyExportName,
-        key: opts.key,
-        allowedRoots: process.env.CODE_CONTEXT_ALLOWED_ROOTS ?? os.tmpdir(),
-      }),
+      env: opts.prep.env,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -246,7 +232,7 @@ async function runSession(opts: {
     opts.stderrFile,
     spawnError ? `${stderr.toString('utf-8')}spawn error: ${spawnError}\n` : stderr,
   ); // diagnostics only, never printed
-  fs.rmSync(fakeHome, { recursive: true, force: true });
+  // fakeHome/ws removal is owned by PreparedArm.cleanup() in the main loop.
 
   if (spawnError) {
     // The child never ran (nothing spawned): not a model FAIL — record the
@@ -268,7 +254,7 @@ async function runSession(opts: {
   }
 
   const usage = parseEventStream(stdout.toString('utf-8').split('\n'));
-  const check = await runChecker(opts.task, opts.ws, usage.assistantText);
+  const check = await runChecker(opts.task, opts.prep.ws, usage.assistantText);
 
   return {
     result: {
@@ -352,31 +338,36 @@ async function main(): Promise<void> {
 
   for (const task of tasks) {
     for (let r = 1; r <= args.repeats; r++) {
-      for (const arm of ['vanilla', 'cc'] as const) {
-        const ws = freshWorkspace(os.tmpdir());
-        if (arm === 'cc') {
-          const indexInfo = buildIndexDb(ws);
-          indexMsSamples.push(indexInfo.indexMs);
-          dbBytesSamples.push(indexInfo.dbBytes);
-          writeOpencodeConfig(ws, {
-            mcp: { command: [process.execPath, DIST_SERVER, path.join(ws, 'context.db')] },
-            includeDeepseekProvider: args.provider === 'deepseek',
-          });
-        } else if (args.provider === 'deepseek') {
-          writeOpencodeConfig(ws, { includeDeepseekProvider: true }); // model resolution only — no MCP
-        }
-
-        const suffix = args.repeats > 1 ? `-r${r}` : '';
-        const outcome = await runSession({
-          task,
-          ws,
-          model: providerMeta.model,
+      for (const arm of ARMS) {
+        // The ONE preparation path — every arm gets its sandbox opencode.json
+        // here (prepare.mts), before the ONE spawn site below consumes it.
+        const prep = prepareArmSession({
+          provider: args.provider,
+          arm,
+          distServer: DIST_SERVER,
           keyExportName: providerMeta.exportAs,
           key,
-          timeoutSec: args.timeoutSec,
-          eventsFile: path.join(artefactDir, `${arm}-${task.id}${suffix}.jsonl`),
-          stderrFile: path.join(artefactDir, `${arm}-${task.id}${suffix}.stderr.log`),
+          allowedRoots: process.env.CODE_CONTEXT_ALLOWED_ROOTS,
         });
+
+        const suffix = args.repeats > 1 ? `-r${r}` : '';
+        let outcome: SessionOutcome;
+        try {
+          outcome = await runSession({
+            task,
+            prep,
+            model: providerMeta.model,
+            timeoutSec: args.timeoutSec,
+            eventsFile: path.join(artefactDir, `${arm}-${task.id}${suffix}.jsonl`),
+            stderrFile: path.join(artefactDir, `${arm}-${task.id}${suffix}.stderr.log`),
+          });
+        } finally {
+          prep.cleanup();
+        }
+        if (prep.indexInfo) {
+          indexMsSamples.push(prep.indexInfo.indexMs);
+          dbBytesSamples.push(prep.indexInfo.dbBytes);
+        }
         (arm === 'cc' ? cc : vanilla).push(outcome.result);
 
         const res = outcome.result;
@@ -386,7 +377,6 @@ async function main(): Promise<void> {
             `tok ${res.tokens.input}→${res.tokens.output}  tools ${res.tool_calls} (mcp ${res.mcp_tool_calls})  ` +
             `${(res.wall_ms / 1000).toFixed(1)}s  — ${outcome.checkDetail}`,
         );
-        fs.rmSync(ws, { recursive: true, force: true });
       }
     }
   }

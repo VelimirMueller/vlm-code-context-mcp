@@ -177,4 +177,37 @@ describe('bench:publish', () => {
     writeRun(c, simulatedRun('sim-20261010-120000', '2026-10-10T12:00:00+0200'));
     expect(() => publish({ repoDir: c, env: GIT_ENV })).toThrow(/refuse to run/);
   });
+
+  it('rejects a run file with a malformed run_id — clear error, nothing written or pushed', () => {
+    const origin = makeOrigin(true);
+    const c = clone(origin);
+    const headBefore = git(c, 'rev-parse', 'origin/bench-results');
+
+    // The FILENAME is harmless; the poisoned run_id rides inside the JSON and
+    // would otherwise become a copyFileSync path and a commit-message token.
+    fs.mkdirSync(path.join(c, 'data', 'runs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(c, 'data', 'runs', 'innocent-name.json'),
+      `${JSON.stringify({ ...simulatedRun('innocent-name', '2026-10-11T00:00:00Z'), run_id: '../../evil' }, null, 2)}\n`,
+    );
+
+    expect(() => publish({ repoDir: c, env: GIT_ENV })).toThrow(/invalid run_id.*refusing to publish/s);
+    // nothing happened: remote unmoved, no run pushed
+    expect(git(c, 'rev-parse', 'origin/bench-results')).toBe(headBefore);
+    expect(() => show(c, 'origin/bench-results', 'data/runs/innocent-name.json')).toThrow();
+  });
+
+  it('still skips stray JSON without a run_id (editor temps), publishing only real runs', () => {
+    const origin = makeOrigin(true);
+    const c = clone(origin);
+    writeRun(c, simulatedRun('sim-20261010-120000', '2026-10-10T12:00:00+0200'));
+    fs.writeFileSync(
+      path.join(c, 'data', 'runs', 'stray.json'),
+      `${JSON.stringify({ note: 'editor temp file' })}\n`,
+    );
+
+    const res = publish({ repoDir: c, env: GIT_ENV });
+    expect(res.runIds).toEqual(['sim-20261010-120000']);
+    expect(() => show(c, 'origin/bench-results', 'data/runs/stray.json')).toThrow();
+  });
 });

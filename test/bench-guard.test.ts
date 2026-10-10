@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const WORKFLOWS = resolve(__dirname, '../.github/workflows');
+const LIVE_DIR = resolve(__dirname, '../scripts/bench/live');
 
 const workflowFiles = (): string[] => readdirSync(WORKFLOWS).filter((f) => f.endsWith('.yml'));
 
@@ -59,5 +60,52 @@ describe('bench guard — benchmarks run on demand only, never on a schedule', (
     for (const key of forbidden) {
       expect(block, `benchmark.yml must not trigger on ${key}`).not.toContain(key);
     }
+  });
+});
+
+describe('bench guard — every agent arm spawns through the sandbox prepare path', () => {
+  // Security audit 2026-10-10, finding 2: an arm used to spawn without any
+  // opencode.json. The structural invariant: run.mts spawns opencode exactly
+  // once, consumes a PreparedArm, and never writes (or bypasses) the config
+  // itself — the ONLY config writer for agent sessions is prepare.mts.
+  const runSrc = () => readFileSync(join(LIVE_DIR, 'run.mts'), 'utf-8');
+  const prepareSrc = () => readFileSync(join(LIVE_DIR, 'prepare.mts'), 'utf-8');
+
+  it('run.mts has exactly ONE spawn site and it is the opencode agent', () => {
+    const src = runSrc();
+    const spawns = [...src.matchAll(/\bspawn\(/g)];
+    expect(spawns.length, 'run.mts must have exactly one spawn() call').toBe(1);
+    expect(src).toContain("spawn(\n    'opencode',");
+  });
+
+  it('run.mts never writes or references the agent config itself — only prepare.mts may', () => {
+    const src = runSrc();
+    expect(src).not.toContain('writeOpencodeConfig');
+    expect(src).toContain('prepareArmSession');
+    expect(src).toContain('ARMS');
+
+    const prep = prepareSrc();
+    expect(prep).toContain('writeOpencodeConfig');
+    // unconditional write: the call sits at top level of prepareArmSession,
+    // not inside an if-branch (guarded behaviourally by the prepare tests).
+    expect(prep).toMatch(/const configPath = writeOpencodeConfig\(ws, configOpts\);/);
+  });
+
+  it('prepare.mts is the only bench module that writes opencode.json', () => {
+    for (const f of readdirSync(LIVE_DIR).filter((x) => x.endsWith('.mts'))) {
+      const src = readFileSync(join(LIVE_DIR, f), 'utf-8');
+      if (f === 'prepare.mts' || f === 'opencode-config.mts') continue;
+      expect(src, `${f} must not write agent config`).not.toContain('writeOpencodeConfig');
+    }
+  });
+
+  it('the checker pins a trusted vitest config outside the workspace', () => {
+    const src = readFileSync(join(LIVE_DIR, 'checkers.mts'), 'utf-8');
+    expect(src).toContain("'--config'");
+    expect(src).toContain("'--root'");
+    expect(src).toContain('vitest.trusted.config.mts');
+    // the trusted config exists in the repo (harness-owned), denies workspace
+    // config hooks, and lives outside any bench workspace by construction.
+    expect(existsSync(join(LIVE_DIR, 'checks', 'vitest.trusted.config.mts'))).toBe(true);
   });
 });

@@ -59,9 +59,12 @@ afterEach(() => {
 });
 
 describe('sandbox permission config', () => {
-  it('SANDBOX_PERMISSIONS denies bash by default and webfetch/websearch', () => {
-    const bash = SANDBOX_PERMISSIONS.bash as Record<string, string>;
-    expect(bash['*']).toBe('deny');
+  it('bash is the scalar "deny" — no command allowlist at all', () => {
+    // Security audit 2026-10-10: external_directory is not applied to
+    // grep/rg/head/tail/wc/ls/find/git, so ANY bash allowlist could read
+    // /proc/self/environ or the real $HOME. The agent works through the
+    // built-in file tools instead.
+    expect(SANDBOX_PERMISSIONS.bash).toBe('deny');
     expect(SANDBOX_PERMISSIONS.webfetch).toBe('deny');
     expect(SANDBOX_PERMISSIONS.websearch).toBe('deny');
     expect(SANDBOX_PERMISSIONS.task).toBe('deny');
@@ -70,35 +73,21 @@ describe('sandbox permission config', () => {
     expect(SANDBOX_PERMISSIONS.lsp).toBe('deny');
   });
 
-  it('allowlists ONLY pure read commands — nothing that executes code', () => {
-    const bash = SANDBOX_PERMISSIONS.bash as Record<string, string>;
-    expect(Object.keys(bash).filter((k) => bash[k] === 'allow')).toEqual([
-      'ls *',
-      'cat *',
-      'head *',
-      'tail *',
-      'wc *',
-      'grep *',
-      'rg *',
-      'find *',
-      'git status *',
-      'git diff *',
-      'git log *',
-    ]);
-    for (const forbidden of ['npm *', 'npx *', 'node *', 'tsx *', 'vitest *', 'sh *', 'bash *', 'python*']) {
-      expect(
-        Object.keys(bash).some((k) => k.startsWith(forbidden) && bash[k] === 'allow'),
-        `${forbidden} must not be allowed`,
-      ).toBe(false);
-    }
+  it('the toolbox is the built-in file tools, confined by external_directory', () => {
+    expect(SANDBOX_PERMISSIONS.read).toBe('allow');
+    expect(SANDBOX_PERMISSIONS.grep).toBe('allow');
+    expect(SANDBOX_PERMISSIONS.glob).toBe('allow');
+    expect(SANDBOX_PERMISSIONS.list).toBe('allow');
+    expect(SANDBOX_PERMISSIONS.write).toBeUndefined(); // unlisted = ask = auto-refused headlessly
+    expect(SANDBOX_PERMISSIONS.external_directory).toEqual({ '*': 'deny' });
   });
 
   /**
    * Replicates opencode 1.18.30's permission evaluation (packages/opencode/
    * src/permission/index.ts evaluate + packages/core/src/util/wildcard.ts):
    * rules are checked with findLast in config key order — the LAST matching
-   * rule wins — and patterns are full-string globs where a trailing " *"
-   * means "with any arguments (or none)".
+   * rule wins — and patterns are full-string globs where `*` matches any
+   * characters including `/`.
    */
   function opencodeWildcardMatch(input: string, pattern: string): boolean {
     const normalized = input.replaceAll('\\', '/');
@@ -111,63 +100,39 @@ describe('sandbox permission config', () => {
     return new RegExp(`^${escaped}$`, 's').test(normalized);
   }
 
-  function evaluateBash(command: string): string {
-    const rules = Object.entries(SANDBOX_PERMISSIONS.bash as Record<string, string>).map(
-      ([pattern, action]) => ({ pattern, action }),
+  function evaluatePattern(rules: Record<string, string>, input: string): string {
+    const rule = Object.entries(rules).findLast(([pattern]) =>
+      opencodeWildcardMatch(input, pattern),
     );
-    const rule = rules.findLast((r) => opencodeWildcardMatch(command, r.pattern));
-    return rule ? rule.action : 'ask';
+    return rule ? rule[1] : 'ask';
   }
 
-  it('read commands pass; code execution and argument abuse are denied', () => {
+  it('edit allows workspace files but never the sandbox config itself', () => {
+    const edit = SANDBOX_PERMISSIONS.edit as Record<string, string>;
+    // workspace files stay editable (the tasks need it)
     for (const ok of [
-      'ls',
-      'ls -la src',
-      'cat src/utils/helpers.ts',
-      'head -5 package.json',
-      'tail -n 3 README.md',
-      'wc -l src/utils/helpers.ts',
-      'grep -rn formatDate src',
-      'rg formatDate src',
-      'find . -name "*.ts"',
-      'git status',
-      'git diff --stat',
-      'git log --oneline',
+      'src/utils/helpers.ts',
+      'src/utils/index.ts',
+      'README.md',
+      '/abs/tmp/bench-ws-1/src/utils/helpers.ts',
     ]) {
-      expect(evaluateBash(ok), `${ok} must be allowed`).toBe('allow');
+      expect(evaluatePattern(edit, ok), `${ok} must be editable`).toBe('allow');
     }
+    // the sandbox config must not be editable by the sandboxed agent —
+    // otherwise it could rewrite its own permissions (self-escalation)
     for (const refused of [
-      // code runners (deny-by-default)
-      'npx vitest run',
-      'npm test',
-      'npm run test',
-      'node script.js',
-      'tsx script.ts',
-      'sh -c ls',
-      'bash -c ls',
-      'python -c pass',
-      'vitest run',
-      // argument abuse of allowed commands
-      'find . -type f -exec rm -rf {} +',
-      'find . -execdir sh -c ls \\;',
-      'find . -ok rm {} \\;',
-      'rg --pre=/bin/sh pattern .',
-      'rg pattern --pre cat src',
-      // prefix lookalikes are NOT the allowed command
-      'lsof -i',
-      'catastrophic-command',
-      // git: only status/diff/log subcommands
-      'git -c core.fsmonitor=sh status',
-      'git checkout main',
-      // redirections turn reads into writes
-      'cat src/utils/helpers.ts > ../outside.ts',
-      'ls >> stash.txt',
+      'opencode.json',
+      './opencode.json',
+      '/tmp/bench-ws-1/opencode.json',
+      'nested/dir/opencode.json',
     ]) {
-      expect(evaluateBash(refused), `${refused} must be denied`).toBe('deny');
+      expect(evaluatePattern(edit, refused), `${refused} must be denied`).toBe('deny');
     }
+    // a similarly named file is NOT the config and stays editable
+    expect(evaluatePattern(edit, 'sneaky-opencode.jsonx')).toBe('allow');
   });
 
-  it('writeOpencodeConfig writes the deny rules into opencode.json', () => {
+  it('writeOpencodeConfig writes bash "deny" into opencode.json', () => {
     const ws = fs.mkdtempSync(path.join(tmp(), 'ws-'));
     const configPath = writeOpencodeConfig(ws, {
       includeDeepseekProvider: true,
@@ -177,14 +142,13 @@ describe('sandbox permission config', () => {
 
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
     const permission = written.permission as Record<string, unknown>;
-    const bash = permission.bash as Record<string, string>;
-    expect(bash['*']).toBe('deny');
-    expect(bash['ls *']).toBe('allow');
-    expect(bash['find *-exec*']).toBe('deny');
+    expect(permission.bash).toBe('deny'); // scalar — verified shape
     expect(permission.webfetch).toBe('deny');
     expect(permission.websearch).toBe('deny');
     const ext = permission.external_directory as Record<string, string>;
     expect(ext['*']).toBe('deny');
+    const edit = permission.edit as Record<string, string>;
+    expect(edit['*opencode.json']).toBe('deny');
   });
 
   it('writeOpencodeConfig still attaches the mcp and deepseek provider blocks', () => {

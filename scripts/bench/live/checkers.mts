@@ -5,6 +5,9 @@
  * no model, no opencode, no network. Symbol detection reuses `parseExports`
  * from src/server/indexer.ts instead of reimplementing it. Hidden check
  * files are copied into the workspace only at check time, never before.
+ * The tests checker runs vitest with a harness-owned config outside the
+ * workspace (`--config` + `--root`, see vitest.trusted.config.mts), so
+ * agent-authored workspace config is never loaded.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -112,6 +115,13 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
     return { pass: false, detail: 'vitest not installed in the repo (npm ci first)' };
   }
 
+  // Config containment (security audit 2026-10-10): vitest runs with a
+  // harness-owned config passed EXPLICITLY (--config, this file lives in the
+  // repo, outside every workspace) and --root pinned to the workspace, so an
+  // agent-authored vitest.config.*/vitest.workspace.* in the workspace is
+  // never loaded — its globalSetup/setupFiles cannot run.
+  const trustedConfig = path.join(CHECKS_DIR, 'vitest.trusted.config.mts');
+
   // The code under test was written by the model and is untrusted: run it in a
   // fresh fake HOME with a scrubbed env (no provider keys, no GITHUB_TOKEN),
   // cwd inside the temp workspace, and a hard timeout that kills the process
@@ -120,7 +130,15 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
   const { code, tail } = await new Promise<{ code: number | null; tail: string }>((resolve) => {
     const child = spawn(
       process.execPath,
-      [vitestBin, 'run', path.join('test', checkFile)],
+      [
+        vitestBin,
+        'run',
+        '--config',
+        trustedConfig,
+        '--root',
+        workspaceDir,
+        path.join('test', checkFile),
+      ],
       {
         cwd: workspaceDir,
         env: checkerSpawnEnv({ fakeHome }),

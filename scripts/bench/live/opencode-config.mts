@@ -23,24 +23,26 @@ import { CODE_CONTEXT_SERVER_ALIAS } from './parse-events.mts';
 
 /**
  * Agent sandbox permissions for the live bench. The agent NEVER executes
- * code: `bash` defaults to deny and allowlists only pure read commands
- * (`ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `find`,
- * `git status|diff|log`). No `npm`, `npx`, `node`, `tsx`, `vitest`, `sh`,
- * `bash`, `python` — nothing that runs workspace code or package scripts.
+ * code and NEVER runs a shell: `bash` is the scalar `"deny"` — no command
+ * allowlist at all. (Security audit 2026-10-10: opencode applies
+ * `external_directory` only to a hardcoded FILES command set, so an
+ * argument-wildcard allowlist of `grep`/`rg`/`head`/`tail`/`wc`/`ls`/
+ * `find`/`git` could read `/proc/self/environ` and the real `$HOME` —
+ * e.g. `grep -a . /proc/self/environ` — and no pattern deny closes every
+ * argument form. The agent works through the built-in read/grep/glob/list
+ * tools instead, which DO enforce `external_directory`.) The `write` tool
+ * stays unlisted, so it defaults to "ask" and is auto-refused headlessly.
  * Task correctness is decided by the checker alone (checkers.mts), which
  * runs the hidden vitest file in its own scrubbed environment.
  *
- * Rule ordering is load-bearing (verified against opencode 1.18.30,
- * packages/opencode/src/permission/index.ts): rules are evaluated
- * last-match-wins over the config key order, and patterns are full-string
- * globs where a trailing `" *"` means "with any arguments (or none)". So
- * `'*': 'deny'` comes first, the command allows override it, and the
- * argument-form denies at the end override the allows:
- *   - `find -exec/-ok…` and `rg --pre…` execute commands via arguments
- *   - `>` / `>>` redirections would turn read commands into writes
- * Compound commands (`&&`, `;`, `|`, `$(…)`) are split per sub-command by
- * opencode's tree-sitter pass and EVERY part must pass the allowlist, so
- * `ls | sh` or `grep x; npm test` are refused on the second part.
+ * `edit` is a pattern map (same glob semantics as bash patterns:
+ * full-string, `*` crosses `/`, last-match-wins in key order) with ONE
+ * carve-out: the sandbox config itself must not be editable by the
+ * sandboxed agent — otherwise the agent could rewrite its own permissions
+ * (e.g. flip `bash` to allow) if opencode reloads the project config.
+ * `*opencode.json` is matched after the blanket allow, so it wins for the
+ * config file at the workspace root (relative or absolute path form) and
+ * nothing else.
  *
  * `webfetch`/`websearch` are denied (no network); `external_directory` denies
  * every path outside the workspace; `task` (sub-agent spawn), `question`
@@ -48,28 +50,14 @@ import { CODE_CONTEXT_SERVER_ALIAS } from './parse-events.mts';
  */
 export const SANDBOX_PERMISSIONS: Record<string, unknown> = {
   read: 'allow',
-  edit: 'allow',
+  edit: {
+    '*': 'allow',
+    '*opencode.json': 'deny',
+  },
   grep: 'allow',
   glob: 'allow',
   list: 'allow',
-  bash: {
-    '*': 'deny',
-    'ls *': 'allow',
-    'cat *': 'allow',
-    'head *': 'allow',
-    'tail *': 'allow',
-    'wc *': 'allow',
-    'grep *': 'allow',
-    'rg *': 'allow',
-    'find *': 'allow',
-    'git status *': 'allow',
-    'git diff *': 'allow',
-    'git log *': 'allow',
-    'find *-exec*': 'deny',
-    'find *-ok*': 'deny',
-    'rg *--pre*': 'deny',
-    '*>*': 'deny',
-  },
+  bash: 'deny',
   external_directory: { '*': 'deny' },
   webfetch: 'deny',
   websearch: 'deny',
