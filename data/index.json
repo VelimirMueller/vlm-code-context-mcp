@@ -1,0 +1,34 @@
+{
+  "schema": "ccc-bench-index/1",
+  "runs": [
+    {
+      "run_id": "sim-20261010-190047",
+      "kind": "simulated",
+      "date": "2026-10-10",
+      "ts": "2026-10-10T19:00:47Z",
+      "model": null,
+      "trigger": "manual",
+      "headline": {
+        "tokensSavedPct": 46.3,
+        "callsSavedPct": 27.9,
+        "mcpWinsPct": 91.5,
+        "wilcoxonP": 0,
+        "effectSizeR": 0.958
+      }
+    },
+    {
+      "run_id": "20261009-101417",
+      "kind": "agent-claude",
+      "date": "2026-10-09",
+      "ts": "2026-10-09T10:39:07+0200",
+      "model": "opus",
+      "trigger": "manual",
+      "headline": {
+        "nv_mean": 0.04189261659286033,
+        "nv_lo": -0.02937580019265215,
+        "nv_hi": 0.11547763460259214,
+        "verdict": "INCONCLUSIVE"
+      }
+    }
+  ]
+}
