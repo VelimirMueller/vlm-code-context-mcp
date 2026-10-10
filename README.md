@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="assets/banner/hero-v2-light.svg">
-  <img alt="code-context-mcp. Read less. Know more. Stable, v2.8.0. MCP, code index, sprints, dashboard." src="assets/banner/hero-v2-dark.svg" width="100%">
+  <source media="(prefers-color-scheme: light)" srcset="assets/banner/hero-v3-light.svg">
+  <img alt="code-context-mcp. Read less. Know more. Stable, v2.9.0. MCP, code index, sprints, dashboard." src="assets/banner/hero-v3-dark.svg" width="100%">
 </picture>
 
 <p align="center">
@@ -33,19 +33,19 @@ An MCP server that gives AI coding agents a memory of your codebase and a sprint
 Your agents forget everything between sessions. This one file does not.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/stats-v2-dark.svg">
-  <img alt="93 MCP TOOLS. 46.3% FEWER TOKENS. 1 SQLITE FILE. 0 API KEYS" src="assets/readme/stats-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/stats-v3-dark.svg">
+  <img alt="93 MCP TOOLS. 46.3% FEWER TOKENS. 1 SQLITE FILE. 0 API KEYS" src="assets/readme/stats-v3-light.svg" width="100%">
 </picture>
 
 <br>
 
 ## // 01 WHAT IT DOES
 
-<img alt="01 WHAT IT DOES. AGENTS STOP RE-READING THE REPO." src="assets/readme/divider-what-v2.svg" width="100%">
+<img alt="01 WHAT IT DOES. AGENTS STOP RE-READING THE REPO." src="assets/readme/divider-what-v3.svg" width="100%">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/features-v2-dark.svg">
-  <img alt="CODE INDEX: File roles, exports and dependents in one context.db. Checked against the disk on every answer. SPRINT PROCESS: A 9-agent team. Vision to retro, with gates. 93 MCP tools, 6 slash commands. LIVE DASHBOARD: React on :3333. SSE updates, no polling. Edit tickets, the session sees it." src="assets/readme/features-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/features-v3-dark.svg">
+  <img alt="CODE INDEX: File roles, exports and dependents in one context.db. Checked against the disk on every answer. SPRINT PROCESS: A 9-agent team. Vision to retro, with gates. 93 MCP tools, 6 slash commands. LIVE DASHBOARD: React on :3333. SSE updates, no polling. Edit tickets, the session sees it." src="assets/readme/features-v3-light.svg" width="100%">
 </picture>
 
 - Gives AI coding agents **persistent memory**. The memory survives the session.
@@ -57,11 +57,11 @@ Your agents forget everything between sessions. This one file does not.
 
 ## // 02 QUICK START
 
-<img alt="02 QUICK START. TWO COMMANDS. ONE RESTART." src="assets/readme/divider-start-v2.svg" width="100%">
+<img alt="02 QUICK START. TWO COMMANDS. ONE RESTART." src="assets/readme/divider-start-v3.svg" width="100%">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/start-v2-dark.svg">
-  <img alt="Terminal: $ npm install vlm-code-context-mcp | $ npx code-context-mcp setup . | # restart Claude Code. setup wrote .mcp.json | $ npx code-context-dashboard ./context.db | # http://localhost:3333" src="assets/readme/start-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/start-v3-dark.svg">
+  <img alt="Terminal: $ npm install vlm-code-context-mcp | $ npx code-context-mcp setup . | # restart Claude Code. setup wrote .mcp.json | $ npx code-context-dashboard ./context.db | # http://localhost:3333" src="assets/readme/start-v3-light.svg" width="100%">
 </picture>
 
 ```bash
@@ -102,11 +102,11 @@ Two commands, then restart Claude Code. Zero API keys. One `context.db` file.
 
 ## // 03 HOW IT WORKS
 
-<img alt="03 HOW IT WORKS. ONE SQLITE FILE. NO MAGIC." src="assets/readme/divider-how-v2.svg" width="100%">
+<img alt="03 HOW IT WORKS. ONE SQLITE FILE. NO MAGIC." src="assets/readme/divider-how-v3.svg" width="100%">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/flow-v2-dark.svg">
-  <img alt="AGENT -&gt; MCP SERVER -&gt; CONTEXT.DB -&gt; DASHBOARD. Load context from the database first. Read the file second." src="assets/readme/flow-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/flow-v3-dark.svg">
+  <img alt="AGENT -&gt; MCP SERVER -&gt; CONTEXT.DB -&gt; DASHBOARD. Load context from the database first. Read the file second." src="assets/readme/flow-v3-light.svg" width="100%">
 </picture>
 
 Every command follows the same pattern: **load context from the database before doing anything.**
@@ -150,7 +150,7 @@ The full picture with the repo and the re-index loop: [docs/REFERENCE.md](docs/R
 
 ## // 04 USAGE
 
-<img alt="04 USAGE. THE LONG PART, FOLDED." src="assets/readme/divider-usage-v2.svg" width="100%">
+<img alt="04 USAGE. THE LONG PART, FOLDED." src="assets/readme/divider-usage-v3.svg" width="100%">
 
 Long reference (skill sets, agent roles, sprint gates, release highlights): [docs/REFERENCE.md](docs/REFERENCE.md).
 
@@ -239,8 +239,8 @@ Type these in Claude Code.
 ### Sprint process
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/phases-v2-dark.svg">
-  <img alt="PLANNING -&gt; IMPLEMENTATION -&gt; DONE -&gt; REST. 4 phases. Each one has a gate. The gates do not negotiate." src="assets/readme/phases-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/phases-v3-dark.svg">
+  <img alt="PLANNING -&gt; IMPLEMENTATION -&gt; DONE -&gt; REST. 4 phases. Each one has a gate. The gates do not negotiate." src="assets/readme/phases-v3-light.svg" width="100%">
 </picture>
 
 ```
@@ -262,7 +262,7 @@ planning → implementation → done → rest
 - MCP protocol: @modelcontextprotocol/sdk. 93 MCP tools by default, 99 with `CODE_CONTEXT_TOOLSETS=all`.
 - Dashboard: React 19 + Vite + Zustand + Framer Motion. CSS variables + Tailwind, dark theme. 75 React components.
 - Live updates: SSE via WAL file watcher.
-- Testing: Vitest. 762 tests (677 backend + 85 frontend).
+- Testing: Vitest. 992 backend tests and 93 dashboard tests.
 - 9 agent roles (configurable). 4 sprint phases with gate checks + planning gate. 6 slash commands.
 - 4 CLI bins: `code-context-mcp`, `code-context-dashboard`, `code-context-statusline`, `code-context-reindex`.
 
@@ -295,14 +295,14 @@ npm run dashboard:dev
 
 ## // 05 STATUS
 
-<img alt="05 STATUS. TESTED. NOT BY VIBES." src="assets/readme/divider-status-v2.svg" width="100%">
+<img alt="05 STATUS. TESTED. NOT BY VIBES." src="assets/readme/divider-status-v3.svg" width="100%">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/status-v2-dark.svg">
-  <img alt="Release: 2.8.0 on npm. Python index: new in 2.8. Tests: 762, vitest. Dashboard: 7 pages, live. Fun + stream: hidden unless opted in" src="assets/readme/status-v2-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/status-v3-dark.svg">
+  <img alt="Release: 2.9.0 on npm. Python index: since 2.8. Tests: 992, vitest. Dashboard: 7 pages, live. Fun + stream: hidden unless opted in" src="assets/readme/status-v3-light.svg" width="100%">
 </picture>
 
-- **Stable.** 2.8.0 on npm. The npm badge shows the live version.
+- **Stable.** 2.9.0 on npm. The npm badge shows the live version.
 - Tests: `npm test` (backend) · `npm run test:all` (backend + frontend).
 - Changes: [`CHANGELOG.md`](CHANGELOG.md). Release highlights 2.0 to 2.8: [docs/REFERENCE.md](docs/REFERENCE.md#release-highlights).
 - License: MIT.

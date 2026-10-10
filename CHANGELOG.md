@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-10-10
+
+### Added
+- **On-demand benchmarks.** `npm run bench` (simulated, no model), `npm run bench:live` (an OpenCode agent with and without code-context) and `npm run bench:publish`. A new `Benchmark` workflow (`workflow_dispatch`, inputs `kind` and `provider`) pushes runs to `bench-results`, which rebuilds Pages. A guard test fails when a workflow gets a `schedule:` trigger. (#94)
+- **Benchmark site in the flagship look:** indigo tokens, dark and light theme, latest run first, full history, a brand hero and section dividers. (#94, #95)
+
+### Changed
+- **Dashboard accent is indigo** (`--accent: #818cf8`, new `--accent-fill: #6366f1`). Green (`--green`) now means status only: done, passed, verified, on track, saved, live. The legacy `dashboard.html` keeps its own tokens. (#96)
+- README benchmark numbers come from the clean run `sim-20261010-203937`. (#98)
+- CI: tests take OS-assigned ports; artifact actions run on Node 24. (#99)
+
+### Fixed
+- The benchmark records the git state before the simulated tests run, so a run is no longer marked dirty by its own files. (#97)
+
+### Security
+- The live benchmark agent runs in a sandbox: one preparation path for every arm, no shell, no web, no access outside its workspace. A `run_id` must match `^[a-z0-9][a-z0-9-]{0,80}$`. (#94)
+
 ## [2.8.0] - 2026-10-09
 
 ### Fixed
