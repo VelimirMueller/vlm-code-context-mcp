@@ -10,6 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { CODE_CONTEXT_SERVER_ALIAS } from './parse-events.mts';
 
 /** Verified custom-provider block for DeepSeek ({env:…} is opencode interpolation). */
 export const DEEPSEEK_PROVIDER_CONFIG: Record<string, unknown> = {
@@ -46,7 +47,7 @@ export function writeOpencodeConfig(
   }
   if (opts.mcp) {
     config.mcp = {
-      'code-context': {
+      [CODE_CONTEXT_SERVER_ALIAS]: {
         type: 'local',
         command: opts.mcp.command,
       },

@@ -196,8 +196,14 @@ if (isMain()) {
   const opts: PublishOptions = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dry-run') opts.dryRun = true;
-    else if (args[i] === '--run') opts.runId = args[++i];
-    else if (args[i] === '--no-push') opts.push = false;
+    else if (args[i] === '--run') {
+      const v = args[++i];
+      if (!v || !v.trim()) {
+        console.error('bench:publish: --run needs a run id value (e.g. --run sim-20261010-120000)');
+        process.exit(1);
+      }
+      opts.runId = v.trim();
+    } else if (args[i] === '--no-push') opts.push = false;
     else {
       console.error(`bench:publish: unknown argument ${args[i]}`);
       process.exit(1);

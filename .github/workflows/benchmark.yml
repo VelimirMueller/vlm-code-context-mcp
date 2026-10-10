@@ -58,6 +58,7 @@ jobs:
           case "${{ inputs.provider }}" in
             glm)      KEY_NAME=ZAI_API_KEY ;;
             deepseek) KEY_NAME=DEEPSEEK_API_KEY ;;
+            *)        echo "::error::unknown provider '${{ inputs.provider }}'"; exit 1 ;;
           esac
           if [ -z "${!KEY_NAME}" ]; then
             echo "::notice::${{ inputs.provider }} API key secret missing — agent benchmark skipped"
@@ -67,12 +68,15 @@ jobs:
           npm run bench:live -- --provider "${{ inputs.provider }}"
           echo "ran=true" >> "$GITHUB_OUTPUT"
 
+      # Publish only after a run actually happened: simulated kind, or an agent
+      # run that set ran=true. Never when the agent benchmark was skipped for a
+      # missing key (ran=false) or failed before setting the output.
       - name: Publish run data to bench-results
-        if: steps.agent.outputs.ran != 'false'
+        if: inputs.kind == 'simulated' || steps.agent.outputs.ran == 'true'
         run: npm run bench:publish
 
       - name: Rebuild the Pages site
-        if: steps.agent.outputs.ran != 'false'
+        if: inputs.kind == 'simulated' || steps.agent.outputs.ran == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run pages.yml --ref main

@@ -34,10 +34,21 @@ export const CANONICAL_INDEXED_AT = "2026-01-01 00:00:00";
 /**
  * Render a DB (absolute) path as an absolute path under CANONICAL_ROOT, so the
  * benchmark's token estimate is realistic (absolute-path cost) but identical on
- * every machine.
+ * every machine. Throws when `p` is outside the fixture root: a `..` segment
+ * would let the result escape CANONICAL_ROOT and leak machine-dependent paths.
  */
 export function canonicalPath(p: string): string {
   const rel = path.relative(FIXTURE_DIR, p).replace(/\\/g, "/");
+  const escapes =
+    rel.startsWith("../") ||
+    rel === ".." ||
+    rel.startsWith("/") ||
+    /^[A-Za-z]:/.test(rel);
+  if (escapes) {
+    throw new Error(
+      `canonicalPath: path escapes the fixture root (FIXTURE_DIR): ${p}`,
+    );
+  }
   return path.posix.join(CANONICAL_ROOT, rel);
 }
 

@@ -26,7 +26,19 @@ function git(...args: string[]): string {
 }
 
 function readJson(p: string): unknown {
-  return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  let text: string;
+  try {
+    text = fs.readFileSync(p, 'utf-8');
+  } catch (e) {
+    console.error(`bench: cannot read ${path.relative(repoRoot, p)}: ${(e as Error).message}`);
+    process.exit(1);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(`bench: invalid JSON in ${path.relative(repoRoot, p)}: ${(e as Error).message}`);
+    process.exit(1);
+  }
 }
 
 function main(): void {
@@ -35,7 +47,12 @@ function main(): void {
   try {
     execFileSync(
       'npx',
-      ['vitest', 'run', 'test/benchmark.test.ts', 'test/benchmark-stochastic.test.ts'],
+      [
+        'vitest',
+        'run',
+        path.join('test', 'benchmark.test.ts'),
+        path.join('test', 'benchmark-stochastic.test.ts'),
+      ],
       {
         cwd: repoRoot,
         stdio: 'inherit',

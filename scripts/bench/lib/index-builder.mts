@@ -68,7 +68,8 @@ export function buildIndex(runs: unknown[]): IndexJson {
   }
   entries.sort((a, b) => {
     if (a.ts !== b.ts) return a.ts > b.ts ? -1 : 1;
-    return a.run_id > b.run_id ? -1 : 1;
+    if (a.run_id !== b.run_id) return a.run_id > b.run_id ? -1 : 1; // newest-first tie-break
+    return 0;
   });
   return { schema: 'ccc-bench-index/1', runs: entries };
 }
@@ -83,7 +84,8 @@ export function pickLatest(runs: unknown[]): object {
     if (ta !== tb) return ta > tb ? -1 : 1;
     const ia = idOf(ra);
     const ib = idOf(rb);
-    return ia > ib ? -1 : 1;
+    if (ia !== ib) return ia > ib ? -1 : 1; // same tie-break as buildIndex
+    return 0;
   });
   return sorted[0] as object;
 }

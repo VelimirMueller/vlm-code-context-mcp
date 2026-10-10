@@ -33,7 +33,7 @@ const ctx = {
   durationMs: 42_000,
   codeContextVersion: '2.8.0',
   agentVersion: '1.18.30',
-  now: new Date(2026, 9, 10, 14, 3, 22),
+  now: new Date('2026-10-10T14:03:22Z'), // UTC: stamps are UTC-only, stable across machines
 };
 
 const sessions: LiveSessions = {
@@ -79,7 +79,7 @@ describe('normalizeLive', () => {
     expect(run.schema).toBe('ccc-bench/1');
     expect(run.kind).toBe('agent-glm');
     expect(run.run_id).toBe('glm-20261010-140322');
-    expect(run.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$/);
+    expect(run.ts).toBe('2026-10-10T14:03:22Z');
     expect(run.model).toBe('zai-coding-plan/glm-5.3');
     expect(run.agent_cli).toEqual({ name: 'opencode', version: '1.18.30' });
     expect(run.fixture).toBe('test/fixtures/sample-project');

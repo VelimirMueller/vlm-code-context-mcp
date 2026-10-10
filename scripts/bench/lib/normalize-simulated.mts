@@ -6,6 +6,7 @@
  * git ref and clock so the result is deterministic in tests.
  */
 import type { GitRef, SimulatedHeadline, SimulatedRun } from './types.mts';
+import { formatDate, formatStamp, formatTs } from './stamp.mts';
 
 export interface NormalizeSimulatedCtx {
   trigger: 'manual' | 'ci';
@@ -14,29 +15,6 @@ export interface NormalizeSimulatedCtx {
   codeContextVersion: string;
   now?: Date;
   notes?: string[];
-}
-
-const pad = (n: number): string => String(n).padStart(2, '0');
-
-function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-/** "YYYYMMDD-HHMMSS" (local time) — the run_id stamp per the data contract. */
-function formatStamp(d: Date): string {
-  return (
-    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
-    `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-  );
-}
-
-/** ISO-8601 with a +HHMM offset (no colon), local time — matches the contract. */
-function formatTs(d: Date): string {
-  const off = -d.getTimezoneOffset();
-  const sign = off >= 0 ? '+' : '-';
-  const abs = Math.abs(off);
-  const offset = `${sign}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`;
-  return `${formatDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${offset}`;
 }
 
 function round1(n: number): number {

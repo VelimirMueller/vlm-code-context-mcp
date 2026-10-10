@@ -368,11 +368,11 @@
     } else if (L.cadence !== 'monthly') {
       card.appendChild(
         el('div', { class: 'note' }, [
-          'No monthly run (n = 10) exists yet. This is a ' +
+          'This is a ' +
             (L.cadence || 'weekly') +
             ' run with n = ' +
             (L.n != null ? L.n : 3) +
-            '; read the interval, not the point.',
+            '. The interval is wide — read the interval, not the point. Runs start on demand; none is scheduled.',
         ]),
       );
     }
@@ -533,6 +533,11 @@
   }
 
   // ---- run detail ----
+  // Selection generation: every renderDetail call bumps this counter. A load
+  // that resolves for an older selection (the user picked another run, or the
+  // initial render replaced a click) is stale and must not touch the DOM.
+  var detailSeq = 0;
+
   function hasPayload(raw) {
     return !!(raw && (raw.deterministic || raw.arms || raw.criteria || raw.prereg));
   }
@@ -558,6 +563,7 @@
   }
 
   function renderDetail(run, allRuns) {
+    var seq = ++detailSeq;
     var box = $('detail-body');
     clear(box);
     if (!run) {
@@ -570,6 +576,7 @@
       return;
     }
     ensureFull(run).then(function (full) {
+      if (seq !== detailSeq) return; // stale load: another selection won
       clear(box);
       var f = full || run;
       box.appendChild(kindIntro(f.kind));
@@ -584,7 +591,9 @@
       }
       if (f.kind === 'simulated') detailSimulated(f, box);
       else if (D.isAgentKind(f.kind)) detailAgent(f, box);
-      else detailClaude(f, box, allRuns);
+      else detailClaude(f, box, allRuns, function () {
+        return seq !== detailSeq;
+      });
       box.appendChild(metaLine(f));
     });
   }
@@ -846,7 +855,7 @@
     return td;
   }
 
-  function detailClaude(run, box, allRuns) {
+  function detailClaude(run, box, allRuns, isStale) {
     var raw = run.raw || {};
     var by = {};
     (raw.criteria || []).forEach(function (c) {
@@ -911,6 +920,7 @@
       return r.kind === 'agent-claude';
     });
     Promise.all(legacyRuns.map(ensureFull)).then(function (fulls) {
+      if (isStale && isStale()) return; // stale load: another selection won
       var raws = fulls.filter(Boolean).map(function (r) {
         return r.raw;
       });
@@ -1097,7 +1107,9 @@
     box.appendChild(svg);
     box.appendChild(
       el('div', { class: 'legend' }, [
-        el('span', null, ['Circle = weekly run (n = 3), square = monthly run (n = 10)']),
+        el('span', null, [
+          'Circle = legacy run of kind weekly (n = 3), square = kind monthly (n = 10)',
+        ]),
         el('span', null, ['Line = NV, indigo band and bars = 95 % CI']),
       ]),
     );

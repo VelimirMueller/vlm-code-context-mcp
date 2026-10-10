@@ -38,12 +38,29 @@ describe('parseEventStream', () => {
     expect(u.toolCalls).toBe(3);
   });
 
-  it('counts MCP tool calls via substring matching on the shared tool list', () => {
+  it('counts MCP tool calls by exact `<server alias>_<tool>` name, never by substring', () => {
     const u = parseEventStream(lines);
     expect(u.mcpToolCalls).toBe(1); // code-context_find_symbol
     expect(CODE_CONTEXT_TOOLS).toContain('find_symbol');
     expect(CODE_CONTEXT_TOOLS).toContain('search_files');
     expect(CODE_CONTEXT_TOOLS).toContain('index_directory');
+  });
+
+  it('does not count lookalike or bare tool names from other servers', () => {
+    const lookalikes = [
+      '{"type":"tool","part":{"id":"x1","type":"tool","tool":"xsearch_files"}}',
+      '{"type":"tool","part":{"id":"x2","type":"tool","tool":"myserver_query"}}',
+      '{"type":"tool","part":{"id":"x3","type":"tool","tool":"query"}}', // bare: a built-in, not MCP
+      '{"type":"tool","part":{"id":"x4","type":"tool","tool":"code-context_query_extra"}}',
+      '{"type":"tool","part":{"id":"x5","type":"tool","tool":"read"}}',
+    ];
+    const u = parseEventStream(lookalikes);
+    expect(u.toolCalls).toBe(5);
+    expect(u.mcpToolCalls).toBe(0);
+    const exact = parseEventStream([
+      '{"type":"tool","part":{"id":"y1","type":"tool","tool":"code-context_search_files"}}',
+    ]);
+    expect(exact.mcpToolCalls).toBe(1);
   });
 
   it('skips malformed lines and unknown event types, counting them', () => {

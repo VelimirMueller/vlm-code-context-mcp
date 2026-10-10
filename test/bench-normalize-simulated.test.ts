@@ -21,7 +21,7 @@ const ctx = {
   git: { commit: 'abc1234', branch: 'feat/x', dirty: false },
   durationMs: 1234,
   codeContextVersion: '2.8.0',
-  now: new Date(2026, 9, 10, 14, 3, 22), // 2026-10-10T14:03:22 local
+  now: new Date('2026-10-10T14:03:22Z'), // UTC: stamps are UTC-only, stable across machines
 };
 
 describe('normalizeSimulated', () => {
@@ -57,9 +57,10 @@ describe('normalizeSimulated', () => {
     expect(run.headline.mcpWinsPct).toBe(12.5);
   });
 
-  it('stamps ts as local ISO-8601 with a +HHMM offset', () => {
+  it('stamps ts as UTC ISO-8601 with a Z suffix (no local-time or offset logic)', () => {
     const run = normalizeSimulated(deterministic, stochastic, ctx);
-    expect(run.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$/);
+    expect(run.ts).toBe('2026-10-10T14:03:22Z');
+    expect(run.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 
   it('throws when deterministic input is missing summary', () => {

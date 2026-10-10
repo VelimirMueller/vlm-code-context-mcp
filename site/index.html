@@ -16,14 +16,30 @@
     <link rel="stylesheet" href="style.css" />
     <script>
       // Theme before first paint: a stored choice wins, otherwise the OS scheme
-      // applies via CSS. Setting data-theme here avoids a flash of the wrong theme.
+      // decides. data-theme is ALWAYS set here, so the page, the toggle button
+      // and app.js agree on one theme from the start (no hardcoded dark state).
       (function () {
+        var t;
         try {
-          var t = localStorage.getItem('cc-theme');
-          if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+          t = localStorage.getItem('cc-theme');
         } catch (e) {
           /* localStorage unavailable (private mode): fall back to the OS scheme */
         }
+        if (t !== 'dark' && t !== 'light') {
+          t =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+        // Correct the toggle's initial label/aria even if app.js fails to load.
+        document.addEventListener('DOMContentLoaded', function () {
+          var b = document.getElementById('theme-toggle');
+          if (b) {
+            b.textContent = '[ ' + t + ' ]';
+            b.setAttribute('aria-pressed', String(t === 'dark'));
+          }
+        });
       })();
     </script>
   </head>
@@ -48,8 +64,8 @@
             <a href="#latest">Latest</a><a href="#history">All runs</a><a href="#detail">Detail</a
             ><a href="#method">Method</a>
           </nav>
-          <button type="button" id="theme-toggle" aria-label="Toggle dark mode" aria-pressed="true">
-            [ dark ]
+          <button type="button" id="theme-toggle" aria-label="Toggle dark mode" aria-pressed="false">
+            [ theme ]
           </button>
         </div>
       </header>
@@ -88,19 +104,20 @@
                 NV, never the point estimate alone.
               </li>
               <li>
-                Weekly runs have only n = 3 repeats per arm and task. Their intervals are wide and
-                most weekly verdicts will be INCONCLUSIVE. That is expected, not a failure.
+                Legacy runs labelled weekly have only n = 3 repeats per arm and task. Their
+                intervals are wide and most of their verdicts are INCONCLUSIVE. That is expected,
+                not a failure.
               </li>
               <li>
-                The monthly run (n = 10, plus S5) is the headline. Weekly points show the trend
-                only.
+                Legacy monthly runs (n = 10, plus S5) are the headline runs; weekly points show the
+                trend only. Runs start on demand — no run is scheduled.
               </li>
               <li>
                 NV is a relative figure: +0.10 means a quality gain of 10 percentage points net of
                 the penalised cost. It is not a percentage of money or time.
               </li>
               <li>
-                Model and Claude Code versions change between weeks. Both are recorded per run;
+                Model and Claude Code versions change between runs. Both are recorded per run;
                 compare trends within one version before reading anything into a change.
               </li>
             </ul>
@@ -421,11 +438,14 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
 
           <h3>Cadence</h3>
           <p>
-            Weekly: 3 repeats per arm per task (T1 to T4). Monthly: 10 repeats per arm, plus S5. A
-            run is skipped, and logged as skipped, when the usage quota gate is hot; it is not
-            retried within the window. Results are pushed to the <code>bench-results</code> branch
-            and this page rebuilds from it. Site code and the method change only through reviewed
-            pull requests on main.
+            Every run starts on demand — never from a timer, and nothing is weekly or monthly
+            scheduled. The legacy Claude runs carry a <code>kind</code> label set at run time
+            (<code>weekly</code>: 3 repeats per arm per task, T1 to T4;
+            <code>monthly</code>: 10 repeats per arm, plus S5). That label describes how each
+            recorded run was made. It is not a plan for future runs; each new run records whatever
+            repeat count it was started with. Results are pushed to the <code>bench-results</code>
+            branch and this page rebuilds from it. Site code and the method change only through
+            reviewed pull requests on main.
           </p>
 
           <h3>Control and steerability</h3>
@@ -490,10 +510,11 @@ NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not wor
               rule. That difference is part of the treatment and cannot be separated from the server
               itself.
             </li>
-            <li>
-              <strong>Small n weekly.</strong> n = 3 gives wide CIs. The monthly n = 10 run is the
-              headline.
-            </li>
+              <li>
+                <strong>Small n.</strong> Legacy weekly runs have n = 3, which gives wide CIs; the
+                monthly n = 10 runs are the headline runs. Runs start on demand, so n is whatever
+                the started run recorded.
+              </li>
           </ul>
         </details>
       </section>

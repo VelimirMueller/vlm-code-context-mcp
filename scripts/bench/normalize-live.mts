@@ -8,6 +8,7 @@
  */
 import type { AgentRun, GitRef, SessionResult } from './lib/types.mts';
 import type { LiveTask } from './live/tasks.mts';
+import { formatDate, formatStamp, formatTs } from './lib/stamp.mts';
 
 export type LiveProvider = 'glm' | 'deepseek';
 
@@ -78,27 +79,6 @@ const PROVIDER_META: Record<
     fixture: 'test/fixtures/sample-project',
   },
 };
-
-const pad = (n: number): string => String(n).padStart(2, '0');
-
-function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function formatStamp(d: Date): string {
-  return (
-    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
-    `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-  );
-}
-
-function formatTs(d: Date): string {
-  const off = -d.getTimezoneOffset();
-  const sign = off >= 0 ? '+' : '-';
-  const abs = Math.abs(off);
-  const offset = `${sign}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`;
-  return `${formatDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${offset}`;
-}
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;

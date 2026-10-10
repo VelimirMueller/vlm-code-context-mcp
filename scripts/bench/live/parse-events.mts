@@ -19,9 +19,17 @@
  */
 
 /**
- * Tools served by the code-context MCP server (src/server/index.ts). One
- * shared constant list; opencode prefixes MCP tool names with the server
- * alias, so matching is substring-based and prefix-agnostic.
+ * The alias code-context is registered under in the per-workspace opencode
+ * config (opencode-config.mts uses this same constant). opencode prefixes MCP
+ * tool names with the server alias (`code-context_find_symbol`), so a call
+ * counts as a code-context call only when the name is EXACTLY
+ * `<alias>_<tool>` — never by substring, which would miscount tools such as
+ * `xsearch_files` from other servers.
+ */
+export const CODE_CONTEXT_SERVER_ALIAS = 'code-context';
+
+/**
+ * Tools served by the code-context MCP server (src/server/index.ts).
  */
 export const CODE_CONTEXT_TOOLS: readonly string[] = [
   'index_directory',
@@ -36,6 +44,11 @@ export const CODE_CONTEXT_TOOLS: readonly string[] = [
   'execute',
   'health',
 ];
+
+/** Exact MCP tool names as opencode reports them: `<server alias>_<tool>`. */
+const CODE_CONTEXT_TOOL_NAMES: ReadonlySet<string> = new Set(
+  CODE_CONTEXT_TOOLS.map((t) => `${CODE_CONTEXT_SERVER_ALIAS}_${t}`),
+);
 
 export interface SessionUsage {
   inputTokens: number;
@@ -118,7 +131,7 @@ export function parseEventStream(lines: string[]): SessionUsage {
     } else if (part.type === 'tool') {
       toolCalls++;
       const name = typeof part.tool === 'string' ? part.tool : '';
-      if (CODE_CONTEXT_TOOLS.some((t) => name.includes(t))) mcpToolCalls++;
+      if (CODE_CONTEXT_TOOL_NAMES.has(name)) mcpToolCalls++;
     } else if (part.type === 'step-finish') {
       const t = part.tokens;
       inputTokens += num(t?.input);

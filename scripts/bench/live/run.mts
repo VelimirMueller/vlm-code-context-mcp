@@ -29,6 +29,7 @@ import Database from 'better-sqlite3';
 import { initSchema } from '../../../src/server/schema.js';
 import { indexDirectory } from '../../../src/server/indexer.js';
 import { buildIndex, pickLatest } from '../lib/index-builder.mts';
+import { formatStamp } from '../lib/stamp.mts';
 import { normalizeLive, type LiveProvider, type LiveSessions } from '../normalize-live.mts';
 import { DEFAULT_LIVE_TASKS, tasksByIds, type LiveTask } from './tasks.mts';
 import { runChecker } from './checkers.mts';
@@ -81,20 +82,31 @@ function parseArgs(argv: string[]): {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--provider') out.provider = argv[++i] ?? '';
-    else if (a === '--tasks') out.tasks = argv[++i] ?? '';
-    else if (a === '--repeats') out.repeats = Number(argv[++i]);
-    else if (a === '--timeout') out.timeoutSec = Number(argv[++i]);
-    else if (a === '--data-dir') out.dataDir = path.resolve(argv[++i] ?? '');
+    /** Consume and return the next argv value; fails on a missing value. */
+    const next = (): string => {
+      const v = argv[i + 1];
+      if (v === undefined) fail(`${a} needs a value`);
+      i++;
+      return v;
+    };
+    /** Whole-number next value; rejects non-numeric input (NaN never passes). */
+    const whole = (min: number): number => {
+      const raw = next().trim();
+      if (!/^\d+$/.test(raw) || Number(raw) < min) {
+        fail(`${a} must be a whole number >= ${min} (got "${raw}")`);
+      }
+      return Number(raw);
+    };
+    if (a === '--provider') out.provider = next();
+    else if (a === '--tasks') out.tasks = next();
+    else if (a === '--repeats') out.repeats = whole(1);
+    else if (a === '--timeout') out.timeoutSec = whole(1);
+    else if (a === '--data-dir') out.dataDir = path.resolve(next());
     else fail(`unknown argument ${a} (--provider, --tasks, --repeats, --timeout, --data-dir)`);
   }
   if (out.provider !== 'glm' && out.provider !== 'deepseek') {
     fail('--provider glm|deepseek is required');
   }
-  if (!Number.isInteger(out.repeats) || out.repeats < 1)
-    fail('--repeats must be a whole number >= 1');
-  if (!Number.isInteger(out.timeoutSec) || out.timeoutSec < 1)
-    fail('--timeout must be whole seconds >= 1');
   return out as {
     provider: LiveProvider;
     tasks: string;
@@ -167,6 +179,7 @@ async function runSession(opts: {
   const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-home-'));
   const t0 = Date.now();
   let timedOut = false;
+  let spawnError = ''; // e.g. ENOENT when opencode is not spawnable
 
   const child = spawn(
     'opencode',
@@ -208,17 +221,44 @@ async function runSession(opts: {
 
   await new Promise<void>((resolve) => {
     child.on('close', () => resolve());
-    child.on('error', () => resolve());
+    child.on('error', (err: Error) => {
+      spawnError = err.message;
+      resolve();
+    });
   });
   clearTimeout(killer);
   clearTimeout(killTimer);
 
   const wallMs = Date.now() - t0;
-  fs.writeFileSync(opts.eventsFile, Buffer.concat(stdoutChunks));
-  fs.writeFileSync(opts.stderrFile, Buffer.concat(stderrChunks)); // diagnostics only, never printed
+  const stdout = Buffer.concat(stdoutChunks);
+  const stderr = Buffer.concat(stderrChunks);
+  fs.writeFileSync(opts.eventsFile, stdout);
+  fs.writeFileSync(
+    opts.stderrFile,
+    spawnError ? `${stderr.toString('utf-8')}spawn error: ${spawnError}\n` : stderr,
+  ); // diagnostics only, never printed
   fs.rmSync(fakeHome, { recursive: true, force: true });
 
-  const usage = parseEventStream(Buffer.concat(stdoutChunks).toString('utf-8').split('\n'));
+  if (spawnError) {
+    // The child never ran (nothing spawned): not a model FAIL — record the
+    // cause and mark the session unsuccessful.
+    return {
+      result: {
+        task_id: opts.task.id,
+        success: false,
+        timeout: false,
+        tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+        tool_calls: 0,
+        mcp_tool_calls: 0,
+        wall_ms: wallMs,
+        session_id: '',
+        events_path: path.basename(opts.eventsFile),
+      },
+      checkDetail: `opencode failed to start: ${spawnError}`,
+    };
+  }
+
+  const usage = parseEventStream(stdout.toString('utf-8').split('\n'));
   const check = await runChecker(opts.task, opts.ws, usage.assistantText);
 
   return {
@@ -273,8 +313,7 @@ async function main(): Promise<void> {
 
   const start = Date.now();
   const stamp = new Date();
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const runId = `${args.provider === 'glm' ? 'glm' : 'dsk'}-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
+  const runId = `${args.provider === 'glm' ? 'glm' : 'dsk'}-${formatStamp(stamp)}`;
 
   // The indexer sandbox (src/server/indexer.ts) only allows the process cwd by
   // default; the temp workspaces need an explicit allowance, both for the
@@ -348,6 +387,7 @@ async function main(): Promise<void> {
       branch: git('rev-parse', '--abbrev-ref', 'HEAD'),
       dirty: git('status', '--porcelain').length > 0,
     },
+    now: stamp, // one clock for the artefact dir name and the run_id
     durationMs: Date.now() - start,
     codeContextVersion: pkg.version,
     agentVersion: opencodeVersion,

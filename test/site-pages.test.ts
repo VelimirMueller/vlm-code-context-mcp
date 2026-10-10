@@ -74,6 +74,14 @@ describe('site shell', () => {
     expect(w.document.getElementById('demo-banner').hidden).toBe(false);
     expect(w.document.getElementById('latest-body').textContent).toContain('TOKENS SAVED');
   });
+  it('ships no hardcoded dark theme toggle state (initial state is derived)', () => {
+    const html = readFileSync(join(SITE, 'index.html'), 'utf8');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('[ theme ]');
+    expect(html).not.toContain('aria-pressed="true"');
+    // the head script resolves the theme (stored or OS) before first paint
+    expect(html).toMatch(/prefers-color-scheme: dark/);
+  });
 });
 
 describe('headline per kind (latest.json)', () => {
@@ -226,6 +234,41 @@ describe('history', () => {
     expect(d).toContain('T01');
     expect(d).toContain('Stochastic block');
     expect(d).toContain('90.5 %');
+  });
+  it('a stale detail load never overwrites the newer selection (async race)', async () => {
+    const claudeRun = claude();
+    const simRun = sim();
+    const dom = new JSDOM(readFileSync(join(SITE, 'index.html'), 'utf8'), {
+      url: 'http://x/',
+      runScripts: 'outside-only',
+    });
+    const w = dom.window as any;
+    w.fetch = (u: string) => {
+      if (u.includes('data/index.json'))
+        return Promise.resolve({ ok: true, json: () => indexFixture() });
+      // the Claude run file resolves LATE; the selection has moved on by then
+      if (u.includes('20261009-101417'))
+        return new Promise((res) => setTimeout(() => res({ ok: true, json: () => claudeRun }), 60));
+      if (u.includes('sim-20261010-140322'))
+        return Promise.resolve({ ok: true, json: () => simRun });
+      return Promise.resolve({ ok: false, status: 404 });
+    };
+    w.eval(readFileSync(join(SITE, 'config.js'), 'utf8'));
+    w.eval(readFileSync(join(SITE, 'data.js'), 'utf8'));
+    w.eval(readFileSync(join(SITE, 'app.js'), 'utf8'));
+    await tick();
+
+    const rows = [...w.document.querySelectorAll('#history-body .runrow')];
+    const claudeRow = rows.find((r: any) => r.textContent.includes('AGENT CLAUDE'));
+    const simRow = rows.find((r: any) => r.textContent.includes('SIMULATED'));
+    (claudeRow.querySelector('button') as any).click(); // slow load starts
+    (simRow.querySelector('button') as any).click(); // newer selection wins
+    await tick(120); // slow load resolves after the switch
+
+    const d = w.document.getElementById('detail-body').textContent;
+    expect(d).toContain('sim-20261010-140322');
+    expect(d).toContain('Stochastic block');
+    expect(d).not.toContain('Accuracy (T1 hidden tests)'); // stale Claude detail dropped
   });
 });
 
