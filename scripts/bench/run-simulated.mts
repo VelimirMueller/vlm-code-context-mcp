@@ -44,6 +44,27 @@ function readJson(p: string): unknown {
 function main(): void {
   const start = Date.now();
 
+  // Git state BEFORE the tests: they rewrite the tracked benchmark-results*.json
+  // files, so a status read afterwards always reported the run as dirty.
+  let branch = '';
+  let commit = '';
+  let dirty = false;
+  try {
+    branch = git('rev-parse', '--abbrev-ref', 'HEAD');
+  } catch {
+    /* detached or unborn */
+  }
+  try {
+    commit = git('rev-parse', 'HEAD');
+  } catch {
+    /* no commits yet */
+  }
+  try {
+    dirty = git('status', '--porcelain').length > 0;
+  } catch {
+    /* not a git repo */
+  }
+
   try {
     execFileSync(
       'npx',
@@ -66,28 +87,9 @@ function main(): void {
 
   const detJson = readJson(path.join(repoRoot, 'benchmark-results.json'));
   const stoJson = readJson(path.join(repoRoot, 'benchmark-stochastic-results.json'));
-  const pkg = JSON.parse(
-    fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8'),
-  ) as { version: string };
-
-  let branch = '';
-  let commit = '';
-  let dirty = false;
-  try {
-    branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  } catch {
-    /* detached or unborn */
-  }
-  try {
-    commit = git('rev-parse', 'HEAD');
-  } catch {
-    /* no commits yet */
-  }
-  try {
-    dirty = git('status', '--porcelain').length > 0;
-  } catch {
-    /* not a git repo */
-  }
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8')) as {
+    version: string;
+  };
 
   const run = normalizeSimulated(detJson, stoJson, {
     trigger: 'manual',
@@ -116,7 +118,10 @@ function main(): void {
     });
   const index = buildIndex(runs);
   const latest = pickLatest(runs);
-  fs.writeFileSync(path.join(repoRoot, 'data', 'index.json'), `${JSON.stringify(index, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(repoRoot, 'data', 'index.json'),
+    `${JSON.stringify(index, null, 2)}\n`,
+  );
   fs.writeFileSync(
     path.join(repoRoot, 'data', 'latest.json'),
     `${JSON.stringify(latest, null, 2)}\n`,
@@ -131,7 +136,9 @@ function main(): void {
   console.log(row('mcp win rate', `${h.mcpWinsPct} %`));
   console.log('└───────────────────────────────────┘');
   console.log(`run:    data/runs/${run.run_id}.json`);
-  console.log(`index:  data/index.json (${index.runs.length} run${index.runs.length === 1 ? '' : 's'})`);
+  console.log(
+    `index:  data/index.json (${index.runs.length} run${index.runs.length === 1 ? '' : 's'})`,
+  );
   console.log(`latest: data/latest.json (${run.run_id})`);
 }
 
