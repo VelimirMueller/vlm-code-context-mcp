@@ -6,11 +6,13 @@
  * from src/server/indexer.ts instead of reimplementing it. Hidden check
  * files are copied into the workspace only at check time, never before.
  */
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseExports } from '../../../src/server/indexer.js';
+import { checkerSpawnEnv } from './sandbox.mts';
 import type { LiveTask } from './tasks.mts';
 
 export interface CheckResult {
@@ -102,37 +104,63 @@ async function checkTests(task: LiveTask, workspaceDir: string): Promise<CheckRe
     return { pass: false, detail: 'vitest not installed in the repo (npm ci first)' };
   }
 
+  // The code under test was written by the model and is untrusted: run it in a
+  // fresh fake HOME with a scrubbed env (no provider keys, no GITHUB_TOKEN),
+  // cwd inside the temp workspace, and a hard timeout that kills the process
+  // group (SIGTERM then SIGKILL) so a hung test cannot outlive the checker.
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-check-home-'));
   const { code, tail } = await new Promise<{ code: number | null; tail: string }>((resolve) => {
-    const child = execFile(
+    const child = spawn(
       process.execPath,
       [vitestBin, 'run', path.posix.join('test', checkFile)],
       {
         cwd: workspaceDir,
-        timeout: CHECK_TIMEOUT_MS,
-        maxBuffer: 8 * 1024 * 1024,
-        env: process.env,
-      },
-      (err, stdout) => {
-        const out = String(stdout ?? '');
-        resolve({
-          code:
-            err && typeof (err as { code?: number }).code === 'number'
-              ? (err as { code: number }).code
-              : err
-                ? 1
-                : 0,
-          tail: out.slice(-600),
-        });
+        env: checkerSpawnEnv({ fakeHome }),
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
-    void child;
+
+    let timedOut = false;
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on('data', (c: Buffer) => stdout.push(c));
+    child.stderr.on('data', (c: Buffer) => stderr.push(c));
+
+    let killTimer: NodeJS.Timeout | undefined;
+    const killer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid) process.kill(-child.pid, 'SIGTERM');
+      } catch {
+        /* already gone */
+      }
+      killTimer = setTimeout(() => {
+        try {
+          if (child.pid) process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }, 5_000);
+    }, CHECK_TIMEOUT_MS);
+
+    const finish = (code: number | null): void => {
+      clearTimeout(killer);
+      clearTimeout(killTimer);
+      const out = Buffer.concat([...stdout, ...stderr]).toString('utf-8');
+      resolve({ code: timedOut ? null : code, tail: out.slice(-600) });
+    };
+    child.on('close', finish);
+    child.on('error', () => finish(null));
   });
+
+  fs.rmSync(fakeHome, { recursive: true, force: true });
 
   return code === 0
     ? { pass: true, detail: `hidden check passed (${checkFile})` }
     : {
         pass: false,
-        detail: `hidden check failed (exit ${code}): …${tail.replace(/\s+/g, ' ').slice(-300)}`,
+        detail: `hidden check failed (exit ${code ?? 'timeout'}): …${tail.replace(/\s+/g, ' ').slice(-300)}`,
       };
 }
 

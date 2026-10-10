@@ -39,6 +39,17 @@ Notes:
 
 In GitHub Actions: open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) and run it with **Run workflow**. Pick `kind` (`simulated` or `agent`) and `provider` (`glm` or `deepseek`). For `kind=agent`, the workflow reads the repository secrets `ZAI_API_KEY` or `DEEPSEEK_API_KEY`. When the secret is empty, the job prints a notice and ends green. It runs nothing.
 
+## Sandbox model
+
+A live agent run executes untrusted code — a model through the OpenCode CLI, then vitest over the code that model wrote. The runner hardens this but it is **not a full container sandbox**:
+
+- **The agent may** read and edit files inside its own temp workspace, run an allowlist of read/test commands (`ls`, `cat`, `grep`, `rg`, `find`, `npx vitest run`, `npm test`), and call the code-context MCP server.
+- **The agent may not** run arbitrary shell commands (bash is deny-by-default), fetch or search the web, ask the user, spawn sub-agents, or read/write anything outside the workspace.
+- **The agent sees a minimal environment**: `PATH`, `HOME`, `TMPDIR`, `CODE_CONTEXT_ALLOWED_ROOTS`, and the single provider key it needs. No `GITHUB_TOKEN`, no other provider keys, nothing else from the runner's environment.
+- The checker runs vitest on the model's code with a scrubbed environment and a hard timeout.
+
+For local runs, use throwaway provider keys with spending limits: the agent is allowed to run real bash through `npx vitest` on code a model generated, and a hostile or buggy model could spend tokens or write files inside its own workspace. The sandbox narrows blast radius; it does not isolate the process like a container would.
+
 ## Where the results go
 
 - Run files land in `data/runs/<run_id>.json` (schema `ccc-bench/1`).

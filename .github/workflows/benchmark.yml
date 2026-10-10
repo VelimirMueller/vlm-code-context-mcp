@@ -4,6 +4,15 @@ name: Benchmark
 # kind=simulated runs the token-cost simulation; kind=agent runs a real
 # OpenCode session against the fixture (glm or deepseek) and cleanly skips
 # when the matching API key secret is not configured.
+#
+# Two jobs, separated so the untrusted agent code never shares a runner with
+# publish credentials:
+#   - run:     contents: read only, checkout without persisted credentials,
+#              agent secrets scoped to the single agent step. Uploads the run
+#              JSON as an artifact.
+#   - publish: contents: write + actions: write, downloads the artifact,
+#              commits data/ to bench-results and dispatches pages.yml. It
+#              never runs agent code and never sees provider secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -18,20 +27,22 @@ on:
         options: [glm, deepseek]
         default: glm
 
-permissions:
-  contents: write # push data/ to the bench-results branch
-  actions: write # dispatch pages.yml after the push (GITHUB_TOKEN pushes fire no events)
-
 concurrency:
   group: benchmark
   cancel-in-progress: false
 
 jobs:
-  bench:
+  run:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_publish: ${{ steps.decide.outputs.should_publish }}
     steps:
-      - name: Check out main
+      - name: Check out main (no persisted credentials)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -45,7 +56,10 @@ jobs:
 
       - name: Run simulated benchmark
         if: inputs.kind == 'simulated'
-        run: npm run bench
+        id: simulated
+        run: |
+          npm run bench
+          echo "ran=true" >> "$GITHUB_OUTPUT"
 
       - name: Run agent benchmark (clean skip without the key secret)
         if: inputs.kind == 'agent'
@@ -68,15 +82,54 @@ jobs:
           npm run bench:live -- --provider "${{ inputs.provider }}"
           echo "ran=true" >> "$GITHUB_OUTPUT"
 
-      # Publish only after a run actually happened: simulated kind, or an agent
-      # run that set ran=true. Never when the agent benchmark was skipped for a
-      # missing key (ran=false) or failed before setting the output.
+      - name: Decide whether to publish
+        id: decide
+        run: |
+          if [ "${{ inputs.kind }}" = "simulated" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.agent.outputs.ran }}" = "true" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload run data
+        if: steps.decide.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-data
+          path: data/runs
+          if-no-files-found: error
+
+  publish:
+    needs: run
+    if: needs.run.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Check out main (persisted credentials for push)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Download run data
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-data
+          path: data/runs
+
       - name: Publish run data to bench-results
-        if: inputs.kind == 'simulated' || steps.agent.outputs.ran == 'true'
         run: npm run bench:publish
 
       - name: Rebuild the Pages site
-        if: inputs.kind == 'simulated' || steps.agent.outputs.ran == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run pages.yml --ref main

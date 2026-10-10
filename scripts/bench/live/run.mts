@@ -8,10 +8,14 @@
  *   - cc arm: build <ws>/context.db via the indexer, register ONLY code-context
  *     in the per-workspace opencode.json (node <repo>/dist/server/index.js <db>)
  *   - vanilla arm: no MCP config, no db
- *   - run `opencode run --dir <ws> -m <model> --auto --format json "<prompt>"`
- *     with an isolated HOME (the user's global opencode config — with its own
- *     MCP servers — must not leak into either arm) and only the provider key
- *     in the child env; never echoed, never logged
+ *   - run `opencode run --dir <ws> -m <model> --format json "<prompt>"` with an
+ *     isolated HOME (the user's global opencode config — with its own MCP
+ *     servers — must not leak into either arm) and a MINIMAL child env (only
+ *     PATH, HOME, TMPDIR, CODE_CONTEXT_ALLOWED_ROOTS and the one provider key;
+ *     never echoed, never logged). No `--auto`: the per-workspace opencode.json
+ *     carries a deny-by-default `permission` block (opencode-config.mts), so the
+ *     agent gets only the allowlisted read/test commands, no webfetch/websearch,
+ *     and no access outside the workspace — refused non-interactively.
  *   - parse the event stream (task 7), run the deterministic checker (task 6)
  *
  * Emits the run JSON (kind agent-<provider>) into <data-dir>/runs/ and
@@ -35,6 +39,7 @@ import { DEFAULT_LIVE_TASKS, tasksByIds, type LiveTask } from './tasks.mts';
 import { runChecker } from './checkers.mts';
 import { parseEventStream } from './parse-events.mts';
 import { writeOpencodeConfig } from './opencode-config.mts';
+import { agentSpawnEnv, stripProviderKeys } from './sandbox.mts';
 import type { SessionResult } from '../lib/types.mts';
 
 /**
@@ -183,15 +188,14 @@ async function runSession(opts: {
 
   const child = spawn(
     'opencode',
-    ['run', '--dir', opts.ws, '-m', opts.model, '--auto', '--format', 'json', opts.task.prompt],
+    ['run', '--dir', opts.ws, '-m', opts.model, '--format', 'json', opts.task.prompt],
     {
-      env: {
-        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-        HOME: fakeHome,
-        TMPDIR: os.tmpdir(),
-        CODE_CONTEXT_ALLOWED_ROOTS: process.env.CODE_CONTEXT_ALLOWED_ROOTS ?? os.tmpdir(),
-        [opts.keyExportName]: opts.key,
-      },
+      env: agentSpawnEnv({
+        fakeHome,
+        keyExportName: opts.keyExportName,
+        key: opts.key,
+        allowedRoots: process.env.CODE_CONTEXT_ALLOWED_ROOTS ?? os.tmpdir(),
+      }),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -298,6 +302,9 @@ async function main(): Promise<void> {
       `${providerMeta.keyEnv} is not set — export it (locally it lives in ~/.config/rig/keys.env) and retry. No partial run was started.`,
     );
   }
+  // Drop every provider key from the parent env now that the one we need is in
+  // `key`: later children (checkers, git, diagnostics) must never inherit it.
+  stripProviderKeys();
   if (!fs.existsSync(DIST_SERVER)) {
     fail(
       'dist/server/index.js is missing — run `npm run build` first (the cc arm serves the MCP server from dist).',
