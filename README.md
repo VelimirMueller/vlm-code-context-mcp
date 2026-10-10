@@ -156,34 +156,36 @@ Long reference (skill sets, agent roles, sprint gates, release highlights): [doc
 
 ### Benchmark
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/bench-v2-dark.svg">
-  <img alt="44.9% TOKENS SAVED. 27.9% FEWER TOOL CALLS. 90.5% STOCHASTIC WINS" src="assets/readme/bench-v2-light.svg" width="100%">
-</picture>
+Benchmarks run on demand, never from a timer. Every published run lands on the live site:
 
-- Simulated, not live sessions: 10 scripted development tasks (retrieval, debugging, refactoring, implementation), replayed against an 11-file fixture project.
-- Token counts are estimated from what each approach reads. No model calls.
-- Tokens (estimated): MCP 4,806, vanilla 8,726. Saved: **44.9 %**.
-- Tool calls: MCP 49, vanilla 68. Saved: **27.9 %**.
-- Stochastic run: 200 randomized trials, Wilcoxon signed-rank test. MCP wins **90.5 %** (p < 0.001). It is not a fluke.
-- MCP tools return structured summaries (exports, deps, file role), not raw file content.
-- Re-validated for v2.0.0. Since 2.0, sprint ceremonies cost **−39 % output tokens** with compact-by-default tools, measured on a replayed kickoff.
-- Method and limits: [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+**[Benchmark site](https://velimirmueller.github.io/code-context-mcp/)** — the latest run is the headline; the history lists all runs.
 
-<img width="1239" height="716" alt="benchmark2" src="https://github.com/user-attachments/assets/97662418-e16b-4c12-9d32-66546d3f95b7" />
+Three kinds:
+
+- `simulated` — context efficiency from scripted replays. No model runs.
+- `agent-glm` / `agent-deepseek` — a real model through OpenCode, same task with and without code-context. One repeat per arm. Indicative only.
+- `agent-claude` — pre-registered external harness (Claude Code sessions). Read-only.
+
+Latest simulated headline: see site.
 
 <details>
-<summary>Reproduce it yourself</summary>
+<summary>Run it yourself</summary>
 
 ```bash
-# Deterministic — 10 tasks, 6 categories
-npm test -- test/benchmark.test.ts
+# Simulated (no model, no cost)
+npm run bench
 
-# Stochastic — 200 randomized trials, Wilcoxon test, bootstrap CI
-npm test -- test/benchmark-stochastic.test.ts
+# Agent (real model, real tokens; needs ZAI_API_KEY or DEEPSEEK_API_KEY)
+npm run bench:live -- --provider glm
+
+# Publish the run to the bench-results branch (rebuilds the site)
+npm run bench:publish
 ```
 
-Full methodology in [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+In GitHub Actions, run the **Benchmark** workflow by hand (Run workflow). It has no timer trigger.
+
+Method and limits: [BENCHMARK-GUIDE.md](BENCHMARK-GUIDE.md).
+
 </details>
 
 ### Dashboard

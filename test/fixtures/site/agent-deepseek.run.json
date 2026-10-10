@@ -1,0 +1,141 @@
+{
+ "schema": "ccc-bench/1",
+ "run_id": "dsk-20261009-180000",
+ "kind": "agent-deepseek",
+ "date": "2026-10-09",
+ "ts": "2026-10-09T18:00:00+0200",
+ "trigger": "ci",
+ "duration_ms": 662000,
+ "code_context_version": "2.8.0",
+ "git": {
+  "commit": "ece01e4a9c31d0b7f3e2a1c8d94b6f0a5d3e7c21",
+  "branch": "feat/bench-on-demand",
+  "dirty": false
+ },
+ "notes": [
+  "run from benchmark.yml (workflow_dispatch)"
+ ],
+ "model": "deepseek/deepseek-v4-pro",
+ "agent_cli": {
+  "name": "opencode",
+  "version": "0.15.0"
+ },
+ "fixture": "test/fixtures/sample-project",
+ "auth": {
+  "keyEnv": "DEEPSEEK_API_KEY"
+ },
+ "tasks": [
+  {
+   "id": "L1",
+   "prompt": "Which file exports formatDate, and what does it depend on? Answer with file paths.",
+   "checker": {
+    "type": "answer"
+   }
+  }
+ ],
+ "arms": {
+  "vanilla": {
+   "results": [
+    {
+     "task_id": "L1",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 19400,
+      "output": 10100,
+      "cache_read": 33000,
+      "cache_write": 6100
+     },
+     "tool_calls": 31,
+     "mcp_tool_calls": 0,
+     "wall_ms": 121000,
+     "session_id": "vanilla-l1-7f3a",
+     "events_path": "vanilla-L1.jsonl"
+    }
+   ]
+  },
+  "cc": {
+   "results": [
+    {
+     "task_id": "L1",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 11800,
+      "output": 6400,
+      "cache_read": 19000,
+      "cache_write": 3400
+     },
+     "tool_calls": 16,
+     "mcp_tool_calls": 5,
+     "wall_ms": 84000,
+     "session_id": "cc-l1-7f3a",
+     "events_path": "cc-L1.jsonl"
+    }
+   ],
+   "index_ms": 128,
+   "db_bytes": 282624
+  }
+ },
+ "aggregate": {
+  "success_rate": {
+   "vanilla": 1,
+   "cc": 1
+  },
+  "tokens": {
+   "vanilla": {
+    "input": 19400,
+    "output": 10100,
+    "total": 29500
+   },
+   "cc": {
+    "input": 11800,
+    "output": 6400,
+    "total": 18200
+   },
+   "saved_pct": 38.3
+  },
+  "tool_calls": {
+   "vanilla": 31,
+   "cc": 16,
+   "saved_pct": 48.4
+  },
+  "wall_ms": {
+   "vanilla_mean": 121000,
+   "cc_mean": 84000
+  },
+  "per_task": [
+   {
+    "task_id": "L1",
+    "vanilla": {
+     "success": true,
+     "tokens": {
+      "input": 19400,
+      "output": 10100,
+      "total": 29500
+     },
+     "tool_calls": 31,
+     "mcp_tool_calls": 0,
+     "wall_ms": 121000
+    },
+    "cc": {
+     "success": true,
+     "tokens": {
+      "input": 11800,
+      "output": 6400,
+      "total": 18200
+     },
+     "tool_calls": 16,
+     "mcp_tool_calls": 5,
+     "wall_ms": 84000
+    }
+   }
+  ]
+ },
+ "headline": {
+  "success_vanilla_pct": 100,
+  "success_cc_pct": 100,
+  "tokens_saved_pct": 38.3,
+  "tool_calls_saved_pct": 48.4
+ }
+}

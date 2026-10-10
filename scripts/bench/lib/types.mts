@@ -1,0 +1,101 @@
+/**
+ * Bench data-contract types (PLAN.md "Data contract").
+ *
+ * These scripts live under scripts/bench/ and are excluded from the npm package
+ * via the `!scripts/bench` entry in package.json `files`. They are also outside
+ * tsconfig `include`, so they are typechecked only incidentally (tsx/esbuild)
+ * and kept clean via `npm run lint`.
+ */
+
+export type NewRunKind = 'simulated' | 'agent-glm' | 'agent-deepseek';
+export type IndexKind = NewRunKind | 'agent-claude';
+
+export interface GitRef {
+  commit: string;
+  branch: string;
+  dirty: boolean;
+}
+
+export interface RunEnvelope {
+  schema: 'ccc-bench/1';
+  run_id: string;
+  kind: NewRunKind;
+  date: string;
+  ts: string;
+  trigger: 'manual' | 'ci';
+  duration_ms: number;
+  code_context_version: string;
+  git: GitRef;
+  notes: string[];
+}
+
+export interface SimulatedHeadline {
+  tokensSavedPct: number;
+  callsSavedPct: number;
+  mcpWinsPct: number;
+  wilcoxonP: number;
+  effectSizeR: number;
+}
+
+export interface SimulatedRun extends RunEnvelope {
+  kind: 'simulated';
+  model: null;
+  deterministic: unknown;
+  stochastic: unknown;
+  headline: SimulatedHeadline;
+}
+
+export interface SessionTokens {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+}
+
+export interface SessionResult {
+  task_id: string;
+  success: boolean;
+  timeout: boolean;
+  tokens: SessionTokens;
+  tool_calls: number;
+  mcp_tool_calls: number;
+  wall_ms: number;
+  session_id: string;
+  events_path: string;
+}
+
+export interface AgentHeadline {
+  success_vanilla_pct: number;
+  success_cc_pct: number;
+  tokens_saved_pct: number;
+  tool_calls_saved_pct: number;
+}
+
+export interface AgentRun extends RunEnvelope {
+  kind: 'agent-glm' | 'agent-deepseek';
+  model: string;
+  agent_cli: { name: string; version: string };
+  fixture: string;
+  auth: { keyEnv: string };
+  tasks: unknown[];
+  arms: unknown;
+  aggregate: unknown;
+  headline: AgentHeadline;
+}
+
+export type Run = SimulatedRun | AgentRun;
+
+export interface IndexEntry {
+  run_id: string;
+  kind: IndexKind;
+  date: string;
+  ts: string;
+  model: string | null;
+  trigger: string;
+  headline: unknown;
+}
+
+export interface IndexJson {
+  schema: 'ccc-bench-index/1';
+  runs: IndexEntry[];
+}

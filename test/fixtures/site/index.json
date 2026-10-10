@@ -1,0 +1,62 @@
+{
+ "schema": "ccc-bench-index/1",
+ "runs": [
+  {
+   "run_id": "glm-20261010-153000",
+   "kind": "agent-glm",
+   "date": "2026-10-10",
+   "ts": "2026-10-10T15:30:00+0200",
+   "model": "zai-coding-plan/glm-5.3",
+   "trigger": "manual",
+   "headline": {
+    "success_vanilla_pct": 50,
+    "success_cc_pct": 100,
+    "tokens_saved_pct": 38.4,
+    "tool_calls_saved_pct": 45.6
+   }
+  },
+  {
+   "run_id": "sim-20261010-140322",
+   "kind": "simulated",
+   "date": "2026-10-10",
+   "ts": "2026-10-10T14:03:22+0200",
+   "model": null,
+   "trigger": "manual",
+   "headline": {
+    "tokensSavedPct": 44.9,
+    "callsSavedPct": 27.9,
+    "mcpWinsPct": 90.5,
+    "wilcoxonP": 0,
+    "effectSizeR": 0.953
+   }
+  },
+  {
+   "run_id": "dsk-20261009-180000",
+   "kind": "agent-deepseek",
+   "date": "2026-10-09",
+   "ts": "2026-10-09T18:00:00+0200",
+   "model": "deepseek/deepseek-v4-pro",
+   "trigger": "ci",
+   "headline": {
+    "success_vanilla_pct": 100,
+    "success_cc_pct": 100,
+    "tokens_saved_pct": 38.3,
+    "tool_calls_saved_pct": 48.4
+   }
+  },
+  {
+   "run_id": "20261009-101417",
+   "kind": "agent-claude",
+   "date": "2026-10-09",
+   "ts": "2026-10-09T10:39:07+0200",
+   "model": "opus",
+   "trigger": "manual",
+   "headline": {
+    "nv_mean": 0.04189261659286033,
+    "nv_lo": -0.02937580019265215,
+    "nv_hi": 0.11547763460259214,
+    "verdict": "INCONCLUSIVE"
+   }
+  }
+ ]
+}
