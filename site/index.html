@@ -1,195 +1,513 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>code-context benchmark</title>
-<meta name="description" content="Pre-registered, paired benchmark: Claude Code with the code-context MCP server versus vanilla Claude Code.">
-<meta name="color-scheme" content="dark">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23070514'/%3E%3Cpath d='M3 12V4h2v8zm4 0V7h2v5zm4 0V2h2v10z' fill='%2300fff7'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<div id="demo-banner" class="demo" hidden>DEMO DATA - NOT REAL RESULTS - generated in your browser by ?demo</div>
-<div class="wrap">
-<header class="top">
-  <h1>Is code-context worth it?</h1>
-  <p class="sub">A pre-registered, paired comparison of Claude Code with the <a id="repo-link" href="#">code-context MCP server</a> (cc) against Claude Code exactly as shipped (vanilla).</p>
-  <nav aria-label="Sections">
-    <a href="#headline">Verdict</a><a href="#results">Results</a><a href="#trend">Trend</a><a href="#amortisation">Amortisation</a><a href="#method">Method</a><a href="#control">Control</a><a href="#threats">Threats</a>
-  </nav>
-</header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>code-context benchmark</title>
+    <meta
+      name="description"
+      content="Benchmarks for the code-context MCP server: simulated context efficiency, real agent runs with vs without code-context, and pre-registered Claude Code sessions."
+    />
+    <meta name="color-scheme" content="dark light" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0b'/%3E%3Cpath d='M3 12V4h2v8zm4 0V7h2v5zm4 0V2h2v10z' fill='%236366f1'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="style.css" />
+    <script>
+      // Theme before first paint: a stored choice wins, otherwise the OS scheme
+      // applies via CSS. Setting data-theme here avoids a flash of the wrong theme.
+      (function () {
+        try {
+          var t = localStorage.getItem('cc-theme');
+          if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {
+          /* localStorage unavailable (private mode): fall back to the OS scheme */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="demo-banner" class="demo" hidden>
+      DEMO DATA - NOT REAL RESULTS - generated in your browser by ?demo
+    </div>
+    <div class="wrap">
+      <header class="top">
+        <!-- No hero image here: .github/readme/hero.jpg carries its own baked-in
+             "CODE CONTEXT" text + tagline, which showed through under the block
+             wordmark and as a faint ghost at the top-left. Text is never layered
+             over art that has its own text. -->
+        <pre class="wordmark" id="wordmark" aria-hidden="true">CODE CONTEXT</pre>
+        <h1 class="visually-hidden">code-context benchmark</h1>
+        <p class="tagline">
+          Benchmarks for the <a id="repo-link" href="#">code-context MCP server</a> &mdash; run on
+          demand, never on a schedule.
+        </p>
+        <div class="header-row">
+          <nav aria-label="Sections">
+            <a href="#latest">Latest</a><a href="#history">All runs</a><a href="#detail">Detail</a
+            ><a href="#method">Method</a>
+          </nav>
+          <button type="button" id="theme-toggle" aria-label="Toggle dark mode" aria-pressed="true">
+            [ dark ]
+          </button>
+        </div>
+      </header>
 
-<section id="headline" aria-labelledby="h-headline">
-  <h2 id="h-headline">Current verdict</h2>
-  <div id="headline-body"></div>
-</section>
+      <section id="latest" aria-labelledby="h-latest">
+        <h2 id="h-latest"><span class="marker" aria-hidden="true">// 01</span> LATEST RUN</h2>
+        <div id="latest-body"></div>
+      </section>
 
-<section id="how-to-read">
-  <div class="note">
-    <strong>How to read this.</strong>
-    <ul>
-      <li>The verdict follows the pre-registered rule and uses the 95 % confidence interval of NV, never the point estimate alone.</li>
-      <li>Weekly runs have only n = 3 repeats per arm and task. Their intervals are wide and most weekly verdicts will be INCONCLUSIVE. That is expected, not a failure.</li>
-      <li>The monthly run (n = 10, plus S5) is the headline. Weekly points show the trend only.</li>
-      <li>NV is a relative figure: +0.10 means a quality gain of 10 percentage points net of the penalised cost. It is not a percentage of money or time.</li>
-      <li>Model and Claude Code versions change between weeks. Both are recorded per run; compare trends within one version before reading anything into a change.</li>
-    </ul>
-  </div>
-</section>
+      <section id="history" aria-labelledby="h-history">
+        <h2 id="h-history"><span class="marker" aria-hidden="true">// 02</span> ALL RUNS</h2>
+        <p class="sub">
+          Every published run, newest first, across all kinds. History is append-only: runs are
+          never rewritten or deleted.
+        </p>
+        <div id="history-body"></div>
+      </section>
 
-<section id="results" aria-labelledby="h-results">
-  <h2 id="h-results">Results per criterion</h2>
-  <p class="sub">&Delta; is the relative difference of cc against vanilla. For quality criteria positive is better for cc. For time and tokens the value is the cost increase of cc, so negative means cc is cheaper. p is Wilcoxon signed-rank, Holm-adjusted across criteria.</p>
-  <div id="results-body"></div>
-</section>
+      <section id="detail" aria-labelledby="h-detail">
+        <h2 id="h-detail"><span class="marker" aria-hidden="true">// 03</span> RUN DETAIL</h2>
+        <div id="detail-body"></div>
+      </section>
 
-<section id="trend" aria-labelledby="h-trend">
-  <h2 id="h-trend">NV over time</h2>
-  <div id="trend-body"></div>
-</section>
+      <section id="method" aria-labelledby="h-method">
+        <h2 id="h-method">
+          <span class="marker" aria-hidden="true">// 04</span> METHOD (CLAUDE RUNS)
+        </h2>
+        <details class="method">
+          <summary>Pre-registration v2, tasks, judging, statistics, threats to validity</summary>
 
-<section id="amortisation" aria-labelledby="h-amort">
-  <h2 id="h-amort">Token amortisation (S5)</h2>
-  <p>cc has to index the codebase first. S5 runs five related tasks on one codebase and one index and asks: after how many tasks has cc, including the indexing cost, used no more cumulative tokens than vanilla? That count is the break-even k*. It is reported separately and is not part of NV.</p>
-  <div id="amort-body"></div>
-</section>
+          <div class="note" id="how-to-read">
+            <strong>How to read this.</strong>
+            <ul>
+              <li>
+                The verdict follows the pre-registered rule and uses the 95 % confidence interval of
+                NV, never the point estimate alone.
+              </li>
+              <li>
+                Weekly runs have only n = 3 repeats per arm and task. Their intervals are wide and
+                most weekly verdicts will be INCONCLUSIVE. That is expected, not a failure.
+              </li>
+              <li>
+                The monthly run (n = 10, plus S5) is the headline. Weekly points show the trend
+                only.
+              </li>
+              <li>
+                NV is a relative figure: +0.10 means a quality gain of 10 percentage points net of
+                the penalised cost. It is not a percentage of money or time.
+              </li>
+              <li>
+                Model and Claude Code versions change between weeks. Both are recorded per run;
+                compare trends within one version before reading anything into a change.
+              </li>
+            </ul>
+          </div>
 
-<section id="method" aria-labelledby="h-method">
-  <h2 id="h-method">Method</h2>
-  <p>This page presents pre-registration <strong>v2</strong> (registered 2026-10-09). The authoritative text is <code>PREREGISTRATION.md</code>; v1 is frozen as <code>PREREGISTRATION-v1.md</code>. The version and SHA-256 are recorded in every results row and shown for every run. Changing the method after the first registered run requires a new version with date and reason, and results are reported against the version in force when they were measured.</p>
+          <p>
+            This page presents pre-registration <strong>v2</strong> (registered 2026-10-09). The
+            authoritative text is <code>PREREGISTRATION.md</code>; v1 is frozen as
+            <code>PREREGISTRATION-v1.md</code>. The version and SHA-256 are recorded in every
+            results row and shown for every run. Changing the method after the first registered run
+            requires a new version with date and reason, and results are reported against the
+            version in force when they were measured.
+          </p>
 
-  <div class="note" id="v2-changes">
-    <strong>What changed from v1, and why.</strong> v1 was registered and run once (2026-10-09). That run was uninformative, not negative, so v2 changes only what is needed to measure the question. Weights, &lambda;, statistics and the verdict rule are unchanged.
-    <ul>
-      <li><strong>Why:</strong> the cc arm made 0 code-context calls in 12 of 12 sessions, so the treatment was never received (on a 60-file fixture grep and Read are enough). Both arms also scored at the ceiling (22 of 22 on T1, 11 of 11 on T4).</li>
-      <li><strong>Codebase:</strong> a large public open-source repository pinned to one commit (2,000 to 5,000 source files, working offline tests), instead of the 60-file fixture. Repository and commit are recorded in every row.</li>
-      <li><strong>Harder tasks:</strong> T1 and T4 touch 6 to 10 files across at least 3 modules; each T2 question needs knowledge spanning at least 3 files. Each task is piloted on the reference solution only, with no arm run.</li>
-      <li><strong>Treatment:</strong> the cc prompt carries the owner's real CLAUDE.md rule verbatim: code-context <code>search_files</code>, <code>get_file_context</code> and <code>find_symbol</code> come before any <code>Read</code>. Vanilla gets no tooling text.</li>
-      <li><strong>Treatment-received rule:</strong> every session records its code-context calls. A run is VALID only if at least 80 % of cc sessions made at least one. An invalid run is published with its note and excluded from the verdict and the trend, never re-scored or deleted.</li>
-    </ul>
-  </div>
+          <div class="note" id="v2-changes">
+            <strong>What changed from v1, and why.</strong> v1 was registered and run once
+            (2026-10-09). That run was uninformative, not negative, so v2 changes only what is
+            needed to measure the question. Weights, &lambda;, statistics and the verdict rule are
+            unchanged.
+            <ul>
+              <li>
+                <strong>Why:</strong> the cc arm made 0 code-context calls in 12 of 12 sessions, so
+                the treatment was never received (on a 60-file fixture grep and Read are enough).
+                Both arms also scored at the ceiling (22 of 22 on T1, 11 of 11 on T4).
+              </li>
+              <li>
+                <strong>Codebase:</strong> a large public open-source repository pinned to one
+                commit (2,000 to 5,000 source files, working offline tests), instead of the 60-file
+                fixture. Repository and commit are recorded in every row.
+              </li>
+              <li>
+                <strong>Harder tasks:</strong> T1 and T4 touch 6 to 10 files across at least 3
+                modules; each T2 question needs knowledge spanning at least 3 files. Each task is
+                piloted on the reference solution only, with no arm run.
+              </li>
+              <li>
+                <strong>Treatment:</strong> the cc prompt carries the owner's real CLAUDE.md rule
+                verbatim: code-context <code>search_files</code>, <code>get_file_context</code> and
+                <code>find_symbol</code> come before any <code>Read</code>. Vanilla gets no tooling
+                text.
+              </li>
+              <li>
+                <strong>Treatment-received rule:</strong> every session records its code-context
+                calls. A run is VALID only if at least 80 % of cc sessions made at least one. An
+                invalid run is published with its note and excluded from the verdict and the trend,
+                never re-scored or deleted.
+              </li>
+            </ul>
+          </div>
 
-  <h3>Question</h3>
-  <p>Does adding the code-context MCP server improve the outcome of software-engineering work enough to justify its cost in time and tokens? H0: NV &le; 0. H1: NV &gt; 0. One-sided, &alpha; = 0.05.</p>
+          <h3>Question</h3>
+          <p>
+            Does adding the code-context MCP server improve the outcome of software-engineering work
+            enough to justify its cost in time and tokens? H0: NV &le; 0. H1: NV &gt; 0. One-sided,
+            &alpha; = 0.05.
+          </p>
 
-  <h3>Arms: only one variable differs</h3>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>vanilla</th><th>cc</th></tr>
-    <tr><td>Model</td><td>same (default Opus, recorded per run)</td><td>same</td></tr>
-    <tr><td>Prompt</td><td>identical task prompt</td><td>identical plus the owner's CLAUDE.md code-context rule, verbatim</td></tr>
-    <tr><td>MCP servers</td><td>none</td><td>code-context only, pre-indexed</td></tr>
-    <tr><td>Hooks, skills, CLAUDE.md, slash commands</td><td>none</td><td>none</td></tr>
-    <tr><td>Permissions</td><td>identical allowlist, sandboxed, offline</td><td>identical</td></tr>
-    <tr><td>Workspace</td><td>fresh checkout of the pinned commit in an empty temp dir, own git worktree</td><td>same</td></tr>
-  </table></div>
-  <p>The added CLAUDE.md rule in the cc prompt is part of the treatment and is reported as such.</p>
+          <h3>Arms: only one variable differs</h3>
+          <div class="tablewrap">
+            <table>
+              <tr>
+                <th></th>
+                <th>vanilla</th>
+                <th>cc</th>
+              </tr>
+              <tr>
+                <td>Model</td>
+                <td>same (default Opus, recorded per run)</td>
+                <td>same</td>
+              </tr>
+              <tr>
+                <td>Prompt</td>
+                <td>identical task prompt</td>
+                <td>identical plus the owner's CLAUDE.md code-context rule, verbatim</td>
+              </tr>
+              <tr>
+                <td>MCP servers</td>
+                <td>none</td>
+                <td>code-context only, pre-indexed</td>
+              </tr>
+              <tr>
+                <td>Hooks, skills, CLAUDE.md, slash commands</td>
+                <td>none</td>
+                <td>none</td>
+              </tr>
+              <tr>
+                <td>Permissions</td>
+                <td>identical allowlist, sandboxed, offline</td>
+                <td>identical</td>
+              </tr>
+              <tr>
+                <td>Workspace</td>
+                <td>fresh checkout of the pinned commit in an empty temp dir, own git worktree</td>
+                <td>same</td>
+              </tr>
+            </table>
+          </div>
+          <p>
+            The added CLAUDE.md rule in the cc prompt is part of the treatment and is reported as
+            such.
+          </p>
 
-  <h3>What "vanilla" means exactly</h3>
-  <ul>
-    <li>Headless <code>claude -p</code> with user, project and local settings sources disabled, so no CLAUDE.md, user hooks, enabled plugins or personal permissions are loaded.</li>
-    <li>Hooks are explicitly emptied. Slash commands and skills are disabled. Session persistence is off.</li>
-    <li>MCP is strict: the vanilla arm has no MCP servers at all, the cc arm has only code-context. Hosted connectors are excluded in both.</li>
-    <li>Both arms use the same permission allowlist (edit inside the worktree, test runners, read-only shell tools) and the same deny list (no web access, no network tools, no pushing, no environment dumps). Shell commands run in an OS sandbox that confines writes to the worktree and blocks network.</li>
-    <li>Both arms start in a fresh empty temp directory with their own git worktree of the same codebase.</li>
-  </ul>
+          <h3>What "vanilla" means exactly</h3>
+          <ul>
+            <li>
+              Headless <code>claude -p</code> with user, project and local settings sources
+              disabled, so no CLAUDE.md, user hooks, enabled plugins or personal permissions are
+              loaded.
+            </li>
+            <li>
+              Hooks are explicitly emptied. Slash commands and skills are disabled. Session
+              persistence is off.
+            </li>
+            <li>
+              MCP is strict: the vanilla arm has no MCP servers at all, the cc arm has only
+              code-context. Hosted connectors are excluded in both.
+            </li>
+            <li>
+              Both arms use the same permission allowlist (edit inside the worktree, test runners,
+              read-only shell tools) and the same deny list (no web access, no network tools, no
+              pushing, no environment dumps). Shell commands run in an OS sandbox that confines
+              writes to the worktree and blocks network.
+            </li>
+            <li>
+              Both arms start in a fresh empty temp directory with their own git worktree of the
+              same codebase.
+            </li>
+          </ul>
 
-  <h3>Tasks</h3>
-  <div class="tablewrap"><table>
-    <tr><th>ID</th><th>Task</th><th>Criterion</th><th>Scoring (objective first)</th></tr>
-    <tr><td>T1</td><td>Feature build in the pinned open-source repository (6 to 10 files across at least 3 modules)</td><td>accuracy, time, tokens, code quality</td><td>hidden test pass rate; static metrics; blind pairwise judging</td></tr>
-    <tr><td>T2</td><td>10 systems questions about the codebase ("what breaks if ..."), each needing at least 3 files</td><td>IT-systems knowledge</td><td>answer key, 0 / 0.5 / 1 per question by a fixed rubric</td></tr>
-    <tr><td>T3</td><td>Stakeholder update about T1 for a non-technical PM</td><td>stakeholder communication</td><td>blind pairwise rubric: clarity, risk, timeline, no jargon, actionable ask</td></tr>
-    <tr><td>T4</td><td>T1 again, with a requirement change injected after the first plan</td><td>control / steerability</td><td>extra tokens and time to adapt; hidden tests of the changed requirement</td></tr>
-    <tr><td>S5</td><td>Sequence of 5 related tasks on one codebase, one index</td><td>token amortisation</td><td>cumulative tokens per task k; break-even k including indexing cost</td></tr>
-  </table></div>
-  <p>Hidden tests and the T2 answer key are never published, so no agent can be trained or prompted against them. Their SHA-256 hashes are published in the headline so that a later disclosure can be checked against what was used.</p>
+          <h3>Tasks</h3>
+          <div class="tablewrap">
+            <table>
+              <tr>
+                <th>ID</th>
+                <th>Task</th>
+                <th>Criterion</th>
+                <th>Scoring (objective first)</th>
+              </tr>
+              <tr>
+                <td>T1</td>
+                <td>
+                  Feature build in the pinned open-source repository (6 to 10 files across at least
+                  3 modules)
+                </td>
+                <td>accuracy, time, tokens, code quality</td>
+                <td>hidden test pass rate; static metrics; blind pairwise judging</td>
+              </tr>
+              <tr>
+                <td>T2</td>
+                <td>
+                  10 systems questions about the codebase ("what breaks if ..."), each needing at
+                  least 3 files
+                </td>
+                <td>IT-systems knowledge</td>
+                <td>answer key, 0 / 0.5 / 1 per question by a fixed rubric</td>
+              </tr>
+              <tr>
+                <td>T3</td>
+                <td>Stakeholder update about T1 for a non-technical PM</td>
+                <td>stakeholder communication</td>
+                <td>blind pairwise rubric: clarity, risk, timeline, no jargon, actionable ask</td>
+              </tr>
+              <tr>
+                <td>T4</td>
+                <td>T1 again, with a requirement change injected after the first plan</td>
+                <td>control / steerability</td>
+                <td>extra tokens and time to adapt; hidden tests of the changed requirement</td>
+              </tr>
+              <tr>
+                <td>S5</td>
+                <td>Sequence of 5 related tasks on one codebase, one index</td>
+                <td>token amortisation</td>
+                <td>cumulative tokens per task k; break-even k including indexing cost</td>
+              </tr>
+            </table>
+          </div>
+          <p>
+            Hidden tests and the T2 answer key are never published, so no agent can be trained or
+            prompted against them. Their SHA-256 hashes are published in the headline so that a
+            later disclosure can be checked against what was used.
+          </p>
 
-  <h3>Judging</h3>
-  <ul>
-    <li>Objective scores come first: hidden tests, static metrics, the answer key.</li>
-    <li>Where judgement is needed (code quality half, T3), two judges from different non-Claude model families (DeepSeek v4 pro and GLM 5.3) each see both outputs unlabelled, in both orders: 4 verdicts per pair.</li>
-    <li>Preference score = share of verdicts preferring cc, mapped to &Delta; = 2 &times; share &minus; 1.</li>
-    <li>A judge that contradicts itself across the two orders counts as a tie for that pair.</li>
-    <li>No Claude model judges, to avoid self-preference.</li>
-  </ul>
+          <h3>Judging</h3>
+          <ul>
+            <li>Objective scores come first: hidden tests, static metrics, the answer key.</li>
+            <li>
+              Where judgement is needed (code quality half, T3), two judges from different
+              non-Claude model families (DeepSeek v4 pro and GLM 5.3) each see both outputs
+              unlabelled, in both orders: 4 verdicts per pair.
+            </li>
+            <li>
+              Preference score = share of verdicts preferring cc, mapped to &Delta; = 2 &times;
+              share &minus; 1.
+            </li>
+            <li>
+              A judge that contradicts itself across the two orders counts as a tie for that pair.
+            </li>
+            <li>No Claude model judges, to avoid self-preference.</li>
+          </ul>
 
-  <h3>The formula</h3>
-  <pre>Q  = &Sigma; w<sub>i</sub> &middot; &Delta;<sub>i</sub>          quality gain
+          <h3>The formula</h3>
+          <pre>
+Q  = &Sigma; w<sub>i</sub> &middot; &Delta;<sub>i</sub>          quality gain
 C  = &Sigma; v<sub>j</sub> &middot; cost<sub>j</sub>       cost increase (negative = cc is cheaper)
-NV = Q &minus; &lambda; &middot; C         &lambda; = 0.5</pre>
-  <div class="tablewrap"><table>
-    <tr><th>Quality criterion</th><th>Source</th><th>Weight w</th></tr>
-    <tr><td>Accuracy</td><td>T1 hidden pass rate</td><td>0.30</td></tr>
-    <tr><td>Code quality</td><td>T1: 50 % static score (lint errors, cyclomatic complexity, duplication, coverage of new code), 50 % judge preference</td><td>0.20</td></tr>
-    <tr><td>Systems knowledge</td><td>T2 score</td><td>0.15</td></tr>
-    <tr><td>Stakeholder communication</td><td>T3 judge preference</td><td>0.10</td></tr>
-    <tr><td>Control</td><td>T4: 50 % hidden pass rate after the change, 50 % adaptation cost (tokens plus time, as a cost)</td><td>0.25</td></tr>
-  </table></div>
-  <div class="tablewrap"><table>
-    <tr><th>Cost criterion</th><th>Definition</th><th>Weight v</th></tr>
-    <tr><td>Wall time</td><td>fractional increase of cc over vanilla</td><td>0.5</td></tr>
-    <tr><td>Total tokens</td><td>input + output + cache writes; cache reads at 0.1 weight; fractional increase</td><td>0.5</td></tr>
-  </table></div>
-  <p>For higher-is-better criteria &Delta; = (cc &minus; van) / van. For cost criteria the increase is (cc &minus; van) / van.</p>
+NV = Q &minus; &lambda; &middot; C         &lambda; = 0.5</pre
+          >
+          <div class="tablewrap">
+            <table>
+              <tr>
+                <th>Quality criterion</th>
+                <th>Source</th>
+                <th>Weight w</th>
+              </tr>
+              <tr>
+                <td>Accuracy</td>
+                <td>T1 hidden pass rate</td>
+                <td>0.30</td>
+              </tr>
+              <tr>
+                <td>Code quality</td>
+                <td>
+                  T1: 50 % static score (lint errors, cyclomatic complexity, duplication, coverage
+                  of new code), 50 % judge preference
+                </td>
+                <td>0.20</td>
+              </tr>
+              <tr>
+                <td>Systems knowledge</td>
+                <td>T2 score</td>
+                <td>0.15</td>
+              </tr>
+              <tr>
+                <td>Stakeholder communication</td>
+                <td>T3 judge preference</td>
+                <td>0.10</td>
+              </tr>
+              <tr>
+                <td>Control</td>
+                <td>
+                  T4: 50 % hidden pass rate after the change, 50 % adaptation cost (tokens plus
+                  time, as a cost)
+                </td>
+                <td>0.25</td>
+              </tr>
+            </table>
+          </div>
+          <div class="tablewrap">
+            <table>
+              <tr>
+                <th>Cost criterion</th>
+                <th>Definition</th>
+                <th>Weight v</th>
+              </tr>
+              <tr>
+                <td>Wall time</td>
+                <td>fractional increase of cc over vanilla</td>
+                <td>0.5</td>
+              </tr>
+              <tr>
+                <td>Total tokens</td>
+                <td>
+                  input + output + cache writes; cache reads at 0.1 weight; fractional increase
+                </td>
+                <td>0.5</td>
+              </tr>
+            </table>
+          </div>
+          <p>
+            For higher-is-better criteria &Delta; = (cc &minus; van) / van. For cost criteria the
+            increase is (cc &minus; van) / van.
+          </p>
 
-  <h3>The owner's rule, worked</h3>
-  <p>&lambda; = 0.5 encodes "a quality gain must be at least half the cost increase". The owner's example: a change that is 5 % better but 25 % slower is not worth it.</p>
-  <pre>Q  = +0.05
+          <h3>The owner's rule, worked</h3>
+          <p>
+            &lambda; = 0.5 encodes "a quality gain must be at least half the cost increase". The
+            owner's example: a change that is 5 % better but 25 % slower is not worth it.
+          </p>
+          <pre>
+Q  = +0.05
 C  = +0.25
-NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not worth it</pre>
-  <p>The same 5 % gain would be worth it only if the cost increase stayed below 10 %, because then 0.5 &times; 0.10 = 0.05 and NV is zero.</p>
+NV = 0.05 &minus; 0.5 &times; 0.25 = 0.05 &minus; 0.125 = &minus;0.075   not worth it</pre
+          >
+          <p>
+            The same 5 % gain would be worth it only if the cost increase stayed below 10 %, because
+            then 0.5 &times; 0.10 = 0.05 and NV is zero.
+          </p>
 
-  <h3>Statistics</h3>
-  <ul>
-    <li>Paired design: each repeat runs both arms on the same task; arm order is randomised.</li>
-    <li>For every &Delta; and for NV: the mean and a 95 % bias-corrected bootstrap CI (10,000 resamples over pairs).</li>
-    <li>Wilcoxon signed-rank test per criterion, effect size r, Holm correction across criteria.</li>
-    <li>Every run is reported, including failed and timed-out runs (scored 0, cost as measured up to the timeout). No run is excluded after the fact, except that a run whose treatment-received rate is below 80 % is marked INVALID, published with its note and left out of the verdict and the trend.</li>
-  </ul>
+          <h3>Statistics</h3>
+          <ul>
+            <li>
+              Paired design: each repeat runs both arms on the same task; arm order is randomised.
+            </li>
+            <li>
+              For every &Delta; and for NV: the mean and a 95 % bias-corrected bootstrap CI (10,000
+              resamples over pairs).
+            </li>
+            <li>
+              Wilcoxon signed-rank test per criterion, effect size r, Holm correction across
+              criteria.
+            </li>
+            <li>
+              Every run is reported, including failed and timed-out runs (scored 0, cost as measured
+              up to the timeout). No run is excluded after the fact, except that a run whose
+              treatment-received rate is below 80 % is marked INVALID, published with its note and
+              left out of the verdict and the trend.
+            </li>
+          </ul>
 
-  <h3>Verdict rule</h3>
-  <ul>
-    <li><strong class="keep">KEEP</strong> if the lower bound of NV's 95 % CI is above 0.</li>
-    <li><strong class="drop">DROP</strong> if the upper bound is below 0.</li>
-    <li><strong class="inc">INCONCLUSIVE</strong> otherwise.</li>
-    <li>Never a verdict from a point estimate alone.</li>
-  </ul>
+          <h3>Verdict rule</h3>
+          <ul>
+            <li>
+              <strong class="keep">KEEP</strong> if the lower bound of NV's 95 % CI is above 0.
+            </li>
+            <li><strong class="drop">DROP</strong> if the upper bound is below 0.</li>
+            <li><strong class="inc">INCONCLUSIVE</strong> otherwise.</li>
+            <li>Never a verdict from a point estimate alone.</li>
+          </ul>
 
-  <h3>Cadence</h3>
-  <p>Weekly: 3 repeats per arm per task (T1 to T4). Monthly: 10 repeats per arm, plus S5. A run is skipped, and logged as skipped, when the usage quota gate is hot; it is not retried within the window. Results are pushed to the <code>bench-results</code> branch and this page rebuilds from it. Site code and the method change only through reviewed pull requests on main.</p>
-</section>
+          <h3>Cadence</h3>
+          <p>
+            Weekly: 3 repeats per arm per task (T1 to T4). Monthly: 10 repeats per arm, plus S5. A
+            run is skipped, and logged as skipped, when the usage quota gate is hot; it is not
+            retried within the window. Results are pushed to the <code>bench-results</code> branch
+            and this page rebuilds from it. Site code and the method change only through reviewed
+            pull requests on main.
+          </p>
 
-<section id="control" aria-labelledby="h-control">
-  <h2 id="h-control">Control and steerability</h2>
-  <p>The code-context workflow is designed around the idea that a human should be able to intercept every step of AI-assisted work, instead of handing a goal to an opaque automated loop and reviewing only the end result.</p>
-  <ul>
-    <li><strong>The plan is visible.</strong> Work is broken into tickets, sprints and phases that exist outside the model's context, so you can read what is about to happen.</li>
-    <li><strong>Gates sit between phases.</strong> A phase does not start until the previous one is accepted, which gives natural places to stop, correct or redirect.</li>
-    <li><strong>Decisions are logged.</strong> Choices and their reasons are written down, so a change of direction does not depend on what the model still remembers.</li>
-    <li><strong>An opaque loop optimises for finishing.</strong> It can be faster and cheaper when the first plan is right. The open question is what happens when the plan is wrong.</li>
-  </ul>
-  <h3>What T4 measures</h3>
-  <p>T4 repeats the T1 feature build, but after the agent has produced its first plan, the requirement changes. Two things are measured: how much of the changed requirement the final code satisfies (hidden tests of the changed requirement), and what the adaptation cost in extra tokens and extra wall time. Each is half of the Control score, which carries weight 0.25 in Q.</p>
-  <p>T4 measures steerability only in this narrow, automated sense: one injected change, scored objectively. It does not measure the value of human oversight on real projects. The benchmark's headless runs have no human in the loop, so the design benefit described above is a hypothesis about workflow, not something this page claims to have shown. Whether cc is better, worse or no different on T4 is shown only by the Control row in the results table, once data exists.</p>
-</section>
+          <h3>Control and steerability</h3>
+          <p>
+            The code-context workflow is designed around the idea that a human should be able to
+            intercept every step of AI-assisted work, instead of handing a goal to an opaque
+            automated loop and reviewing only the end result.
+          </p>
+          <ul>
+            <li>
+              <strong>The plan is visible.</strong> Work is broken into tickets, sprints and phases
+              that exist outside the model's context, so you can read what is about to happen.
+            </li>
+            <li>
+              <strong>Gates sit between phases.</strong> A phase does not start until the previous
+              one is accepted, which gives natural places to stop, correct or redirect.
+            </li>
+            <li>
+              <strong>Decisions are logged.</strong> Choices and their reasons are written down, so
+              a change of direction does not depend on what the model still remembers.
+            </li>
+            <li>
+              <strong>An opaque loop optimises for finishing.</strong> It can be faster and cheaper
+              when the first plan is right. The open question is what happens when the plan is
+              wrong.
+            </li>
+          </ul>
+          <h4>What T4 measures</h4>
+          <p>
+            T4 repeats the T1 feature build, but after the agent has produced its first plan, the
+            requirement changes. Two things are measured: how much of the changed requirement the
+            final code satisfies (hidden tests of the changed requirement), and what the adaptation
+            cost in extra tokens and extra wall time. Each is half of the Control score, which
+            carries weight 0.25 in Q.
+          </p>
+          <p>
+            T4 measures steerability only in this narrow, automated sense: one injected change,
+            scored objectively. It does not measure the value of human oversight on real projects.
+            The benchmark's headless runs have no human in the loop, so the design benefit described
+            above is a hypothesis about workflow, not something this page claims to have shown.
+            Whether cc is better, worse or no different on T4 is shown only by the Control row in
+            the results table, once data exists.
+          </p>
 
-<section id="threats" aria-labelledby="h-threats">
-  <h2 id="h-threats">Threats to validity</h2>
-  <ul>
-    <li><strong>Single codebase (external validity).</strong> One pinned open-source repository. Results may not transfer to other languages, sizes or domains.</li>
-    <li><strong>LLM judges.</strong> Mitigated by two model families, both presentation orders, no Claude judge, and objective scores first. Judges can still share biases.</li>
-    <li><strong>Model and Claude Code version drift.</strong> Both are recorded per row. A change in either can move results independently of code-context; trends are shown per version.</li>
-    <li><strong>The cc prompt rule.</strong> The cc arm's prompt carries the owner's CLAUDE.md rule. That difference is part of the treatment and cannot be separated from the server itself.</li>
-    <li><strong>Small n weekly.</strong> n = 3 gives wide CIs. The monthly n = 10 run is the headline.</li>
-  </ul>
-</section>
+          <h3>Threats to validity</h3>
+          <ul>
+            <li>
+              <strong>Single codebase (external validity).</strong> One pinned open-source
+              repository. Results may not transfer to other languages, sizes or domains.
+            </li>
+            <li>
+              <strong>LLM judges.</strong> Mitigated by two model families, both presentation
+              orders, no Claude judge, and objective scores first. Judges can still share biases.
+            </li>
+            <li>
+              <strong>Model and Claude Code version drift.</strong> Both are recorded per row. A
+              change in either can move results independently of code-context; trends are shown per
+              version.
+            </li>
+            <li>
+              <strong>The cc prompt rule.</strong> The cc arm's prompt carries the owner's CLAUDE.md
+              rule. That difference is part of the treatment and cannot be separated from the server
+              itself.
+            </li>
+            <li>
+              <strong>Small n weekly.</strong> n = 3 gives wide CIs. The monthly n = 10 run is the
+              headline.
+            </li>
+          </ul>
+        </details>
+      </section>
 
-<footer>
-  <p>No cookies, no trackers, no third-party requests. Data is loaded from the same origin. Source and data: <a id="repo-link2" href="#">repository</a>. Hidden tests and the answer key are intentionally not published.</p>
-</footer>
-</div>
-<script src="config.js"></script>
-<script src="app.js"></script>
-</body>
+      <footer>
+        <p>
+          No cookies, no trackers, no third-party requests &mdash; fonts included. Data is loaded
+          from the same origin. Source and data: <a id="repo-link2" href="#">repository</a>. Hidden
+          tests and the answer key are intentionally not published.
+        </p>
+      </footer>
+    </div>
+    <script src="config.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
 </html>

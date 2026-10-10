@@ -43,8 +43,14 @@ import Database from "better-sqlite3";
 import { indexDirectory } from "../src/server/indexer.js";
 import { createTestDb } from "./helpers/db.js";
 import { resolveBenchmarkOutputPath } from "./helpers/benchmark-output.js";
-
-const FIXTURE_DIR = path.resolve(__dirname, "fixtures/sample-project");
+import {
+  FIXTURE_DIR,
+  canonicalPath,
+  hasMachineDependentText,
+  CANONICAL_ROOT,
+  CANONICAL_MODIFIED_AT,
+  CANONICAL_INDEXED_AT,
+} from "./helpers/benchmark-fixture.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Token estimation — conservative whitespace+symbol splitter
@@ -108,8 +114,8 @@ function resolvePath(db: Database.Database, pattern: string): string {
 function mcpFileContext(d: NonNullable<ReturnType<typeof queryFile>>): string {
   const { file: f, exports: e, deps, dependents: dep } = d;
   return [
-    `# ${f.path}`,
-    `${f.language} | ${formatSize(f.size_bytes)} | ${f.line_count} lines | modified ${f.modified_at}`,
+    `# ${canonicalPath(f.path)}`,
+    `${f.language} | ${formatSize(f.size_bytes)} | ${f.line_count} lines | modified ${CANONICAL_MODIFIED_AT} | indexed ${CANONICAL_INDEXED_AT}`,
     f.summary,
     f.description && f.description !== f.summary ? f.description : "",
     e.length > 0
@@ -119,10 +125,10 @@ function mcpFileContext(d: NonNullable<ReturnType<typeof queryFile>>): string {
       ? `## External packages\n${f.external_imports}`
       : "",
     deps.length > 0
-      ? `## Imports from (${deps.length})\n${deps.map((x: any) => `- ${x.path} [${x.symbols}]`).join("\n")}`
+      ? `## Imports from (${deps.length})\n${deps.map((x: any) => `- ${canonicalPath(x.path)} [${x.symbols}]`).join("\n")}`
       : "",
     dep.length > 0
-      ? `## Imported by (${dep.length})\n${dep.map((x: any) => `- ${x.path} [${x.symbols}]`).join("\n")}`
+      ? `## Imported by (${dep.length})\n${dep.map((x: any) => `- ${canonicalPath(x.path)} [${x.symbols}]`).join("\n")}`
       : "",
   ]
     .filter(Boolean)
@@ -195,7 +201,7 @@ function mcpFindSymbol(db: Database.Database, name: string): string {
     .all(name) as any[];
   if (!rows.length) return `No exports matching "${name}" found.`;
   return rows
-    .map((r: any) => `${r.name} (${r.kind}) — ${r.path}\n  ${r.summary}`)
+    .map((r: any) => `${r.name} (${r.kind}) — ${canonicalPath(r.path)}\n  ${r.summary} | indexed ${CANONICAL_INDEXED_AT}`)
     .join("\n\n");
 }
 
@@ -210,7 +216,7 @@ function mcpSearchFiles(db: Database.Database, q: string): string {
   return rows
     .map(
       (r: any) =>
-        `${r.path} (${r.language}, ${r.line_count} lines, ${r.ec} exports, ${r.dc} deps)\n  ${r.summary}`,
+        `${canonicalPath(r.path)} (${r.language}, ${r.line_count} lines, ${r.ec} exports, ${r.dc} deps)\n  Modified: ${CANONICAL_MODIFIED_AT} | indexed ${CANONICAL_INDEXED_AT} | ${r.summary}`,
     )
     .join("\n\n");
 }
@@ -261,7 +267,7 @@ function vanillaGrep(
         const lines = content.split("\n");
         for (let i = 0; i < lines.length; i++) {
           if (lines[i].includes(pattern)) {
-            results.push(`${full}:${i + 1}: ${lines[i]}`);
+            results.push(`${canonicalPath(full)}:${i + 1}: ${lines[i]}`);
           }
         }
       }
@@ -1681,5 +1687,36 @@ describe("MCP vs Vanilla benchmark — 10 tasks", () => {
   it("report includes honest methodology disclaimer", () => {
     expect(report.meta.methodology).toContain("Simulated");
     expect(report.meta.tokenEstimation).toContain("NOT Claude tokenizer");
+  });
+
+  // ── Path independence ─────────────────────────────────────────────────────
+
+  it("simulated outputs use a fixed canonical root (contain CANONICAL_ROOT, never the real fixture dir)", () => {
+    const outputs = allTasks.flatMap((t) =>
+      [...t.mcp.steps, ...t.vanilla.steps].map((s) => s.output),
+    );
+    expect(outputs.length).toBeGreaterThan(0);
+    for (const out of outputs) {
+      expect(hasMachineDependentText(out)).toBe(false);
+      expect(out).not.toContain(FIXTURE_DIR);
+    }
+    // The path-bearing MCP tools must render realistic absolute paths (not strip
+    // them) — otherwise the simulated MCP output understates its real token cost.
+    const mcpPathOutputs = allTasks.flatMap((t) =>
+      t.mcp.steps
+        .filter(
+          (s) =>
+            s.tool === "get_file_context" ||
+            s.tool === "search_files" ||
+            s.tool === "find_symbol",
+        )
+        .map((s) => s.output),
+    );
+    expect(mcpPathOutputs.length).toBeGreaterThan(0);
+    for (const out of mcpPathOutputs) {
+      // Empty-result messages ("No files matching …") carry no path by design.
+      if (/^No (files|exports) matching/.test(out)) continue;
+      expect(out).toContain(CANONICAL_ROOT);
+    }
   });
 });

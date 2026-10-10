@@ -69,11 +69,15 @@ jobs:
               cp "$f" "_site/data/$rel"
             done
           fi
-          # index.json = all runs, oldest first. Missing runs/ gives an empty list.
-          if ls _site/data/runs/*.json >/dev/null 2>&1; then
-            jq -s '{runs: (. | sort_by([.date, (.run_id // "")]))}' _site/data/runs/*.json > _site/data/index.json
-          else
-            echo '{"runs":[]}' > _site/data/index.json
+          # index.json: a committed data/index.json (written by bench:publish / benchmark.yml)
+          # always wins. The jq generation is only a fallback for legacy harness pushes
+          # that carry runs/ without an index.
+          if [ ! -f _site/data/index.json ]; then
+            if ls _site/data/runs/*.json >/dev/null 2>&1; then
+              jq -s '{runs: (. | sort_by([.date, (.run_id // "")]))}' _site/data/runs/*.json > _site/data/index.json
+            else
+              echo '{"runs":[]}' > _site/data/index.json
+            fi
           fi
           touch _site/.nojekyll
           find _site -type f | sort

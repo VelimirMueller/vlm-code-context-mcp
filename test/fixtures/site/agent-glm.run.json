@@ -1,0 +1,205 @@
+{
+ "schema": "ccc-bench/1",
+ "run_id": "glm-20261010-153000",
+ "kind": "agent-glm",
+ "date": "2026-10-10",
+ "ts": "2026-10-10T15:30:00+0200",
+ "trigger": "manual",
+ "duration_ms": 754000,
+ "code_context_version": "2.8.0",
+ "git": {
+  "commit": "ece01e4a9c31d0b7f3e2a1c8d94b6f0a5d3e7c21",
+  "branch": "feat/bench-on-demand",
+  "dirty": false
+ },
+ "notes": [
+  "single repeat per arm and task; indicative, not statistical"
+ ],
+ "model": "zai-coding-plan/glm-5.3",
+ "agent_cli": {
+  "name": "opencode",
+  "version": "0.15.0"
+ },
+ "fixture": "test/fixtures/sample-project",
+ "auth": {
+  "keyEnv": "ZAI_API_KEY"
+ },
+ "tasks": [
+  {
+   "id": "L1",
+   "prompt": "Which file exports formatDate, and what does it depend on? Answer with file paths.",
+   "checker": {
+    "type": "answer"
+   }
+  },
+  {
+   "id": "L2",
+   "prompt": "Add slugify(text: string): string to src/utils/format.ts and export it from the barrel src/index.ts.",
+   "checker": {
+    "type": "symbol"
+   }
+  }
+ ],
+ "arms": {
+  "vanilla": {
+   "results": [
+    {
+     "task_id": "L1",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 21050,
+      "output": 12400,
+      "cache_read": 41000,
+      "cache_write": 8000
+     },
+     "tool_calls": 38,
+     "mcp_tool_calls": 0,
+     "wall_ms": 149000,
+     "session_id": "vanilla-l1-7f3a",
+     "events_path": "vanilla-L1.jsonl"
+    },
+    {
+     "task_id": "L2",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 24800,
+      "output": 15800,
+      "cache_read": 52000,
+      "cache_write": 9500
+     },
+     "tool_calls": 41,
+     "mcp_tool_calls": 0,
+     "wall_ms": 172000,
+     "session_id": "vanilla-l2-7f3a",
+     "events_path": "vanilla-L2.jsonl"
+    }
+   ]
+  },
+  "cc": {
+   "results": [
+    {
+     "task_id": "L1",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 12600,
+      "output": 7300,
+      "cache_read": 24000,
+      "cache_write": 4200
+     },
+     "tool_calls": 19,
+     "mcp_tool_calls": 6,
+     "wall_ms": 91000,
+     "session_id": "cc-l1-7f3a",
+     "events_path": "cc-L1.jsonl"
+    },
+    {
+     "task_id": "L2",
+     "success": true,
+     "timeout": false,
+     "tokens": {
+      "input": 15800,
+      "output": 9900,
+      "cache_read": 31000,
+      "cache_write": 5600
+     },
+     "tool_calls": 24,
+     "mcp_tool_calls": 9,
+     "wall_ms": 118000,
+     "session_id": "cc-l2-7f3a",
+     "events_path": "cc-L2.jsonl"
+    }
+   ],
+   "index_ms": 130,
+   "db_bytes": 286720
+  }
+ },
+ "aggregate": {
+  "success_rate": {
+   "vanilla": 0.5,
+   "cc": 1
+  },
+  "tokens": {
+   "vanilla": {
+    "input": 45850,
+    "output": 28200,
+    "total": 74050
+   },
+   "cc": {
+    "input": 28400,
+    "output": 17200,
+    "total": 45600
+   },
+   "saved_pct": 38.4
+  },
+  "tool_calls": {
+   "vanilla": 79,
+   "cc": 43,
+   "saved_pct": 45.6
+  },
+  "wall_ms": {
+   "vanilla_mean": 160500,
+   "cc_mean": 104500
+  },
+  "per_task": [
+   {
+    "task_id": "L1",
+    "vanilla": {
+     "success": false,
+     "tokens": {
+      "input": 21050,
+      "output": 12400,
+      "total": 33450
+     },
+     "tool_calls": 38,
+     "mcp_tool_calls": 0,
+     "wall_ms": 149000
+    },
+    "cc": {
+     "success": true,
+     "tokens": {
+      "input": 12600,
+      "output": 7300,
+      "total": 19900
+     },
+     "tool_calls": 19,
+     "mcp_tool_calls": 6,
+     "wall_ms": 91000
+    }
+   },
+   {
+    "task_id": "L2",
+    "vanilla": {
+     "success": true,
+     "tokens": {
+      "input": 24800,
+      "output": 15800,
+      "total": 40600
+     },
+     "tool_calls": 41,
+     "mcp_tool_calls": 0,
+     "wall_ms": 172000
+    },
+    "cc": {
+     "success": true,
+     "tokens": {
+      "input": 15800,
+      "output": 9900,
+      "total": 25700
+     },
+     "tool_calls": 24,
+     "mcp_tool_calls": 9,
+     "wall_ms": 118000
+    }
+   }
+  ]
+ },
+ "headline": {
+  "success_vanilla_pct": 50,
+  "success_cc_pct": 100,
+  "tokens_saved_pct": 38.4,
+  "tool_calls_saved_pct": 45.6
+ }
+}

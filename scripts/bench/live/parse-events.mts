@@ -1,0 +1,142 @@
+/**
+ * OpenCode event-stream parser (PLAN.md task 7).
+ *
+ * Input: the newline-delimited JSON that `opencode run --format json` prints.
+ * Verified against opencode 1.18.30 with one real capture per provider
+ * (glm: zai-coding-plan/glm-5.3, deepseek: deepseek/deepseek-v4-pro):
+ *
+ *   {"type":"step_start","timestamp":…,"sessionID":"ses_…","part":{"id":"prt_…","type":"step-start",…}}
+ *   {"type":"text",…,"part":{"id":"prt_…","type":"text","text":"ok"}}
+ *   {"type":"step_finish",…,"part":{"id":"prt_…","type":"step-finish","tokens":{"input":…,"output":…,"reasoning":…,"cache":{"read":…,"write":…}}}}
+ *   {"type":"tool",…,"part":{"id":"prt_…","type":"tool","tool":"read","state":{…}}}
+ *   {"type":"error",…,"error":{…}}
+ *
+ * The outer `type` is the snake_case of `part.type`; parts are re-emitted as
+ * they update, so the parser keeps the LAST state per part id (last-write-wins,
+ * never double-counted). Token fields live on step-finish parts; reasoning
+ * tokens are generated output and count into `outputTokens`. Malformed lines
+ * and unknown event types are skipped and counted, never fatal.
+ */
+
+/**
+ * Tools served by the code-context MCP server (src/server/index.ts). One
+ * shared constant list; opencode prefixes MCP tool names with the server
+ * alias, so matching is substring-based and prefix-agnostic.
+ */
+export const CODE_CONTEXT_TOOLS: readonly string[] = [
+  'index_directory',
+  'find_symbol',
+  'get_file_context',
+  'search_files',
+  'set_description',
+  'set_directory_description',
+  'set_change_reason',
+  'get_changes',
+  'query',
+  'execute',
+  'health',
+];
+
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  toolCalls: number;
+  mcpToolCalls: number;
+  assistantText: string;
+  skippedLines: number;
+  sessionId: string | null;
+}
+
+interface StreamPart {
+  id?: string;
+  type?: string;
+  text?: string;
+  tool?: string;
+  tokens?: {
+    input?: number;
+    output?: number;
+    reasoning?: number;
+    cache?: { read?: number; write?: number };
+  };
+}
+
+interface StreamEvent {
+  type?: string;
+  sessionID?: string;
+  part?: StreamPart;
+}
+
+const HANDLED_PART_TYPES = new Set(['text', 'tool', 'step-finish']);
+
+const num = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
+
+export function parseEventStream(lines: string[]): SessionUsage {
+  const parts = new Map<string, StreamPart>();
+  let skippedLines = 0;
+  let sessionId: string | null = null;
+
+  for (const line of lines) {
+    if (!line.trim()) continue; // blank/trailing-newline artifacts are not malformed lines
+    let event: StreamEvent;
+    try {
+      event = JSON.parse(line) as StreamEvent;
+    } catch {
+      skippedLines++;
+      continue;
+    }
+    if (!event || typeof event !== 'object' || !event.part || typeof event.part !== 'object') {
+      skippedLines++; // error events, unknown envelopes
+      continue;
+    }
+    if (typeof event.sessionID === 'string' && event.sessionID) sessionId = event.sessionID;
+    const part = event.part;
+    if (
+      typeof part.id !== 'string' ||
+      !part.id ||
+      !part.type ||
+      !HANDLED_PART_TYPES.has(part.type)
+    ) {
+      skippedLines++; // unknown part types (step-start, reasoning, …)
+      continue;
+    }
+    parts.set(part.id, part); // last write wins per part id
+  }
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+  let toolCalls = 0;
+  let mcpToolCalls = 0;
+  const texts: string[] = [];
+
+  for (const part of parts.values()) {
+    if (part.type === 'text') {
+      texts.push(typeof part.text === 'string' ? part.text : '');
+    } else if (part.type === 'tool') {
+      toolCalls++;
+      const name = typeof part.tool === 'string' ? part.tool : '';
+      if (CODE_CONTEXT_TOOLS.some((t) => name.includes(t))) mcpToolCalls++;
+    } else if (part.type === 'step-finish') {
+      const t = part.tokens;
+      inputTokens += num(t?.input);
+      outputTokens += num(t?.output) + num(t?.reasoning);
+      cacheReadTokens += num(t?.cache?.read);
+      cacheWriteTokens += num(t?.cache?.write);
+    }
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    toolCalls,
+    mcpToolCalls,
+    assistantText: texts.join('\n\n'),
+    skippedLines,
+    sessionId,
+  };
+}

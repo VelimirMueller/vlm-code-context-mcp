@@ -40,8 +40,14 @@ import Database from "better-sqlite3";
 import { indexDirectory } from "../src/server/indexer.js";
 import { createTestDb } from "./helpers/db.js";
 import { resolveBenchmarkOutputPath } from "./helpers/benchmark-output.js";
-
-const FIXTURE_DIR = path.resolve(__dirname, "fixtures/sample-project");
+import {
+  FIXTURE_DIR,
+  canonicalPath,
+  hasMachineDependentText,
+  CANONICAL_ROOT,
+  CANONICAL_MODIFIED_AT,
+  CANONICAL_INDEXED_AT,
+} from "./helpers/benchmark-fixture.js";
 const NUM_TRIALS = 200;
 const SEED = 42;
 const BOOTSTRAP_RESAMPLES = 2000;
@@ -165,8 +171,8 @@ function queryFile(db: Database.Database, fp: string) {
 function mcpFileContext(d: NonNullable<ReturnType<typeof queryFile>>): string {
   const { file: f, exports: e, deps, dependents: dep } = d;
   return [
-    `# ${f.path}`,
-    `${f.language} | ${formatSize(f.size_bytes)} | ${f.line_count} lines | modified ${f.modified_at}`,
+    `# ${canonicalPath(f.path)}`,
+    `${f.language} | ${formatSize(f.size_bytes)} | ${f.line_count} lines | modified ${CANONICAL_MODIFIED_AT} | indexed ${CANONICAL_INDEXED_AT}`,
     f.summary,
     f.description && f.description !== f.summary ? f.description : "",
     e.length > 0
@@ -176,10 +182,10 @@ function mcpFileContext(d: NonNullable<ReturnType<typeof queryFile>>): string {
       ? `## External packages\n${f.external_imports}`
       : "",
     deps.length > 0
-      ? `## Imports from (${deps.length})\n${deps.map((x: any) => `- ${x.path} [${x.symbols}]`).join("\n")}`
+      ? `## Imports from (${deps.length})\n${deps.map((x: any) => `- ${canonicalPath(x.path)} [${x.symbols}]`).join("\n")}`
       : "",
     dep.length > 0
-      ? `## Imported by (${dep.length})\n${dep.map((x: any) => `- ${x.path} [${x.symbols}]`).join("\n")}`
+      ? `## Imported by (${dep.length})\n${dep.map((x: any) => `- ${canonicalPath(x.path)} [${x.symbols}]`).join("\n")}`
       : "",
   ]
     .filter(Boolean)
@@ -197,7 +203,7 @@ function mcpSearchFiles(db: Database.Database, q: string): string {
   return rows
     .map(
       (r: any) =>
-        `${r.path} (${r.language}, ${r.line_count} lines, ${r.ec} exports, ${r.dc} deps)\n  ${r.summary}`,
+        `${canonicalPath(r.path)} (${r.language}, ${r.line_count} lines, ${r.ec} exports, ${r.dc} deps)\n  Modified: ${CANONICAL_MODIFIED_AT} | indexed ${CANONICAL_INDEXED_AT} | ${r.summary}`,
     )
     .join("\n\n");
 }
@@ -950,5 +956,21 @@ describe("Stochastic MCP vs Vanilla benchmark", () => {
   it("all 4 templates are represented", () => {
     const templates = new Set(trials.map((t) => t.template));
     expect(templates.size).toBe(4);
+  });
+
+  // ── Path independence ─────────────────────────────────────────────────────
+
+  it("simulated MCP outputs use a fixed canonical root (contain CANONICAL_ROOT, never the real fixture dir)", () => {
+    const outputs: string[] = [];
+    for (const f of tsFiles) {
+      outputs.push(mcpFileContext(queryFile(db, f.dbPath)!));
+      outputs.push(mcpSearchFiles(db, path.basename(f.dbPath, ".ts")));
+    }
+    expect(outputs.length).toBeGreaterThan(0);
+    for (const out of outputs) {
+      expect(hasMachineDependentText(out)).toBe(false);
+      expect(out).not.toContain(FIXTURE_DIR);
+      expect(out).toContain(CANONICAL_ROOT);
+    }
   });
 });

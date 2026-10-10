@@ -1,0 +1,78 @@
+name: Benchmark
+
+# On-demand benchmarks only — never a schedule (test/bench-guard.test.ts).
+# kind=simulated runs the token-cost simulation; kind=agent runs a real
+# OpenCode session against the fixture (glm or deepseek) and cleanly skips
+# when the matching API key secret is not configured.
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: Which benchmark to run
+        type: choice
+        options: [simulated, agent]
+        default: simulated
+      provider:
+        description: Agent provider (kind=agent only)
+        type: choice
+        options: [glm, deepseek]
+        default: glm
+
+permissions:
+  contents: write # push data/ to the bench-results branch
+  actions: write # dispatch pages.yml after the push (GITHUB_TOKEN pushes fire no events)
+
+concurrency:
+  group: benchmark
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run simulated benchmark
+        if: inputs.kind == 'simulated'
+        run: npm run bench
+
+      - name: Run agent benchmark (clean skip without the key secret)
+        if: inputs.kind == 'agent'
+        id: agent
+        shell: bash
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          case "${{ inputs.provider }}" in
+            glm)      KEY_NAME=ZAI_API_KEY ;;
+            deepseek) KEY_NAME=DEEPSEEK_API_KEY ;;
+          esac
+          if [ -z "${!KEY_NAME}" ]; then
+            echo "::notice::${{ inputs.provider }} API key secret missing — agent benchmark skipped"
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm run bench:live -- --provider "${{ inputs.provider }}"
+          echo "ran=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish run data to bench-results
+        if: steps.agent.outputs.ran != 'false'
+        run: npm run bench:publish
+
+      - name: Rebuild the Pages site
+        if: steps.agent.outputs.ran != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

@@ -1,44 +1,603 @@
-:root{--bg:#070514;--panel:#0d0a22;--line:#2a2352;--text:#d8e8ff;--dim:#9db0d0;--mag:#ee4fff;--cy:#00fff7;--gr:#05ffa1;--ye:#f0ff19;--red:#ff2a6d}
-*{box-sizing:border-box}
-html{background:var(--bg);overflow-x:hidden}
-body{margin:0;overflow-x:hidden;overflow-wrap:break-word;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:960px;margin:0 auto;padding:0 16px 64px;width:100%}
-.wrap :is(div,section,dl,dd,dt,li,p,span,h1,h2,h3,a,nav){min-width:0}
-.wrap>section,.card,.note,.pending,.verdict>*{max-width:100%}
-header.top{padding:32px 0 8px}
-h1{font-size:clamp(1.5rem,5vw,2.3rem);margin:0 0 4px;color:var(--cy);letter-spacing:.01em}
-h2{font-size:1.4rem;color:var(--mag);margin:48px 0 12px;border-bottom:1px solid var(--line);padding-bottom:6px}
-h3{font-size:1.05rem;color:var(--cy);margin:24px 0 6px}
-a{color:var(--cy)}a:hover{color:var(--gr)}
-p,li{max-width:70ch;overflow-wrap:anywhere}
-h1,h2,h3{overflow-wrap:anywhere}
-.sub{color:var(--dim);margin:0}
-nav{display:flex;flex-wrap:wrap;gap:6px 16px;margin:16px 0}
-nav a{font-size:.9rem}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin:16px 0}
-.verdict{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center}
-.badge{font-size:clamp(1.8rem,8vw,3rem);font-weight:800;letter-spacing:.04em;padding:4px 18px;border:2px solid currentColor;border-radius:10px}
-.keep{color:var(--gr)}.drop{color:var(--red)}.inc{color:var(--ye)}.pend{color:var(--dim)}
-.big{font-size:1.4rem;overflow-wrap:anywhere;font-weight:700}
-dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:12px 0 0;font-size:.92rem}
-dl.meta dt{color:var(--dim)}dl.meta dd{margin:0;overflow-wrap:anywhere;word-break:break-word}
-@media(max-width:560px){dl.meta{grid-template-columns:1fr}dl.meta dt{margin-top:6px}}
-.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{border-collapse:collapse;width:100%;min-width:640px;font-size:.92rem}
-th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th:first-child,td:first-child{text-align:left;white-space:normal}
-th{color:var(--dim);font-weight:600}
-tr.sum td{font-weight:700;background:#120e2e}
-.pos{color:var(--gr)}.neg{color:var(--red)}
-.note{border-left:4px solid var(--ye);background:#14122a;padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
-.demo{background:var(--red);color:#fff;font-weight:800;text-align:center;padding:8px;letter-spacing:.08em}
-.pending{border:1px dashed var(--mag);border-radius:10px;padding:16px;margin:16px 0;color:var(--dim)}
-.pending b{color:var(--mag)}
-svg{width:100%;height:auto;display:block}
-svg text{fill:var(--dim);font:11px system-ui,sans-serif}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.85rem;color:var(--dim)}
-code,pre{font-family:ui-monospace,Menlo,Consolas,monospace;background:#120e2e;border-radius:4px}
-code{padding:1px 5px;font-size:.88em}
-pre{padding:12px;overflow-x:auto;max-width:100%}
-footer{margin-top:56px;color:var(--dim);font-size:.85rem}
-:focus-visible{outline:2px solid var(--ye);outline-offset:2px}
+/*
+ * Flagship look. Brand tokens, exact (grep these):
+ *   accent fill            #6366f1
+ *   accent text, dark      #818cf8      accent text, light  #4f46e5
+ *   dark:  page #0a0a0b  text #f4f4f5  sub #a1a1aa  faint #71717a
+ *          line #26262b   grid #ffffff at 5 % alpha   green #10b981
+ *   light: page #fafafa  text #0a0a0b  sub #52525b  faint #71717a
+ *          line #e4e4e7   grid #18181b at 5 % alpha   green #047857
+ *
+ * Fonts: no webfont is loaded — the page makes zero third-party requests.
+ * Space Mono is used when installed locally; otherwise the system mono stack
+ * takes over (owner decision, PLAN risk 10).
+ */
+:root {
+  --accent: #6366f1;
+  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* light theme (default) */
+  --page: #fafafa;
+  --text: #0a0a0b;
+  --sub: #52525b;
+  --faint: #71717a;
+  --line: #e4e4e7;
+  --grid: rgba(24, 24, 27, 0.05); /* #18181b at 5 % */
+  --accent-text: #4f46e5;
+  --green: #047857;
+  --panel: #ffffff;
+  --bad: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --page: #0a0a0b;
+    --text: #f4f4f5;
+    --sub: #a1a1aa;
+    --faint: #71717a;
+    --line: #26262b;
+    --grid: rgba(255, 255, 255, 0.05); /* #ffffff at 5 % */
+    --accent-text: #818cf8;
+    --green: #10b981;
+    --panel: #101012;
+    --bad: #f87171;
+  }
+}
+:root[data-theme='dark'] {
+  --page: #0a0a0b;
+  --text: #f4f4f5;
+  --sub: #a1a1aa;
+  --faint: #71717a;
+  --line: #26262b;
+  --grid: rgba(255, 255, 255, 0.05); /* #ffffff at 5 % */
+  --accent-text: #818cf8;
+  --green: #10b981;
+  --panel: #101012;
+  --bad: #f87171;
+}
+:root[data-theme='light'] {
+  --page: #fafafa;
+  --text: #0a0a0b;
+  --sub: #52525b;
+  --faint: #71717a;
+  --line: #e4e4e7;
+  --grid: rgba(24, 24, 27, 0.05); /* #18181b at 5 % */
+  --accent-text: #4f46e5;
+  --green: #047857;
+  --panel: #ffffff;
+  --bad: #b91c1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+/* Page color + the faint 5 % grid live on the ROOT element: a root
+ * background propagates to the canvas and paints the whole scrollable
+ * document (and the overscroll area). On <body> with
+ * background-attachment: fixed the grid covered only the first viewport
+ * height — in full-page captures it stopped partway down the page. */
+html {
+  background-color: var(--page);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  overflow-x: hidden;
+}
+body {
+  margin: 0;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  color: var(--text);
+  font: 16px/1.65 var(--font-sans);
+}
+.wrap {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px 72px;
+  width: 100%;
+}
+.wrap :is(div, section, dl, dd, dt, li, p, span, h1, h2, h3, h4, a, nav, pre, table) {
+  min-width: 0;
+}
+.wrap > section,
+.card,
+.note,
+.pending,
+.verdict > * {
+  max-width: 100%;
+}
+
+/* ---- header ---- */
+header.top {
+  position: relative;
+  padding: 48px 0 8px;
+  overflow: hidden;
+}
+/* The wordmark and the box-drawing frames use a stack that starts at Menlo:
+ * 'Space Mono' (first in --font-mono) has no U+2588 full-block and no
+ * box-drawing glyphs, so those characters fell back to a wider non-mono face
+ * (0.82 em advance) — the wordmark outgrew every vw estimate and was clipped
+ * below ~960 px. Menlo/Consolas/Liberation Mono carry both glyph sets at one
+ * fixed advance. 56 columns x 0.6021 em worst-case advance -> font-size from
+ * calc((100vw - 44px) / 35), which fits 360/390/768/1280 with margin. */
+pre.wordmark {
+  font-family: Menlo, 'SF Mono', ui-monospace, Consolas, 'Liberation Mono', monospace;
+  font-size: clamp(6px, calc((100vw - 44px) / 35), 20px);
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+  line-height: 1;
+  margin: 0 0 18px;
+  color: var(--accent-text);
+  white-space: pre;
+  padding: 0; /* reset the generic pre chrome */
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+  width: max-content;
+  max-width: 100%;
+}
+.tagline {
+  color: var(--sub);
+  max-width: 62ch;
+  margin: 0 0 18px;
+}
+.header-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+}
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+nav a {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  text-transform: lowercase;
+}
+#theme-toggle {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--accent-text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+#theme-toggle:hover {
+  border-color: var(--accent-text);
+}
+
+/* ---- sections ---- */
+h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 64px 0 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.marker {
+  font-family: var(--font-mono);
+  color: var(--accent-text);
+  margin-right: 10px;
+}
+.marker::after {
+  content: '_'; /* cursor blink — the one animation on the page */
+  animation: cursor-blink 1.1s steps(2, start) infinite;
+}
+@keyframes cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+h3 {
+  font-size: 1.05rem;
+  margin: 28px 0 8px;
+}
+h4 {
+  font-size: 1rem;
+  margin: 20px 0 6px;
+}
+a {
+  color: var(--accent-text);
+}
+p,
+li {
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+h1,
+h2,
+h3,
+h4 {
+  overflow-wrap: anywhere;
+}
+.sub {
+  color: var(--sub);
+  margin: 0 0 8px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- cards, badges, meta ---- */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 26px;
+  margin: 20px 0;
+}
+.kind-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 16px;
+  margin: 14px 0;
+}
+.kbadge {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.kbadge.k-sim {
+  color: var(--green);
+}
+.kbadge.k-agent {
+  color: var(--accent-text);
+}
+.kbadge.k-claude {
+  color: var(--sub);
+}
+.verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: center;
+}
+.badge {
+  font-family: var(--font-mono);
+  font-size: clamp(1.3rem, 6vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 18px;
+  border: 2px solid currentColor;
+  border-radius: 10px;
+}
+.badge.small {
+  font-size: 0.85rem;
+  padding: 2px 10px;
+}
+.keep {
+  color: var(--green);
+}
+.drop {
+  color: var(--bad);
+}
+.inc {
+  color: var(--sub);
+}
+.pend {
+  color: var(--faint);
+}
+.big {
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+.met {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--sub);
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+}
+dl.meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 12px 0 0;
+  font-size: 0.92rem;
+}
+dl.meta dt {
+  color: var(--sub);
+}
+dl.meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+@media (max-width: 560px) {
+  dl.meta {
+    grid-template-columns: 1fr;
+  }
+  dl.meta dt {
+    margin-top: 6px;
+  }
+}
+
+/* ---- box-drawing frames (headline numbers) ----
+ * Pixel-exact rules: every line of a frame has the same character count and
+ * the same font — one family for corners, bars AND letters (Menlo stack),
+ * no bold inside the frames (bold rendered at a different advance and broke
+ * the side bars), ligatures off, zero letter-spacing, line-height 1,
+ * white-space pre. Blocks are separate <pre>s in a wrapping flex row, so
+ * narrow viewports reflow instead of clipping. */
+.frames-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px 20px;
+  margin: 18px 0;
+}
+pre.frames {
+  font-family: Menlo, 'SF Mono', ui-monospace, Consolas, 'Liberation Mono', monospace;
+  font-size: clamp(9px, 2.6vw, 14px);
+  font-variant-ligatures: none;
+  font-kerning: none;
+  letter-spacing: 0;
+  line-height: 1;
+  margin: 0;
+  padding: 0; /* reset the generic pre chrome */
+  background: none;
+  border-radius: 0;
+  color: var(--text);
+  white-space: pre;
+}
+pre.frames .fl {
+  color: var(--sub);
+}
+pre.frames .fv {
+  color: var(--accent-text);
+}
+
+/* ---- tables ---- */
+.tablewrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 12px 0;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+  font-size: 0.92rem;
+}
+th,
+td {
+  padding: 8px 12px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+th:first-child,
+td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+th {
+  color: var(--sub);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+tr.sum td {
+  font-weight: 700;
+  background: color-mix(in srgb, var(--panel) 80%, var(--line));
+}
+.pos {
+  color: var(--green);
+}
+.neg {
+  color: var(--bad);
+}
+button.rowbtn {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent-text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button.rowbtn:hover {
+  border-color: var(--accent-text);
+}
+
+/* ---- history rows (All runs) ----
+ * Wide viewports: one grid line per run, table-like. Below 720 px: the same
+ * grid re-areas into a stacked card (kind + open, date, model, headline) so
+ * no column ever runs off-screen. minmax(0,1fr) + overflow-wrap let the
+ * long headlines wrap instead of pushing the row wide. */
+.runs-head,
+.runrow {
+  display: grid;
+  grid-template-columns: max-content max-content max-content minmax(0, 1fr) max-content;
+  grid-template-areas: 'kind date model headline open';
+  column-gap: 18px;
+  align-items: center;
+}
+.runs-head {
+  font-family: var(--font-mono);
+  color: var(--sub);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+}
+ul.runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.runrow {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  row-gap: 4px;
+}
+.rk-kind {
+  grid-area: kind;
+}
+.rk-date {
+  grid-area: date;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--sub);
+  white-space: nowrap;
+}
+.rk-model {
+  grid-area: model;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--sub);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.rk-headline {
+  grid-area: headline;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rk-open {
+  grid-area: open;
+}
+@media (max-width: 719px) {
+  .runs-head {
+    display: none;
+  }
+  .runrow {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-areas:
+      'kind open'
+      'date date'
+      'model model'
+      'headline headline';
+    align-items: start;
+  }
+  .rk-open {
+    justify-self: end;
+  }
+}
+
+/* ---- notes, pending, demo ---- */
+.note {
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+  padding: 12px 18px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.demo {
+  font-family: var(--font-mono);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px;
+  letter-spacing: 0.08em;
+}
+.pending {
+  border: 1px dashed var(--faint);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 16px 0;
+  color: var(--sub);
+}
+.pending b {
+  color: var(--accent-text);
+}
+
+/* ---- charts ---- */
+svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+svg text {
+  fill: var(--sub);
+  font: 11px var(--font-sans);
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--sub);
+}
+
+/* ---- code ---- */
+code,
+pre {
+  font-family: var(--font-mono);
+  background: color-mix(in srgb, var(--panel) 60%, var(--line));
+  border-radius: 4px;
+}
+code {
+  padding: 1px 5px;
+  font-size: 0.88em;
+}
+pre {
+  padding: 12px;
+  overflow-x: auto;
+  max-width: 100%;
+}
+details.method {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 4px 26px 18px;
+  margin: 16px 0;
+}
+details.method summary {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--accent-text);
+  cursor: pointer;
+  padding: 14px 0;
+}
+footer {
+  margin-top: 72px;
+  color: var(--sub);
+  font-size: 0.85rem;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+/* ---- reduced motion: the single animation stops ---- */
+@media (prefers-reduced-motion: reduce) {
+  .marker::after {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

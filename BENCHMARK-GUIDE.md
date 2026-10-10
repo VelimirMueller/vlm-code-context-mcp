@@ -1,19 +1,71 @@
 # Benchmark Guide
 
-How to run, interpret, and extend the MCP vs Vanilla benchmark.
+How to run, interpret, and extend the benchmarks.
 
 ---
 
-## Quick Start
+## On demand only
+
+A benchmark runs when a person starts it. Nothing in this repo starts a run from a timer. Do not add a time schedule to any workflow. A guard test (`test/bench-guard.test.ts`) fails the build if a workflow gains one.
+
+## The three kinds
+
+| Kind | What it measures |
+|------|------------------|
+| `simulated` | Context efficiency from scripted replays. No model runs. Deterministic, plus a stochastic block with fixed seed. |
+| `agent-glm` / `agent-deepseek` | A real model through the OpenCode CLI, same task with and without the code-context MCP server. One repeat per arm. Results are indicative, not statistical. |
+| `agent-claude` | Pre-registered external harness (Claude Code sessions, pre-registration v1/v2). The old run files are read-only. The site renders them unchanged. |
+
+## How to run
 
 ```bash
-# Run the benchmark
-npm test -- test/benchmark.test.ts
+# Simulated: refreshes the two tracked result files, writes a run JSON into data/
+npm run bench
 
-# Verbose output (shows the report table)
+# Agent: real model, real tokens. Provider picks the model and the key it reads
+npm run bench:live -- --provider glm       # reads ZAI_API_KEY
+npm run bench:live -- --provider deepseek  # reads DEEPSEEK_API_KEY
+npm run bench:live -- --provider glm --tasks L1,L2   # narrower task set
+
+# Publish: commit data/ to the bench-results branch and push (builds the site)
+npm run bench:publish
+```
+
+Notes:
+
+- `bench:live` needs `npm run build` first. It refuses to run without the dist server.
+- The key variables hold secret values. The scripts never print them. Run JSON files carry the variable name only.
+- Every `npm run bench` rewrites the two tracked files `benchmark-results.json` and `benchmark-stochastic-results.json`. This is the intended refresh path.
+
+In GitHub Actions: open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) and run it with **Run workflow**. Pick `kind` (`simulated` or `agent`) and `provider` (`glm` or `deepseek`). For `kind=agent`, the workflow reads the repository secrets `ZAI_API_KEY` or `DEEPSEEK_API_KEY`. When the secret is empty, the job prints a notice and ends green. It runs nothing.
+
+## Where the results go
+
+- Run files land in `data/runs/<run_id>.json` (schema `ccc-bench/1`).
+- `npm run bench:publish` commits `data/` to the `bench-results` branch and pushes. The branch holds `data/runs/`, `data/index.json` (all runs, newest first), and `data/latest.json` (the newest run of any kind).
+- The Pages site at <https://velimirmueller.github.io/code-context-mcp/> rebuilds after each push. The latest run is the headline. The history lists every run. Run files on `bench-results` are append-only: they are never rewritten or deleted.
+
+## Cost
+
+- `simulated` costs nothing. No model runs.
+- `bench:live` spends real tokens. Each task runs twice: once without the server, once with it. The default task set is small on purpose. Use `--tasks` to cut it further. A full run costs task count × 2 sessions of prompt and tool traffic.
+- Single-repeat agent numbers show a direction, not a distribution. Use `--repeats` for more, and expect the cost to scale.
+
+---
+
+## The simulated kind in depth
+
+The sections below describe the simulated benchmark: what it measures, how the tasks are built, and how to read the two result files.
+
+### Quick Start
+
+```bash
+# Run the benchmark (writes a published run JSON plus data/index.json, data/latest.json)
+npm run bench
+
+# The underlying test suites, verbose
 npx vitest run test/benchmark.test.ts --reporter=verbose
-
-# Results are written to benchmark-results.json automatically
+npx vitest run test/benchmark-stochastic.test.ts --reporter=verbose
 ```
 
 ---
@@ -338,6 +390,5 @@ Full debate transcript in `GEMMA-VS-OPUS-DEBATE.md`.
 
 ---
 
-*Generated 2026-04-16.*
-*Deterministic: `npm test -- test/benchmark.test.ts`*
-*Stochastic: `npm test -- test/benchmark-stochastic.test.ts`*
+*Generated 2026-04-16. On-demand runs since 2026-10-10.*
+*Deterministic + stochastic, published run: `npm run bench`*
