@@ -37,7 +37,11 @@ Notes:
 - The key variables hold secret values. The scripts never print them. Run JSON files carry the variable name only.
 - Every `npm run bench` rewrites the two tracked files `benchmark-results.json` and `benchmark-stochastic-results.json`. This is the intended refresh path.
 
-In GitHub Actions: open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) and run it with **Run workflow**. Pick `kind` (`simulated` or `agent`) and `provider` (`glm` or `deepseek`). For `kind=agent`, the workflow reads the repository secrets `ZAI_API_KEY` or `DEEPSEEK_API_KEY`. When the secret is empty, the job prints a notice and ends green. It runs nothing.
+Where each kind runs:
+
+- **Simulated:** anywhere. In GitHub Actions open the **Benchmark** workflow (`.github/workflows/benchmark.yml`), **Run workflow**, `kind=simulated`. It publishes the run and rebuilds the site.
+- **Agent (glm, deepseek):** locally, by hand. Export the provider key in your shell, run `npm run build`, `npm run bench:live -- --provider <glm|deepseek>`, then `npm run bench:publish`. The provider keys stay on your machine.
+- **Agent in Actions:** only when the repository secret `ZAI_API_KEY` or `DEEPSEEK_API_KEY` is set. The repo keeps none by default, so `kind=agent` prints a notice with the local command, ends green and publishes nothing.
 
 ## Sandbox model
 
