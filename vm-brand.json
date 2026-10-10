@@ -1,11 +1,11 @@
 {
   "$comment": "VM. studio brand manifest — see vm-brand/PLAYBOOK.md §7",
-  "group": "vlm",
+  "group": "flagship",
   "tagline": "Read less. Know more.",
   "sublabel": "MCP · CODE INDEX · SPRINTS · DASHBOARD",
-  "bannerVersion": "v1",
+  "bannerVersion": "v2",
   "art": {
-    "file": "vlm/vlm-v1-seed203.png",
-    "seed": 203
+    "file": "v2/code-context-mcp.png",
+    "seed": 319
   }
 }
