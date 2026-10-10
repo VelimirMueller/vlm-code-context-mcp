@@ -55,8 +55,14 @@ describe('bench guard — benchmarks run on demand only, never on a schedule', (
     const block = onBlock(content);
     expect(block, 'benchmark.yml must declare an on: block').not.toBeNull();
     expect(block).toContain('workflow_dispatch');
-    const forbidden = ['push:', 'pull_request:', 'schedule:', 'workflow_call:', 'workflow_run:',
-      'repository_dispatch:'];
+    const forbidden = [
+      'push:',
+      'pull_request:',
+      'schedule:',
+      'workflow_call:',
+      'workflow_run:',
+      'repository_dispatch:',
+    ];
     for (const key of forbidden) {
       expect(block, `benchmark.yml must not trigger on ${key}`).not.toContain(key);
     }
