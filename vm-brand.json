@@ -3,10 +3,10 @@
   "group": "flagship",
   "tagline": "Read less. Know more.",
   "sublabel": "MCP · CODE INDEX · SPRINTS · DASHBOARD",
-  "bannerVersion": "v2",
+  "bannerVersion": "v3",
   "art": {
     "file": "v2/code-context-mcp.png",
     "seed": 319
   },
-  "status": "STABLE · v2.8.0"
+  "status": "STABLE · v2.9.0"
 }
