@@ -1,0 +1,35 @@
+{
+  "group": "flagship",
+  "version": "v2",
+  "dividers": [
+    {
+      "key": "latest",
+      "index": "01",
+      "title": "LATEST RUN",
+      "caption": "THE NEWEST NUMBERS. UNEDITED.",
+      "art": "strip-flagship-1"
+    },
+    {
+      "key": "history",
+      "index": "02",
+      "title": "ALL RUNS",
+      "caption": "APPEND-ONLY. NO TAKEBACKS.",
+      "art": "strip-flagship-2"
+    },
+    {
+      "key": "detail",
+      "index": "03",
+      "title": "RUN DETAIL",
+      "caption": "EVERY TASK. EVERY TOKEN.",
+      "art": "strip-flagship-4"
+    },
+    {
+      "key": "method",
+      "index": "04",
+      "title": "METHOD",
+      "caption": "RULES FIRST. RESULTS SECOND.",
+      "art": "strip-flagship-5"
+    }
+  ],
+  "panels": []
+}

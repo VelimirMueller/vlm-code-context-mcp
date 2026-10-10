@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SITE = join(__dirname, '..', 'site');
@@ -390,6 +390,35 @@ describe('render defects fixed after a real render', () => {
     expect(w.document.querySelector('.hero-bg')).toBe(null);
     expect(w.document.querySelectorAll('header img').length).toBe(0);
     expect(w.document.body.textContent.includes('hero')).toBe(false);
+  });
+  it('shows the brand hero as its own block, switched by data-theme', async () => {
+    const w = load({ latest: sim(), index: { runs: [sim()] }, runs: {} });
+    await tick();
+    const srcs = [...w.document.querySelectorAll('.hero img')].map((i: any) => [
+      i.className,
+      i.getAttribute('src'),
+    ]);
+    expect(srcs).toEqual([
+      ['only-dark', 'assets/hero-v2-dark.svg'],
+      ['only-light', 'assets/hero-v2-light.svg'],
+    ]);
+    // The site copies must not drift from the README hero.
+    for (const f of ['hero-v2-dark.svg', 'hero-v2-light.svg']) {
+      const repo = readFileSync(join(SITE, '..', 'assets', 'banner', f));
+      expect(readFileSync(join(SITE, 'assets', f)).equals(repo)).toBe(true);
+    }
+  });
+  it('every section has a divider image and keeps a real, hidden <h2>', async () => {
+    const w = load({ latest: sim(), index: { runs: [sim()] }, runs: {} });
+    await tick();
+    for (const id of ['latest', 'history', 'detail', 'method']) {
+      const sec = w.document.getElementById(id);
+      const img = sec.querySelector('img.divider');
+      expect(img.getAttribute('src')).toBe(`assets/divider-${id}-v2.svg`);
+      expect(img.getAttribute('alt')).toBe('');
+      expect(existsSync(join(SITE, img.getAttribute('src')))).toBe(true);
+      expect(sec.querySelector('h2').classList.contains('visually-hidden')).toBe(true);
+    }
   });
 });
 

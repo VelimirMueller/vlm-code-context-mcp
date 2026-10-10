@@ -107,9 +107,42 @@ body {
 }
 
 /* ---- header ---- */
+/* Brand images (vm-brand README v2 kit). The hero follows the theme toggle,
+ * so it is two <img> switched on data-theme, not a <picture> media query.
+ * The dividers carry the section title as outlined paths; the real <h2>
+ * stays in the DOM, visually hidden. One dark file serves both themes. */
+.hero {
+  margin: 32px 0 0;
+}
+.hero img,
+img.divider {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* Light is the default, as for the tokens above, so a page without the
+ * theme script still shows exactly one hero. */
+.hero .only-dark,
+:root[data-theme='dark'] .hero .only-light {
+  display: none;
+}
+:root[data-theme='dark'] .hero .only-dark {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .hero .only-light {
+    display: none;
+  }
+  :root:not([data-theme]) .hero .only-dark {
+    display: block;
+  }
+}
+img.divider {
+  margin: 64px 0 20px;
+}
 header.top {
   position: relative;
-  padding: 48px 0 8px;
+  padding: 32px 0 8px;
   overflow: hidden;
 }
 /* The wordmark and the box-drawing frames use a stack that starts at Menlo:
