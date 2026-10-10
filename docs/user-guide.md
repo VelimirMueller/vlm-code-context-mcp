@@ -580,7 +580,7 @@ npx code-context-dashboard export context.db > results.json
 ## Getting Help
 
 - **API Reference:** See `docs/api-reference.md` for complete tool documentation
-- **GitHub Issues:** https://github.com/VelimirMueller/vlm-code-context-mcp/issues
+- **GitHub Issues:** https://github.com/VelimirMueller/code-context-mcp/issues
 - **Examples:** Check `examples/` directory for sample projects
 
 ---

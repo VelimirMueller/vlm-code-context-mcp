@@ -13,5 +13,5 @@ window.BENCH_CONFIG = {
   MIN_TREATMENT_RATE: 0.8,            // prereg v2: a run is VALID only if >= 80 % of cc sessions received the treatment
   // Runs whose treatment failure is documented in the prereg v2 change log but not recorded in the run row.
   KNOWN_TREATMENT_FAILURES: { "20261009-101417": "0 of 12 cc sessions called code-context, per the prereg v2 change log" },
-  REPO: "https://github.com/VelimirMueller/vlm-code-context-mcp"
+  REPO: "https://github.com/VelimirMueller/code-context-mcp"
 };

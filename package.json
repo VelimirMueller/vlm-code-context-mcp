@@ -104,12 +104,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/VelimirMueller/vlm-code-context-mcp.git"
+    "url": "git+https://github.com/VelimirMueller/code-context-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/VelimirMueller/vlm-code-context-mcp/issues"
+    "url": "https://github.com/VelimirMueller/code-context-mcp/issues"
   },
-  "homepage": "https://github.com/VelimirMueller/vlm-code-context-mcp#readme",
+  "homepage": "https://github.com/VelimirMueller/code-context-mcp#readme",
   "license": "MIT",
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": [

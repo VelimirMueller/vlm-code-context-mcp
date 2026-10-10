@@ -24,7 +24,7 @@ code-context-mcp setup .
 code-context-dashboard
 ```
 
-MIT licensed. GitHub: github.com/VelimirMueller/vlm-code-context-mcp
+MIT licensed. GitHub: github.com/VelimirMueller/code-context-mcp
 
 ---
 
