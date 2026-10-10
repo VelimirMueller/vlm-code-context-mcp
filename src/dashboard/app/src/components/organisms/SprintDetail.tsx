@@ -285,7 +285,7 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           const colors: Record<string, string> = {
             TODO: 'var(--text3)',
             IN_PROGRESS: 'var(--blue)',
-            DONE: 'var(--accent)',
+            DONE: 'var(--green)',
             NOT_DONE: 'var(--red)',
           };
           return (
@@ -341,7 +341,7 @@ export function SprintDetail({ onNavigate }: SprintDetailProps = {}) {
           </div>
           <div>
             <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>Completed</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{donePts}sp</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--green)' }}>{donePts}sp</div>
           </div>
           <div>
             <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>Team</div>
@@ -470,7 +470,7 @@ function GateStatusBar({ sprintId, phase }: { sprintId: number; phase: string })
         <span style={{
           fontSize: 10, fontWeight: 700, padding: '1px 8px', borderRadius: 10,
           background: gateStatus.all_passed ? 'rgba(16,185,129,.15)' : 'rgba(239,68,68,.15)',
-          color: gateStatus.all_passed ? 'var(--accent)' : 'var(--red)',
+          color: gateStatus.all_passed ? 'var(--green)' : 'var(--red)',
         }}>
           {gateStatus.all_passed ? 'READY' : 'BLOCKED'}
         </span>
@@ -482,7 +482,7 @@ function GateStatusBar({ sprintId, phase }: { sprintId: number; phase: string })
             padding: '3px 10px', borderRadius: 6, fontSize: 11,
             background: g.passed ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)',
             border: `1px solid ${g.passed ? 'rgba(16,185,129,.2)' : 'rgba(239,68,68,.2)'}`,
-            color: g.passed ? 'var(--accent)' : 'var(--red)',
+            color: g.passed ? 'var(--green)' : 'var(--red)',
           }}>
             <span>{g.passed ? '✓' : '✗'}</span>
             <span style={{ fontWeight: 600 }}>{GATE_LABELS[g.gate] || g.gate}</span>

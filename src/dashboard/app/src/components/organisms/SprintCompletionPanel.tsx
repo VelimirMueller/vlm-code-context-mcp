@@ -24,7 +24,7 @@ function getCompletionStatus(
   value?: string
 ): { type: 'done' | 'partial' | 'pending'; color: string } {
   if (complete) {
-    return { type: 'done', color: 'var(--accent)' };
+    return { type: 'done', color: 'var(--green)' };
   }
   if (threshold !== undefined && value) {
     const match = value.match(/(\d+)\s*\/\s*(\d+)/);
@@ -156,7 +156,7 @@ export function SprintCompletionPanel({
                 padding: '8px 12px',
                 borderRadius: 'var(--radius)',
                 background: item.complete ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg)',
-                border: `1px solid ${item.complete ? 'var(--accent)' : 'var(--border)'}`,
+                border: `1px solid ${item.complete ? 'var(--green)' : 'var(--border)'}`,
               }}
             >
               {/* Status Icon */}
@@ -193,7 +193,7 @@ export function SprintCompletionPanel({
                     color: isPartial
                       ? 'var(--orange)'
                       : item.complete
-                      ? 'var(--accent)'
+                      ? 'var(--green)'
                       : 'var(--text3)',
                   }}
                 >
@@ -226,7 +226,7 @@ export function SprintCompletionPanel({
             fontWeight: 600,
             border: 'none',
             cursor: allComplete ? 'pointer' : 'not-allowed',
-            background: allComplete ? 'var(--accent)' : 'var(--surface3)',
+            background: allComplete ? 'var(--green)' : 'var(--surface3)',
             color: allComplete ? 'white' : 'var(--text3)',
             transition: 'all 0.2s ease',
           }}
@@ -279,7 +279,7 @@ export function SprintCompletionPanel({
         <div style={{ marginTop: 12, padding: '12px', borderRadius: 'var(--radius)', background: 'var(--bg)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>QA Verification Report</span>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: qaComplete ? 'var(--accent)' : 'var(--red)', background: qaComplete ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', padding: '1px 8px', borderRadius: 10 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: qaComplete ? 'var(--green)' : 'var(--red)', background: qaComplete ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', padding: '1px 8px', borderRadius: 10 }}>
               {qaVerified}/{tickets.total} verified
             </span>
           </div>
@@ -299,7 +299,7 @@ export function SprintCompletionPanel({
               >
                 <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                   {t.qa_verified ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="var(--accent)"/><path d="M4.5 7L6 8.5L9.5 5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="var(--green)"/><path d="M4.5 7L6 8.5L9.5 5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   ) : (
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="var(--red)" strokeWidth="1.5" fill="none"/></svg>
                   )}
@@ -338,7 +338,7 @@ export function SprintCompletionPanel({
             style={{
               width: `${(checklistItems.filter((i) => i.complete).length / checklistItems.length) * 100}%`,
               height: '100%',
-              background: allComplete ? 'var(--accent)' : velocityPct >= 50 ? 'var(--orange)' : 'var(--red)',
+              background: allComplete ? 'var(--green)' : velocityPct >= 50 ? 'var(--orange)' : 'var(--red)',
               borderRadius: 3,
               transition: 'width 0.3s ease',
             }}

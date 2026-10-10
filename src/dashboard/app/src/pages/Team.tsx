@@ -28,7 +28,7 @@ function WorkloadView() {
           const active = a.active_tickets || 0;
           const blocked = a.blocked_tickets || 0;
           const pct = (active / maxActive) * 100;
-          const barColor = active > 3 ? '#ef4444' : active >= 1 ? 'var(--accent)' : 'var(--text3)';
+          const barColor = active > 3 ? '#ef4444' : active >= 1 ? 'var(--green)' : 'var(--text3)';
           return (
             <div key={a.role} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 140, fontSize: 12, fontWeight: 600, color: 'var(--text2)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>

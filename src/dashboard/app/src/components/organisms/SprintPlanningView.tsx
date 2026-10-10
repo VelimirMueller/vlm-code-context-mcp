@@ -34,7 +34,7 @@ const PRIORITY_OPTIONS = ['P0', 'P1', 'P2', 'P3'];
 const statusDot: Record<string, string> = {
   TODO: 'var(--text3)',
   IN_PROGRESS: '#3b82f6',
-  DONE: 'var(--accent)',
+  DONE: 'var(--green)',
   BLOCKED: '#ef4444',
   PARTIAL: '#f59e0b',
 };

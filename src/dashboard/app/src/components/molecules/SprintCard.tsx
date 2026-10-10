@@ -106,7 +106,7 @@ export function SprintCard({ sprint, selected, onClick, showStatusBadges = true 
         </span>
         {sprint.velocity_committed > 0 && (
           <span style={{
-            color: velocityPct >= 80 ? 'var(--accent)' : velocityPct >= 50 ? 'var(--orange)' : 'var(--red)',
+            color: velocityPct >= 80 ? 'var(--green)' : velocityPct >= 50 ? 'var(--orange)' : 'var(--red)',
             fontWeight: 600,
           }}>
             {velocityPct}%

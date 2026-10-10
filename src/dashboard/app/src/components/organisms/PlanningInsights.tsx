@@ -110,7 +110,7 @@ export function PlanningInsights() {
   })();
 
   const trendColor =
-    trend === 'improving' ? 'var(--accent)' : trend === 'declining' ? 'var(--red)' : 'var(--text3)';
+    trend === 'improving' ? 'var(--green)' : trend === 'declining' ? 'var(--red)' : 'var(--text3)';
 
   // ── Sprint health ─────────────────────────────────────────────────────────
   const activeSprints = sprints.filter((s) => s.status === 'active').length;
@@ -124,7 +124,7 @@ export function PlanningInsights() {
       ? Math.round(completionRates.reduce((a, b) => a + b, 0) / completionRates.length)
       : 0;
   const healthColor =
-    avgCompletion >= 80 ? 'var(--accent)' : avgCompletion >= 60 ? 'var(--orange)' : 'var(--red)';
+    avgCompletion >= 80 ? 'var(--green)' : avgCompletion >= 60 ? 'var(--orange)' : 'var(--red)';
 
   // ── Team capacity ─────────────────────────────────────────────────────────
   const avgMood =
@@ -267,7 +267,7 @@ export function PlanningInsights() {
           title="Sprint Health"
           subtitle="Completion rates"
           borderColor="var(--accent)"
-          iconBg="rgba(16,185,129,.15)"
+          iconBg="rgba(99,102,241,.15)"
         >
           {/* Big completion number */}
           <div style={{ textAlign: 'center', padding: '4px 0 8px' }}>
@@ -337,7 +337,7 @@ export function PlanningInsights() {
           title="Delivery Stats"
           subtitle="Total output delivered"
           borderColor="var(--accent)"
-          iconBg="rgba(16,185,129,.12)"
+          iconBg="rgba(99,102,241,.12)"
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>

@@ -55,7 +55,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function ProgressBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.max(0, value));
-  const color = pct >= 100 ? 'var(--blue)' : pct > 50 ? 'var(--accent)' : 'var(--orange)';
+  const color = pct >= 100 ? 'var(--blue)' : pct > 50 ? 'var(--green)' : 'var(--orange)';
   return (
     <div style={{ background: 'var(--surface3)', borderRadius: 4, height: 5, overflow: 'hidden', flex: 1 }}>
       <div style={{ width: `${pct}%`, background: color, height: '100%', borderRadius: 4, transition: 'width .3s' }} />

@@ -145,7 +145,7 @@ export function TeamMemberForm({ agent, onSave, onCancel, busy }: TeamMemberForm
             padding: '6px 14px',
             fontSize: 12,
             fontWeight: 600,
-            background: 'var(--accent)',
+            background: 'var(--accent-fill)',
             border: 'none',
             borderRadius: 'var(--radius)',
             color: '#fff',

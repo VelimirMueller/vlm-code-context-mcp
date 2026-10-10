@@ -84,7 +84,7 @@ function KeywordStrategy() {
     { keyword: 'AI virtual IT department', volume: '320', competition: 'Low', bid: '$0.50–1.00', intent: 'Very High' },
   ];
 
-  const competitionColor: Record<string, string> = { Low: 'var(--accent)', Medium: 'var(--orange)', High: 'var(--red)' };
+  const competitionColor: Record<string, string> = { Low: 'var(--green)', Medium: 'var(--orange)', High: 'var(--red)' };
   const intentColor: Record<string, string> = { 'Very High': 'var(--accent)', High: 'var(--blue)', Medium: 'var(--text3)' };
 
   return (

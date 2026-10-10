@@ -21,7 +21,7 @@ const priorityColor: Record<string, string> = {
 };
 
 const statusColor: Record<string, string> = {
-  TODO: 'var(--text3)', IN_PROGRESS: 'var(--blue)', DONE: 'var(--accent)', BLOCKED: 'var(--red)',
+  TODO: 'var(--text3)', IN_PROGRESS: 'var(--blue)', DONE: 'var(--green)', BLOCKED: 'var(--red)',
 };
 
 // Status transitions allowed from the UI. DONE stays process-controlled
@@ -53,7 +53,7 @@ function FieldLabel({ label, field, fieldSaved }: { label: string; field: string
   return (
     <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 4, display: 'flex', gap: 6 }}>
       {label}
-      {fieldSaved === field && <span style={{ color: 'var(--accent)' }}>✓</span>}
+      {fieldSaved === field && <span style={{ color: 'var(--green)' }}>✓</span>}
     </div>
   );
 }
@@ -267,7 +267,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 16px', cursor: 'text' }}
               >
                 {editTitle}
-                {fieldSaved === 'title' && <span style={{ color: 'var(--accent)', fontSize: 12, marginLeft: 6 }}>✓</span>}
+                {fieldSaved === 'title' && <span style={{ color: 'var(--green)', fontSize: 12, marginLeft: 6 }}>✓</span>}
               </h3>
             )}
 
@@ -294,7 +294,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                 style={{ padding: '10px 14px', background: 'var(--bg)', borderRadius: 8, borderLeft: '3px solid var(--accent)', fontSize: 13, color: 'var(--text2)', marginBottom: 16, lineHeight: 1.5, cursor: 'text', whiteSpace: 'pre-wrap' as const }}
               >
                 {editDescription || <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Add description…</span>}
-                {fieldSaved === 'description' && <span style={{ color: 'var(--accent)', fontSize: 12, marginLeft: 6 }}>✓</span>}
+                {fieldSaved === 'description' && <span style={{ color: 'var(--green)', fontSize: 12, marginLeft: 6 }}>✓</span>}
               </div>
             )}
 
@@ -368,7 +368,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
 
             {/* QA status (read-only) */}
             <div style={{ display: 'flex', gap: 16, marginBottom: 16, fontSize: 12 }}>
-              <span style={{ color: ticket.qa_verified ? 'var(--accent)' : 'var(--text3)' }}>
+              <span style={{ color: ticket.qa_verified ? 'var(--green)' : 'var(--text3)' }}>
                 {ticket.qa_verified ? '✓ QA Verified' : '✗ Not QA verified'}
               </span>
               {ticket.verified_by && <span style={{ color: 'var(--text3)' }}>by {ticket.verified_by}</span>}
@@ -401,7 +401,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                   disabled={saving}
                   style={{
                     width: '100%', background: 'var(--bg)',
-                    border: `1px solid ${saving ? 'var(--orange)' : saved ? 'var(--accent)' : error ? 'var(--red)' : 'var(--border)'}`,
+                    border: `1px solid ${saving ? 'var(--orange)' : saved ? 'var(--green)' : error ? 'var(--red)' : 'var(--border)'}`,
                     borderRadius: 8, color: saving ? 'var(--text3)' : 'var(--text)', fontSize: 13, padding: '8px 12px',
                     fontFamily: 'var(--font)', cursor: saving ? 'wait' : 'pointer', outline: 'none',
                     opacity: saving ? 0.6 : 1, transition: 'all .2s',
@@ -440,7 +440,7 @@ export function TicketDetailModal({ ticket, milestones, onClose, onMilestoneChan
                   disabled={epicSaving}
                   style={{
                     width: '100%', background: 'var(--bg)',
-                    border: `1px solid ${epicSaving ? 'var(--orange)' : epicSaved ? 'var(--accent)' : epicError ? 'var(--red)' : 'var(--border)'}`,
+                    border: `1px solid ${epicSaving ? 'var(--orange)' : epicSaved ? 'var(--green)' : epicError ? 'var(--red)' : 'var(--border)'}`,
                     borderRadius: 8, color: epicSaving ? 'var(--text3)' : 'var(--text)', fontSize: 13, padding: '8px 12px',
                     fontFamily: 'var(--font)', cursor: epicSaving ? 'wait' : 'pointer', outline: 'none',
                     opacity: epicSaving ? 0.6 : 1, transition: 'all .2s',

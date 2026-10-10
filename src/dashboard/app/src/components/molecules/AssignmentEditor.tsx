@@ -77,8 +77,8 @@ export function AssignmentEditor({ roles, value, onChange, disabled = false }: A
                 fontWeight: 600,
                 fontFamily: 'var(--font)',
                 transition: 'all .15s',
-                background: assigned ? 'rgba(16,185,129,.12)' : 'var(--bg)',
-                border: `1px solid ${assigned ? 'rgba(16,185,129,.4)' : 'var(--border)'}`,
+                background: assigned ? 'rgba(99,102,241,.12)' : 'var(--bg)',
+                border: `1px solid ${assigned ? 'rgba(99,102,241,.4)' : 'var(--border)'}`,
                 color: assigned ? 'var(--accent)' : 'var(--text3)',
               }}
             >

@@ -47,7 +47,7 @@ export function AgentCard({ agent, onEdit }: AgentCardProps) {
   const health = healthStatus(agent);
   const moodScore = agent.mood ?? 50;
   const moodColor =
-    moodScore >= 60 ? 'var(--accent)' : moodScore >= 40 ? 'var(--orange)' : 'var(--red)';
+    moodScore >= 60 ? 'var(--green)' : moodScore >= 40 ? 'var(--orange)' : 'var(--red)';
   const fetchAgents = useAgentStore((s) => s.fetchAgents);
 
   const [busy, setBusy] = useState(false);

@@ -68,7 +68,7 @@ export function QuickFilters({
           cursor: 'pointer',
           transition: 'all 0.2s ease-out',
           border: '1px solid transparent',
-          background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface)',
+          background: isActive ? 'rgba(99,102,241, 0.15)' : 'var(--surface)',
           color: isActive ? 'var(--accent)' : 'var(--text)',
           borderColor: isActive ? 'var(--accent)' : 'var(--border)',
         };

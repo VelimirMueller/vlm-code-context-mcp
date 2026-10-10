@@ -84,7 +84,7 @@ export function VisionEditor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg, var(--accent), #059669)',
+            background: 'linear-gradient(135deg, var(--accent), #4f46e5)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
@@ -307,7 +307,7 @@ export function VisionEditor() {
               {/* Card accent top bar */}
               <div style={{
                 height: 3,
-                background: 'linear-gradient(90deg, var(--accent), #059669, var(--accent))',
+                background: 'linear-gradient(90deg, var(--accent), #4f46e5, var(--accent))',
                 backgroundSize: '200% 100%',
               }} />
 

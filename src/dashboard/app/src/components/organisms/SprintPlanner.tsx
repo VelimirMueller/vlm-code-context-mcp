@@ -44,7 +44,7 @@ function TicketRow({
         padding: '9px 14px',
         cursor: 'pointer',
         borderBottom: '1px solid var(--border)',
-        background: checked ? 'rgba(16,185,129,.04)' : 'transparent',
+        background: checked ? 'rgba(99,102,241,.04)' : 'transparent',
         transition: 'background .15s',
       }}
     >
@@ -171,7 +171,7 @@ export function SprintPlanner({ onClose }: SprintPlannerProps) {
             width: 28,
             height: 28,
             borderRadius: '50%',
-            background: n === current ? 'var(--accent)' : n < current ? 'rgba(16,185,129,.3)' : 'var(--surface3)',
+            background: n === current ? 'var(--accent)' : n < current ? 'rgba(99,102,241,.3)' : 'var(--surface3)',
             border: `2px solid ${n === current ? 'var(--accent)' : n < current ? 'var(--accent)' : 'var(--border2)'}`,
             display: 'flex',
             alignItems: 'center',
@@ -387,7 +387,7 @@ export function SprintPlanner({ onClose }: SprintPlannerProps) {
 
   const renderSuccess = () => (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 0' }}>
-      <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(16,185,129,.15)', border: '2px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
+      <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(99,102,241,.15)', border: '2px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
         ✓
       </div>
       <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Sprint Created!</h3>
