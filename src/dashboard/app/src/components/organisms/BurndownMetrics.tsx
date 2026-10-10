@@ -198,7 +198,7 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
             label="Scope Change"
             value={`${analysis.scopeChanges.net > 0 ? '+' : ''}${analysis.scopeChanges.net} pts`}
             subtitle={`${analysis.scopeChanges.added} added, ${analysis.scopeChanges.removed} removed`}
-            color={analysis.scopeChanges.net === 0 ? 'var(--blue)' : analysis.scopeChanges.net > 0 ? 'var(--orange)' : 'var(--accent)'}
+            color={analysis.scopeChanges.net === 0 ? 'var(--blue)' : analysis.scopeChanges.net > 0 ? 'var(--orange)' : 'var(--green)'}
             icon={<svg width={16} height={16} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={2}/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth={2}/></svg>}
           />
           <MetricCard
@@ -317,8 +317,8 @@ export function BurndownMetrics({ sprintId }: SprintBurndownProps) {
 
               <div style={{
                 padding: 12,
-                background: analysis.scopeChanges.net > 0 ? 'var(--orange)10' : 'var(--accent)10',
-                border: `1px solid ${analysis.scopeChanges.net > 0 ? 'var(--orange)30' : 'var(--accent)30'}`,
+                background: analysis.scopeChanges.net > 0 ? 'var(--orange)10' : 'var(--green)10',
+                border: `1px solid ${analysis.scopeChanges.net > 0 ? 'var(--orange)30' : 'var(--green)30'}`,
                 borderRadius: 8
               }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>

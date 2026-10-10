@@ -318,7 +318,7 @@ export function PlanningDashboard() {
                             <div style={{
                               position: 'absolute', bottom: 0, left: 0, right: 0,
                               height: `${pct}%`,
-                              background: pct >= committed * 0.8 ? 'var(--accent)' : '#f59e0b',
+                              background: pct >= committed * 0.8 ? 'var(--green)' : '#f59e0b',
                               borderRadius: 3,
                               transition: 'height .3s',
                             }} />

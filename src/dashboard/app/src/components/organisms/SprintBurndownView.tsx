@@ -288,8 +288,8 @@ function LargeBurndownChart({ data }: { data: BurndownData }) {
           <div style={{
             padding: '4px 12px',
             borderRadius: 12,
-            background: isOnTrack ? 'var(--accent)15' : 'var(--red)15',
-            border: `1px solid ${isOnTrack ? 'var(--accent)40' : 'var(--red)40'}`,
+            background: isOnTrack ? 'var(--green)15' : 'var(--red)15',
+            border: `1px solid ${isOnTrack ? 'var(--green)40' : 'var(--red)40'}`,
             fontSize: 11,
             fontWeight: 600,
             color: isOnTrack ? 'var(--green)' : 'var(--red)',
@@ -619,7 +619,7 @@ function MultiSprintComparison({ entries }: { entries: SprintBurndownEntry[] }) 
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--text)' }}>{total}</td>
                   <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--green)' }}>{current.completed}</td>
-                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: pct >= 80 ? 'var(--accent)' : '#f59e0b' }}>{pct}%</td>
+                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: pct >= 80 ? 'var(--green)' : '#f59e0b' }}>{pct}%</td>
                   <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--mono)', color: scopeNet > 0 ? '#f59e0b' : scopeNet < 0 ? 'var(--green)' : 'var(--text3)' }}>
                     {scopeNet > 0 ? '+' : ''}{scopeNet}
                   </td>

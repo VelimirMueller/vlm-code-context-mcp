@@ -110,7 +110,7 @@ export function PlanningInsights() {
   })();
 
   const trendColor =
-    trend === 'improving' ? 'var(--accent)' : trend === 'declining' ? 'var(--red)' : 'var(--text3)';
+    trend === 'improving' ? 'var(--green)' : trend === 'declining' ? 'var(--red)' : 'var(--text3)';
 
   // ── Sprint health ─────────────────────────────────────────────────────────
   const activeSprints = sprints.filter((s) => s.status === 'active').length;

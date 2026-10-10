@@ -212,7 +212,7 @@ export function CapacityPlanningView() {
           label="Health Score"
           value={`${calculateHealthScore(agentCapacities)}/100`}
           subtitle="team balance"
-          color={metrics.averageUtilization > 100 ? 'var(--red)' : 'var(--accent)'}
+          color={metrics.averageUtilization > 100 ? 'var(--red)' : 'var(--green)'}
           icon={<svg width={16} height={16} viewBox="0 0 24 24" fill="none"><path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>}
         />
       </div>
